@@ -874,13 +874,22 @@ func setupCronTool(
 	return cronService, nil
 }
 
-func createHeartbeatHandler(agentLoop *agent.AgentLoop) func(prompt, channel, chatID string) *tools.ToolResult {
-	return func(prompt, channel, chatID string) *tools.ToolResult {
-		if channel == "" || chatID == "" {
-			channel, chatID = "cli", "direct"
-		}
+// heartbeatTurnContext returns the channel identity used for heartbeat agent
+// turns. By default heartbeat turns carry no channel, so local-only tools such
+// as exec stay blocked by the external-channel guard even if the heartbeat
+// prompt is influenced by untrusted content. Operators can opt in to local CLI
+// semantics with heartbeat.allow_commands.
+func heartbeatTurnContext(cfg *config.Config) (channel, chatID string) {
+	if cfg != nil && cfg.Heartbeat.AllowCommands {
+		return "cli", "direct"
+	}
+	return "", ""
+}
 
-		response, err := agentLoop.ProcessHeartbeat(context.Background(), prompt, channel, chatID)
+func createHeartbeatHandler(agentLoop *agent.AgentLoop) func(prompt, channel, chatID string) *tools.ToolResult {
+	return func(prompt, _, _ string) *tools.ToolResult {
+		turnChannel, turnChatID := heartbeatTurnContext(agentLoop.GetConfig())
+		response, err := agentLoop.ProcessHeartbeat(context.Background(), prompt, turnChannel, turnChatID)
 		if err != nil {
 			return tools.ErrorResult(fmt.Sprintf("Heartbeat error: %v", err))
 		}

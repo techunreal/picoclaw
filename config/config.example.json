@@ -541,7 +541,8 @@
   },
   "heartbeat": {
     "enabled": true,
-    "interval": 30
+    "interval": 30,
+    "allow_commands": false
   },
   "devices": {
     "enabled": false,

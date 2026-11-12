@@ -600,20 +600,23 @@ The subagent has access to tools (message, web_search, etc.) and can communicate
 {
   "heartbeat": {
     "enabled": true,
-    "interval": 30
+    "interval": 30,
+    "allow_commands": false
   }
 }
 ```
 
-| Option     | Default | Description                        |
-| ---------- | ------- | ---------------------------------- |
-| `enabled`  | `true`  | Enable/disable heartbeat           |
-| `interval` | `30`    | Check interval in minutes (min: 5) |
+| Option           | Default | Description                                                                 |
+| ---------------- | ------- | --------------------------------------------------------------------------- |
+| `enabled`        | `true`  | Enable/disable heartbeat                                                    |
+| `interval`       | `30`    | Check interval in minutes (min: 5)                                          |
+| `allow_commands` | `false` | Allow heartbeat turns to run shell commands (`exec`). Keep disabled unless heartbeat tasks must run local commands; `HEARTBEAT.md` can be influenced by content the agent reads. |
 
 **Environment variables:**
 
 * `PICOCLAW_HEARTBEAT_ENABLED=false` to disable
 * `PICOCLAW_HEARTBEAT_INTERVAL=60` to change interval
+* `PICOCLAW_HEARTBEAT_ALLOW_COMMANDS=true` to allow shell commands from heartbeat tasks
 
 ### Providers
 

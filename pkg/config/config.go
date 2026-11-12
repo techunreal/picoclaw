@@ -751,8 +751,9 @@ type SlackWebhookTarget struct {
 }
 
 type HeartbeatConfig struct {
-	Enabled  bool `json:"enabled"  env:"PICOCLAW_HEARTBEAT_ENABLED"`
-	Interval int  `json:"interval" env:"PICOCLAW_HEARTBEAT_INTERVAL"` // minutes, min 5
+	Enabled       bool `json:"enabled"        env:"PICOCLAW_HEARTBEAT_ENABLED"`
+	Interval      int  `json:"interval"       env:"PICOCLAW_HEARTBEAT_INTERVAL"` // minutes, min 5
+	AllowCommands bool `json:"allow_commands" env:"PICOCLAW_HEARTBEAT_ALLOW_COMMANDS"`
 }
 
 type DevicesConfig struct {

@@ -898,6 +898,46 @@ func TestDefaultConfig_HeartbeatEnabled(t *testing.T) {
 	}
 }
 
+func TestDefaultConfig_HeartbeatCommandsDisabled(t *testing.T) {
+	cfg := DefaultConfig()
+
+	if cfg.Heartbeat.AllowCommands {
+		t.Error("Heartbeat.AllowCommands should be false by default")
+	}
+}
+
+func TestLoadConfig_HeartbeatAllowCommandsDefaultsFalseWhenUnset(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.json")
+	if err := os.WriteFile(configPath, []byte(`{"version":1,"heartbeat":{"enabled":true}}`), 0o600); err != nil {
+		t.Fatalf("WriteFile() error: %v", err)
+	}
+
+	cfg, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig() error: %v", err)
+	}
+	if cfg.Heartbeat.AllowCommands {
+		t.Fatal("heartbeat.allow_commands should default to false when unset")
+	}
+}
+
+func TestLoadConfig_HeartbeatAllowCommandsExplicitTrueIsPreserved(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.json")
+	if err := os.WriteFile(configPath, []byte(`{"version":1,"heartbeat":{"allow_commands":true}}`), 0o600); err != nil {
+		t.Fatalf("WriteFile() error: %v", err)
+	}
+
+	cfg, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig() error: %v", err)
+	}
+	if !cfg.Heartbeat.AllowCommands {
+		t.Fatal("explicit heartbeat.allow_commands=true should be preserved")
+	}
+}
+
 // TestDefaultConfig_WorkspacePath verifies workspace path is correctly set
 func TestDefaultConfig_WorkspacePath(t *testing.T) {
 	cfg := DefaultConfig()

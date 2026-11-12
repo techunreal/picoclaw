@@ -297,3 +297,41 @@ func receiveGatewayRuntimeEvent(t *testing.T, ch <-chan runtimeevents.Event) run
 		return runtimeevents.Event{}
 	}
 }
+
+func TestHeartbeatTurnContext(t *testing.T) {
+	tests := []struct {
+		name        string
+		cfg         *config.Config
+		wantChannel string
+		wantChatID  string
+	}{
+		{
+			name: "nil config keeps heartbeat channel-less",
+		},
+		{
+			name: "commands disabled keeps heartbeat channel-less",
+			cfg:  &config.Config{},
+		},
+		{
+			name:        "commands enabled uses local CLI identity",
+			cfg:         &config.Config{Heartbeat: config.HeartbeatConfig{AllowCommands: true}},
+			wantChannel: "cli",
+			wantChatID:  "direct",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			channel, chatID := heartbeatTurnContext(tt.cfg)
+			if channel != tt.wantChannel || chatID != tt.wantChatID {
+				t.Fatalf(
+					"heartbeatTurnContext() = %q/%q, want %q/%q",
+					channel,
+					chatID,
+					tt.wantChannel,
+					tt.wantChatID,
+				)
+			}
+		})
+	}
+}

@@ -24,6 +24,7 @@ export interface CoreConfigForm {
   dmScope: string
   heartbeatEnabled: boolean
   heartbeatInterval: string
+  heartbeatAllowCommands: boolean
   devicesEnabled: boolean
   monitorUSB: boolean
   mcpEnabled: boolean
@@ -143,6 +144,7 @@ export const EMPTY_FORM: CoreConfigForm = {
   dmScope: "per-channel-peer",
   heartbeatEnabled: true,
   heartbeatInterval: "30",
+  heartbeatAllowCommands: false,
   devicesEnabled: false,
   monitorUSB: true,
   mcpEnabled: false,
@@ -386,6 +388,10 @@ export function buildFormFromConfig(config: unknown): CoreConfigForm {
       heartbeat.interval,
       EMPTY_FORM.heartbeatInterval,
     ),
+    heartbeatAllowCommands:
+      heartbeat.allow_commands === undefined
+        ? EMPTY_FORM.heartbeatAllowCommands
+        : asBool(heartbeat.allow_commands),
     devicesEnabled:
       devices.enabled === undefined
         ? EMPTY_FORM.devicesEnabled

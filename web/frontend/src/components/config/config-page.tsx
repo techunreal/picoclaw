@@ -627,6 +627,7 @@ export function ConfigPage() {
           heartbeat: {
             enabled: form.heartbeatEnabled,
             interval: heartbeatInterval,
+            allow_commands: form.heartbeatAllowCommands,
           },
           devices: {
             enabled: form.devicesEnabled,

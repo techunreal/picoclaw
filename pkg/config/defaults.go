@@ -494,8 +494,9 @@ func DefaultConfig() *Config {
 			},
 		},
 		Heartbeat: HeartbeatConfig{
-			Enabled:  true,
-			Interval: 30,
+			Enabled:       true,
+			Interval:      30,
+			AllowCommands: false,
 		},
 		Devices: DevicesConfig{
 			Enabled:    false,

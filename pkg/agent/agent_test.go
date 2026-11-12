@@ -5931,6 +5931,29 @@ func TestProcessMessage_PicoPublishesReasoningAsThoughtMessage(t *testing.T) {
 	}
 }
 
+func TestProcessHeartbeat_EmptyChannelDoesNotRecordLastChannel(t *testing.T) {
+	cfg := &config.Config{
+		Agents: config.AgentsConfig{
+			Defaults: config.AgentDefaults{
+				Workspace:         t.TempDir(),
+				ModelName:         "test-model",
+				MaxTokens:         4096,
+				MaxToolIterations: 10,
+			},
+		},
+	}
+
+	al := NewAgentLoop(cfg, bus.NewMessageBus(), &mockProvider{})
+	defer al.Close()
+
+	if _, err := al.ProcessHeartbeat(context.Background(), "check heartbeat tasks", "", ""); err != nil {
+		t.Fatalf("ProcessHeartbeat() error = %v", err)
+	}
+	if got := al.state.GetLastChannel(); got != "" {
+		t.Fatalf("last channel = %q, want empty after a channel-less heartbeat", got)
+	}
+}
+
 func TestProcessHeartbeat_DoesNotPublishToolFeedback(t *testing.T) {
 	tmpDir := t.TempDir()
 	heartbeatFile := filepath.Join(tmpDir, "heartbeat-task.txt")
