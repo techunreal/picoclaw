@@ -386,6 +386,17 @@ func (al *AgentLoop) ReloadProviderAndConfig(
 		return fmt.Errorf("config cannot be nil")
 	}
 
+	// Build the new hook set before mutating live state. A broken hook must
+	// abort the reload while the previous gate is still mounted.
+	newHooks, err := al.buildConfiguredHooks(ctx, cfg)
+	if err != nil {
+		return fmt.Errorf("configure hooks: %w", err)
+	}
+	defer func() { closeHookRegistrations(newHooks) }()
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("context canceled after hook build: %w", err)
+	}
+
 	var registry *AgentRegistry
 	func() {
 		defer func() {
@@ -407,6 +418,7 @@ func (al *AgentLoop) ReloadProviderAndConfig(
 
 	// Check context again before proceeding
 	if err := ctx.Err(); err != nil {
+		registry.Close()
 		return fmt.Errorf("context canceled after registry creation: %w", err)
 	}
 
@@ -425,6 +437,30 @@ func (al *AgentLoop) ReloadProviderAndConfig(
 				map[string]any{"error": err.Error()})
 		}
 	}
+
+	if err := ctx.Err(); err != nil {
+		if newEvolution != nil {
+			if closeErr := newEvolution.Close(); closeErr != nil {
+				logger.WarnCF("agent", "Failed to close reinitialized evolution bridge after canceled reload",
+					map[string]any{"error": closeErr.Error()})
+			}
+		}
+		registry.Close()
+		return fmt.Errorf("context canceled before hook replacement: %w", err)
+	}
+
+	if err := al.hookRuntime.replace(al, newHooks); err != nil {
+		if newEvolution != nil {
+			if closeErr := newEvolution.Close(); closeErr != nil {
+				logger.WarnCF("agent", "Failed to close reinitialized evolution bridge after hook replacement failure",
+					map[string]any{"error": closeErr.Error()})
+			}
+		}
+		registry.Close()
+		return fmt.Errorf("reinitialize hooks: %w", err)
+	}
+	newHooks = nil
+	configureHookManagerFromConfig(al.hooks, cfg)
 
 	// Atomically swap the config and registry under write lock
 	// This ensures readers see a consistent pair
@@ -451,12 +487,6 @@ func (al *AgentLoop) ReloadProviderAndConfig(
 	al.refreshRuntimeEventLogger(cfg)
 
 	oldMCPManager := al.mcp.reset()
-	al.hookRuntime.reset(al)
-	configureHookManagerFromConfig(al.hooks, cfg)
-	if err := al.ensureHooksInitialized(ctx); err != nil {
-		logger.WarnCF("agent", "Configured hooks failed to reinitialize after reload",
-			map[string]any{"error": err.Error()})
-	}
 	if oldMCPManager != nil {
 		if err := oldMCPManager.Close(); err != nil {
 			logger.WarnCF("agent", "Failed to close previous MCP manager during reload",
