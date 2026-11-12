@@ -214,6 +214,7 @@ type turnState struct {
 
 	phase        TurnPhase
 	iteration    int
+	llmTokens    int
 	startedAt    time.Time
 	finalContent string
 
@@ -403,6 +404,19 @@ func (ts *turnState) currentIteration() int {
 	ts.mu.RLock()
 	defer ts.mu.RUnlock()
 	return ts.iteration
+}
+
+func (ts *turnState) addLLMTokens(tokens int) int {
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
+	ts.llmTokens += tokens
+	return ts.llmTokens
+}
+
+func (ts *turnState) llmTokensTotal() int {
+	ts.mu.RLock()
+	defer ts.mu.RUnlock()
+	return ts.llmTokens
 }
 
 func (ts *turnState) setFinalContent(content string) {

@@ -480,7 +480,12 @@ func (hm *HookManager) BeforeTool(
 
 		next, decision, ok := hm.callBeforeTool(ctx, reg.Name, interceptor, current.Clone())
 		if !ok {
-			continue
+			// A before_tool interceptor that errors or times out is a policy
+			// failure, not "no opinion". Fail closed and skip the tool.
+			return current, HookDecision{
+				Action: HookActionDenyTool,
+				Reason: fmt.Sprintf("before_tool hook %q failed", reg.Name),
+			}
 		}
 
 		switch decision.normalizedAction() {

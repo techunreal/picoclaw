@@ -14,6 +14,15 @@ import (
 	"github.com/sipeed/picoclaw/pkg/providers"
 )
 
+const (
+	// maxSteeringIterationGrace allows a few extra iterations for messages
+	// arriving mid-turn, but prevents steering from extending a turn forever.
+	maxSteeringIterationGrace = 10
+	// maxTurnTokens is a hard safety net against runaway turns. It is far above
+	// normal usage but stops incidents where a loop burns millions of tokens.
+	maxTurnTokens = 2_000_000
+)
+
 func (al *AgentLoop) runTurn(ctx context.Context, ts *turnState, pipeline *Pipeline) (turnResult, error) {
 	if ts != nil && ts.agent != nil {
 		modelMu := ts.agent.modelStateMutex()
@@ -95,10 +104,29 @@ func (al *AgentLoop) runTurn(ctx context.Context, ts *turnState, pipeline *Pipel
 	maxMediaSize := pipeline.Cfg.Agents.Defaults.GetMaxMediaSize()
 	finalContent := exec.finalContent
 
+	hardMaxIterations := ts.agent.MaxIterations
+	if hardMaxIterations <= 0 {
+		hardMaxIterations = 50
+	}
+	hardMaxIterations += maxSteeringIterationGrace
+
 	for ts.currentIteration() < ts.agent.MaxIterations || len(exec.pendingMessages) > 0 || func() bool {
 		graceful, _ := ts.gracefulInterruptRequested()
 		return graceful
 	}() {
+		if ts.currentIteration() >= hardMaxIterations {
+			logger.WarnCF("agent", "Turn stopped at hard iteration limit",
+				map[string]any{
+					"agent_id":        ts.agent.ID,
+					"turn_id":         ts.turnID,
+					"iterations":      ts.currentIteration(),
+					"max_iterations":  ts.agent.MaxIterations,
+					"hard_iterations": hardMaxIterations,
+				})
+			finalContent = toolLimitResponse
+			break
+		}
+
 		if ts.hardAbortRequested() {
 			turnStatus = TurnEndStatusAborted
 			return al.abortTurn(ts)
@@ -206,6 +234,30 @@ func (al *AgentLoop) runTurn(ctx context.Context, ts *turnState, pipeline *Pipel
 		messages = exec.messages
 		pendingMessages = exec.pendingMessages
 		finalContent = exec.finalContent
+
+		if exec.response != nil && exec.response.Usage != nil && exec.response.Usage.TotalTokens > 0 {
+			totalTokens := ts.addLLMTokens(exec.response.Usage.TotalTokens)
+			if totalTokens > maxTurnTokens {
+				logger.WarnCF("agent", "Turn stopped after exceeding token budget",
+					map[string]any{
+						"agent_id":   ts.agent.ID,
+						"turn_id":    ts.turnID,
+						"tokens":     totalTokens,
+						"max_tokens": maxTurnTokens,
+						"iterations": ts.currentIteration(),
+					})
+				finalContent = fmt.Sprintf(
+					"Turn stopped after exceeding the token budget (%d tokens).",
+					totalTokens,
+				)
+				turnStatus = TurnEndStatusError
+				result, finalizeErr := pipeline.Finalize(ctx, turnCtx, ts, exec, turnStatus, finalContent)
+				if finalizeErr != nil {
+					turnStatus = TurnEndStatusError
+				}
+				return result, finalizeErr
+			}
+		}
 
 		switch ctrl {
 		case ControlContinue:

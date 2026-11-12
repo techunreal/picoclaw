@@ -1013,6 +1013,39 @@ func (h *denyToolHook) AfterTool(
 	return result, HookDecision{Action: HookActionContinue}, nil
 }
 
+type failingToolHook struct{}
+
+func (h *failingToolHook) BeforeTool(
+	ctx context.Context,
+	call *ToolCallHookRequest,
+) (*ToolCallHookRequest, HookDecision, error) {
+	return nil, HookDecision{}, errors.New("interceptor unavailable")
+}
+
+func (h *failingToolHook) AfterTool(
+	ctx context.Context,
+	result *ToolResultHookResponse,
+) (*ToolResultHookResponse, HookDecision, error) {
+	return result, HookDecision{Action: HookActionContinue}, nil
+}
+
+func TestHookManager_BeforeTool_FailsClosed(t *testing.T) {
+	hm := NewHookManager(nil)
+	defer hm.Close()
+
+	if err := hm.Mount(NamedHook("failing-tool-hook", &failingToolHook{})); err != nil {
+		t.Fatalf("Mount() error = %v", err)
+	}
+
+	_, decision := hm.BeforeTool(context.Background(), &ToolCallHookRequest{Tool: "exec"})
+	if decision.Action != HookActionDenyTool {
+		t.Fatalf("decision action = %q, want %q", decision.Action, HookActionDenyTool)
+	}
+	if !strings.Contains(decision.Reason, "failing-tool-hook") {
+		t.Fatalf("decision reason = %q, want hook name", decision.Reason)
+	}
+}
+
 func TestAgentLoop_Hooks_ToolDenyAction(t *testing.T) {
 	provider := &toolHookProvider{}
 	al, agent, cleanup := newHookTestLoop(t, provider)

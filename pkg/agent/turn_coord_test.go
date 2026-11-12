@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -942,6 +943,50 @@ func TestRunTurn_MaxIterations(t *testing.T) {
 	// Should complete due to max iterations
 	if result.status != TurnEndStatusCompleted {
 		t.Errorf("expected status Completed, got %v", result.status)
+	}
+}
+
+type tokenUsageProvider struct {
+	tokens int
+}
+
+func (p *tokenUsageProvider) Chat(
+	ctx context.Context,
+	messages []providers.Message,
+	tools []providers.ToolDefinition,
+	model string,
+	opts map[string]any,
+) (*providers.LLMResponse, error) {
+	return &providers.LLMResponse{
+		Content: "ok",
+		Usage:   &providers.UsageInfo{TotalTokens: p.tokens},
+	}, nil
+}
+
+func (p *tokenUsageProvider) GetDefaultModel() string { return "test-model" }
+
+func TestRunTurn_TokenBudgetStopsTurn(t *testing.T) {
+	provider := &tokenUsageProvider{tokens: maxTurnTokens + 1}
+	al, agent, cleanup := newTurnCoordTestLoop(t, provider)
+	defer cleanup()
+
+	pipeline := NewPipeline(al)
+	opts := makeTestProcessOpts("test-session-token-budget")
+
+	ts := newTurnState(agent, opts, turnEventScope{
+		turnID:  "turn-token-budget",
+		context: newTurnContext(nil, nil, nil),
+	})
+
+	result, err := al.runTurn(context.Background(), ts, pipeline)
+	if err != nil {
+		t.Fatalf("runTurn failed: %v", err)
+	}
+	if result.status != TurnEndStatusError {
+		t.Fatalf("status = %v, want %v", result.status, TurnEndStatusError)
+	}
+	if !strings.Contains(result.finalContent, "token budget") {
+		t.Fatalf("final content = %q, want token budget message", result.finalContent)
 	}
 }
 

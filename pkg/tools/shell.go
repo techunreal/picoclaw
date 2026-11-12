@@ -415,9 +415,10 @@ func (t *ExecTool) runSync(ctx context.Context, command, cwd string) *ToolResult
 
 	prepareCommandForTermination(cmd)
 
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+	var stdout = newBoundedBuffer(maxForegroundOutputBytes)
+	var stderr = newBoundedBuffer(maxForegroundOutputBytes)
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
 
 	// Route shell execution through the shared isolation entry point so exec tool
 	// subprocesses receive the same isolation policy as other integrations.
