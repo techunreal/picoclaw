@@ -4,7 +4,6 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"sort"
@@ -179,9 +178,8 @@ toolLoop:
 				if toolReq != nil && toolReq.HookResult != nil {
 					hookResult := toolReq.HookResult
 
-					argsJSON, _ := json.Marshal(toolArgs)
-					argsPreview := utils.Truncate(string(argsJSON), 200)
-					logger.InfoCF("agent", fmt.Sprintf("Tool call (hook respond): %s(%s)", toolName, argsPreview),
+					argKeys := strings.Join(utils.SortedArgKeys(toolArgs), ",")
+					logger.InfoCF("agent", fmt.Sprintf("Tool call (hook respond): %s(keys=%s)", toolName, argKeys),
 						map[string]any{
 							"agent_id":  ts.agent.ID,
 							"tool":      toolName,
@@ -472,9 +470,8 @@ toolLoop:
 			continue
 		}
 
-		argsJSON, _ := json.Marshal(toolArgs)
-		argsPreview := utils.Truncate(string(argsJSON), 200)
-		logger.InfoCF("agent", fmt.Sprintf("Tool call: %s(%s)", toolName, argsPreview),
+		argKeys := strings.Join(utils.SortedArgKeys(toolArgs), ",")
+		logger.InfoCF("agent", fmt.Sprintf("Tool call: %s(keys=%s)", toolName, argKeys),
 			map[string]any{
 				"agent_id":  ts.agent.ID,
 				"tool":      toolName,

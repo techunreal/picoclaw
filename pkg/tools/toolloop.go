@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"runtime/debug"
+	"strings"
 	"sync"
 
 	"github.com/sipeed/picoclaw/pkg/logger"
@@ -178,9 +179,8 @@ func RunToolLoop(
 					}
 				}()
 
-				argsJSON, _ := json.Marshal(tc.Arguments)
-				argsPreview := utils.Truncate(string(argsJSON), 200)
-				logger.InfoCF("toolloop", fmt.Sprintf("Tool call: %s(%s)", tc.Name, argsPreview),
+				argKeys := strings.Join(utils.SortedArgKeys(tc.Arguments), ",")
+				logger.InfoCF("toolloop", fmt.Sprintf("Tool call: %s(keys=%s)", tc.Name, argKeys),
 					map[string]any{
 						"tool":      tc.Name,
 						"iteration": iteration,
