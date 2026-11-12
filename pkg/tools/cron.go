@@ -212,18 +212,19 @@ func (t *CronTool) addJob(ctx context.Context, args map[string]any) *ToolResult 
 		return ErrorResult("one of at_seconds, every_seconds, or cron_expr is required")
 	}
 
-	// GHSA-pv8c-p6jf-3fpp: command scheduling requires internal channel. When
-	// allow_command is disabled, explicit confirmation is required as an override.
-	// Non-command reminders remain open to all channels.
+	// GHSA-pv8c-p6jf-3fpp: command scheduling requires a local channel
+	// (internal or local web UI). When allow_command is disabled, explicit
+	// confirmation is required as an override. Non-command reminders remain
+	// open to all channels.
 	command, _ := args["command"].(string)
 	commandConfirm, _ := args["command_confirm"].(bool)
 	if command != "" {
 		if !t.execEnabled {
 			return ErrorResult("command execution is disabled")
 		}
-		if !constants.IsInternalChannel(channel) && !isCommandAllowedRemote(channel, chatID, t.commandAllowedRemotes) {
+		if !constants.IsLocalCommandChannel(channel) && !isCommandAllowedRemote(channel, chatID, t.commandAllowedRemotes) {
 			return ErrorResult(
-				"scheduling command execution is restricted to internal channels or configured remote channels",
+				"scheduling command execution is restricted to local channels (WebUI/CLI) or configured remote channels",
 			)
 		}
 		if !t.allowCommand && !commandConfirm {
@@ -502,9 +503,9 @@ func (t *CronTool) validateCommandMutation(ctx context.Context, args map[string]
 	if !t.execEnabled {
 		return ErrorResult("command execution is disabled")
 	}
-	if !constants.IsInternalChannel(channel) && !isCommandAllowedRemote(channel, chatID, t.commandAllowedRemotes) {
+	if !constants.IsLocalCommandChannel(channel) && !isCommandAllowedRemote(channel, chatID, t.commandAllowedRemotes) {
 		return ErrorResult(
-			"updating command execution is restricted to internal channels or configured remote channels",
+			"updating command execution is restricted to local channels (WebUI/CLI) or configured remote channels",
 		)
 	}
 	commandConfirm, _ := args["command_confirm"].(bool)
@@ -539,7 +540,7 @@ func isCommandAllowedRemote(channel, chatID string, allowed []string) bool {
 
 func (t *CronTool) canAccessJob(ctx context.Context, job *cron.CronJob) bool {
 	channel := ToolChannel(ctx)
-	if constants.IsInternalChannel(channel) {
+	if constants.IsLocalCommandChannel(channel) {
 		return true
 	}
 

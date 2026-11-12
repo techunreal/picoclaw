@@ -166,6 +166,14 @@ func Run(debug bool, homePath, configPath string, allowEmptyStartup bool) (runEr
 		logger.Infof("Log level set to %q", effectiveLogLevel)
 	}
 
+	if cfg.Tools.Exec.Enabled && cfg.Tools.Exec.AllowRemote {
+		logger.WarnCF("gateway", "tools.exec.allow_remote is enabled: external chat channels can run shell commands",
+			map[string]any{
+				"config_key": "tools.exec.allow_remote",
+				"guidance":   "set it to false unless remote shell execution is explicitly intended",
+			})
+	}
+
 	bindPlan, listenResult, err := openGatewayListeners(cfg.Gateway.Host, cfg.Gateway.Port)
 	if err != nil {
 		return fmt.Errorf("error opening gateway listeners: %w", err)

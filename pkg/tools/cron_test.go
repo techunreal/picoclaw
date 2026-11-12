@@ -124,7 +124,7 @@ func TestCronTool_CommandBlockedFromRemoteChannel(t *testing.T) {
 	if !result.IsError {
 		t.Fatal("expected command scheduling to be blocked from remote channel")
 	}
-	if !strings.Contains(result.ForLLM, "restricted to internal channels or configured remote channels") {
+	if !strings.Contains(result.ForLLM, "restricted to local channels (WebUI/CLI) or configured remote channels") {
 		t.Errorf("expected remote restriction message, got: %s", result.ForLLM)
 	}
 }
@@ -221,7 +221,7 @@ func TestCronTool_CommandBlockedFromDifferentRemoteChatID(t *testing.T) {
 	if !result.IsError {
 		t.Fatal("expected command scheduling from non-allowlisted remote chat to fail")
 	}
-	if !strings.Contains(result.ForLLM, "restricted to internal channels or configured remote channels") {
+	if !strings.Contains(result.ForLLM, "restricted to local channels (WebUI/CLI) or configured remote channels") {
 		t.Errorf("expected remote restriction message, got: %s", result.ForLLM)
 	}
 }
@@ -264,7 +264,7 @@ func TestCronTool_AllowCommandDoesNotBypassRemoteAllowlist(t *testing.T) {
 	if !result.IsError {
 		t.Fatal("expected allow_command=true not to bypass remote allowlist")
 	}
-	if !strings.Contains(result.ForLLM, "restricted to internal channels or configured remote channels") {
+	if !strings.Contains(result.ForLLM, "restricted to local channels (WebUI/CLI) or configured remote channels") {
 		t.Errorf("expected remote restriction message, got: %s", result.ForLLM)
 	}
 }
@@ -369,6 +369,27 @@ func TestCronTool_CommandAllowedFromInternalChannel(t *testing.T) {
 
 	if result.IsError {
 		t.Fatalf("expected command scheduling to succeed from internal channel, got: %s", result.ForLLM)
+	}
+	if !strings.Contains(result.ForLLM, "Cron job added") {
+		t.Errorf("expected 'Cron job added', got: %s", result.ForLLM)
+	}
+}
+
+// TestCronTool_CommandAllowedFromLocalWebUI verifies command scheduling works
+// from the local web UI channel even when remote channels are disabled.
+func TestCronTool_CommandAllowedFromLocalWebUI(t *testing.T) {
+	tool := newTestCronTool(t)
+	ctx := WithToolContext(context.Background(), "pico", "web-session")
+	result := tool.Execute(ctx, map[string]any{
+		"action":          "add",
+		"message":         "check disk",
+		"command":         "df -h",
+		"command_confirm": true,
+		"at_seconds":      float64(60),
+	})
+
+	if result.IsError {
+		t.Fatalf("expected command scheduling to succeed from local WebUI, got: %s", result.ForLLM)
 	}
 	if !strings.Contains(result.ForLLM, "Cron job added") {
 		t.Errorf("expected 'Cron job added', got: %s", result.ForLLM)

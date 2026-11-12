@@ -119,7 +119,7 @@ export const EMPTY_FORM: CoreConfigForm = {
   toolFeedbackMaxArgsLength: "300",
   toolFeedbackSeparateMessages: false,
   execEnabled: true,
-  allowRemote: true,
+  allowRemote: false,
   enableDenyPatterns: true,
   customDenyPatternsText: "",
   customAllowPatternsText: "",

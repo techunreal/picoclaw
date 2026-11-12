@@ -466,7 +466,7 @@ Use `mode = lines` when:
 
 | Config Key | Type | Default | Description |
 |------------|------|---------|-------------|
-| `tools.exec.allow_remote` | bool | `false` | Allow exec tool from remote channels (Telegram/Discord etc.) |
+| `tools.exec.allow_remote` | bool | `false` | Allow exec tool from external chat channels (Telegram/Discord etc.). The local Web UI, CLI, and internal channels are always allowed. |
 | `tools.exec.enable_deny_patterns` | bool | `true` | Enable dangerous command interception |
 | `tools.exec.custom_deny_patterns` | string[] | `[]` | Custom regex patterns to block |
 | `tools.exec.custom_allow_patterns` | string[] | `[]` | Custom regex patterns to allow |

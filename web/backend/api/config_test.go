@@ -137,7 +137,7 @@ func assertGatewayLogLevelApplied(t *testing.T, method, body string, want logger
 	}
 }
 
-func TestHandleUpdateConfig_PreservesExecAllowRemoteDefaultWhenOmitted(t *testing.T) {
+func TestHandleUpdateConfig_DefaultsExecAllowRemoteToFalseWhenOmitted(t *testing.T) {
 	configPath, cleanup := setupOAuthTestEnv(t)
 	defer cleanup()
 
@@ -172,8 +172,53 @@ func TestHandleUpdateConfig_PreservesExecAllowRemoteDefaultWhenOmitted(t *testin
 	if err != nil {
 		t.Fatalf("LoadConfig() error = %v", err)
 	}
+	if cfg.Tools.Exec.AllowRemote {
+		t.Fatal("tools.exec.allow_remote should default to false when omitted from PUT /api/config")
+	}
+}
+
+func TestHandleUpdateConfig_PreservesExplicitExecAllowRemoteTrue(t *testing.T) {
+	configPath, cleanup := setupOAuthTestEnv(t)
+	defer cleanup()
+
+	h := NewHandler(configPath)
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	req := httptest.NewRequest(http.MethodPut, "/api/config", bytes.NewBufferString(`{
+"version": 3,
+		"agents": {
+			"defaults": {
+				"workspace": "~/.picoclaw/workspace"
+			}
+		},
+		"tools": {
+			"exec": {
+				"allow_remote": true
+			}
+		},
+		"model_list": [
+			{
+				"model_name": "custom-default",
+				"model": "openai/gpt-4o",
+				"api_keys": ["sk-default"]
+			}
+		]
+	}`))
+	req.Header.Set("Content-Type", "application/json")
+
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+
+	cfg, err := config.LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
 	if !cfg.Tools.Exec.AllowRemote {
-		t.Fatal("tools.exec.allow_remote should remain true when omitted from PUT /api/config")
+		t.Fatal("explicit tools.exec.allow_remote=true should be preserved by PUT /api/config")
 	}
 }
 

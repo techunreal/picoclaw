@@ -331,8 +331,8 @@ func TestShellTool_RemoteChannelBlockedByDefault(t *testing.T) {
 	if !result.IsError {
 		t.Fatal("expected remote-channel exec to be blocked")
 	}
-	if !strings.Contains(result.ForLLM, "restricted to internal channels") {
-		t.Errorf("expected 'restricted to internal channels' message, got: %s", result.ForLLM)
+	if !strings.Contains(result.ForLLM, "restricted to local channels (WebUI/CLI)") {
+		t.Errorf("expected 'restricted to local channels (WebUI/CLI)' message, got: %s", result.ForLLM)
 	}
 }
 
@@ -354,6 +354,47 @@ func TestShellTool_InternalChannelAllowed(t *testing.T) {
 	}
 	if !strings.Contains(result.ForLLM, "hi") {
 		t.Errorf("expected output to contain 'hi', got: %s", result.ForLLM)
+	}
+}
+
+// TestShellTool_LocalWebUIAllowedWhenRemoteDisabled verifies the local web UI
+// channel stays usable when external chat channels are blocked.
+func TestShellTool_LocalWebUIAllowedWhenRemoteDisabled(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Tools.Exec.EnableDenyPatterns = true
+	cfg.Tools.Exec.AllowRemote = false
+
+	tool, err := NewExecToolWithConfig("", false, cfg)
+	if err != nil {
+		t.Fatalf("NewExecToolWithConfig() error: %v", err)
+	}
+	ctx := WithToolContext(context.Background(), "pico", "web-session")
+	result := tool.Execute(ctx, map[string]any{"action": "run", "command": "echo hi"})
+
+	if result.IsError {
+		t.Fatalf("expected local WebUI exec to succeed, got: %s", result.ForLLM)
+	}
+	if !strings.Contains(result.ForLLM, "hi") {
+		t.Errorf("expected output to contain 'hi', got: %s", result.ForLLM)
+	}
+}
+
+// TestShellTool_RemotePicoClientBlocked verifies the remote pico_client channel
+// is not treated as the local web UI.
+func TestShellTool_RemotePicoClientBlocked(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Tools.Exec.EnableDenyPatterns = true
+	cfg.Tools.Exec.AllowRemote = false
+
+	tool, err := NewExecToolWithConfig("", false, cfg)
+	if err != nil {
+		t.Fatalf("NewExecToolWithConfig() error: %v", err)
+	}
+	ctx := WithToolContext(context.Background(), "pico_client", "remote")
+	result := tool.Execute(ctx, map[string]any{"action": "run", "command": "echo hi"})
+
+	if !result.IsError {
+		t.Fatal("expected remote pico_client exec to be blocked")
 	}
 }
 

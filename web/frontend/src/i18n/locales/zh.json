@@ -786,7 +786,7 @@
       "exec_enabled": "允许命令执行",
       "exec_enabled_hint": "控制应用是否允许执行命令。关闭后，所有命令请求都不会执行",
       "allow_remote": "允许远程命令执行",
-      "allow_remote_hint": "开启后，来自远程会话或非本地上下文的请求也可以执行命令；关闭后，仅允许本地安全上下文执行命令",
+      "allow_remote_hint": "开启后，外部聊天渠道（Telegram、Discord、Slack、WhatsApp）也可以执行命令；关闭后，命令执行仅限本地 Web UI、CLI 和内部渠道。",
       "enable_deny_patterns": "启用黑名单",
       "enable_deny_patterns_hint": "开启后，应用会拦截匹配内置危险模式以及下方自定义命令黑名单的命令",
       "exec_timeout_seconds": "命令超时（秒）",

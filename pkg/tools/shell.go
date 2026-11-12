@@ -149,6 +149,10 @@ func NewExecToolWithConfig(
 	denyPatterns := make([]*regexp.Regexp, 0)
 	customAllowPatterns := make([]*regexp.Regexp, 0)
 	var allowedPathPatterns []*regexp.Regexp
+	// A nil config is only used by the convenience constructor and tests; the
+	// agent runtime always passes a config. Keep that path permissive for
+	// backwards compatibility, while config-driven construction defaults to
+	// the secure value (AllowRemote=false).
 	allowRemote := true
 	if len(allowPaths) > 0 {
 		allowedPathPatterns = allowPaths[0]
@@ -298,16 +302,21 @@ func (t *ExecTool) executeRun(ctx context.Context, args map[string]any) *ToolRes
 		return ErrorResult("command is required")
 	}
 
-	// GHSA-pv8c-p6jf-3fpp: block exec from remote channels (e.g. Telegram webhooks)
-	// unless explicitly opted-in via config. Fail-closed: empty channel = blocked.
+	// GHSA-pv8c-p6jf-3fpp: block exec from external chat channels (e.g.
+	// Telegram webhooks) unless explicitly opted-in via config. The local web
+	// UI (pico) and internal channels stay usable. Fail-closed: empty channel
+	// = blocked.
 	if !t.allowRemote {
 		channel := ToolChannel(ctx)
 		if channel == "" {
 			channel, _ = args["__channel"].(string)
 		}
 		channel = strings.TrimSpace(channel)
-		if channel == "" || !constants.IsInternalChannel(channel) {
-			return ErrorResult("exec is restricted to internal channels")
+		if channel == "" || !constants.IsLocalCommandChannel(channel) {
+			return ErrorResult(
+				"exec is restricted to local channels (WebUI/CLI); " +
+					"set tools.exec.allow_remote=true to allow external chat channels",
+			)
 		}
 	}
 
