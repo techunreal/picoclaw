@@ -197,6 +197,25 @@ func TestListSkillsMetadataNameDedup(t *testing.T) {
 	assert.Equal(t, "workspace", skills[0].Source)
 }
 
+func TestListSkillsAllowsSameMetadataNameWithinRoot(t *testing.T) {
+	tmp := t.TempDir()
+	ws := filepath.Join(tmp, "workspace")
+
+	// Two different skills in the same root declare the same frontmatter name.
+	createSkillDir(t, filepath.Join(ws, "skills"), "dir-a", "shared-name", "first version")
+	createSkillDir(t, filepath.Join(ws, "skills"), "dir-b", "shared-name", "second version")
+
+	sl := NewSkillsLoader(ws, "", "")
+	skills := sl.ListSkills()
+
+	assert.Len(t, skills, 2)
+	for _, skill := range skills {
+		assert.Equal(t, "shared-name", skill.Name)
+		assert.Equal(t, "workspace", skill.Source)
+	}
+	assert.NotEqual(t, skills[0].Path, skills[1].Path)
+}
+
 func TestListSkillsMultipleDistinctSkills(t *testing.T) {
 	tmp := t.TempDir()
 	ws := filepath.Join(tmp, "workspace")

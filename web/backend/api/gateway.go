@@ -821,8 +821,16 @@ func canonicalizeSignatureValue(value reflect.Value) any {
 	}
 }
 
-func gatewayRestartRequiredBySignature(bootSignature, currentSignature, gatewayStatus string) bool {
+func gatewayRestartRequiredBySignature(
+	bootSignature, currentSignature, gatewayStatus string,
+	hotReload bool,
+) bool {
 	if gatewayStatus != "running" {
+		return false
+	}
+	// The gateway watcher applies hot-reloadable config changes in-process.
+	// Suppress the false "restart required" prompt in that mode.
+	if hotReload {
 		return false
 	}
 	if bootSignature == "" || currentSignature == "" {
@@ -1491,6 +1499,7 @@ func (h *Handler) gatewayStatusData() map[string]any {
 		bootConfigSignature,
 		currentConfigSignature,
 		gatewayStatus,
+		cfg.Gateway.HotReload,
 	)
 
 	ready, reason, readyErr := h.gatewayStartReady()

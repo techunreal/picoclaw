@@ -96,9 +96,13 @@ func NewSkillsLoader(workspace string, globalSkills string, builtinSkills string
 
 func (sl *SkillsLoader) ListSkills() []SkillInfo {
 	skills := make([]SkillInfo, 0)
-	seen := make(map[string]bool)
+	// A metadata name may appear more than once within one root (for example
+	// after installing two different skills that declare the same frontmatter
+	// name). Only shadow a name across roots, where the higher-priority root
+	// wins: workspace > global > builtin.
+	firstRoot := make(map[string]int)
 
-	addSkills := func(dir, source string) {
+	addSkills := func(dir, source string, rootIndex int) {
 		if dir == "" {
 			return
 		}
@@ -128,18 +132,18 @@ func (sl *SkillsLoader) ListSkills() []SkillInfo {
 				slog.Warn("invalid skill from "+source, "name", info.Name, "error", err)
 				continue
 			}
-			if seen[info.Name] {
+			if existingRoot, exists := firstRoot[info.Name]; exists && existingRoot != rootIndex {
 				continue
 			}
-			seen[info.Name] = true
+			firstRoot[info.Name] = rootIndex
 			skills = append(skills, info)
 		}
 	}
 
 	// Priority: workspace > global > builtin
-	addSkills(sl.workspaceSkills, "workspace")
-	addSkills(sl.globalSkills, "global")
-	addSkills(sl.builtinSkills, "builtin")
+	addSkills(sl.workspaceSkills, "workspace", 0)
+	addSkills(sl.globalSkills, "global", 1)
+	addSkills(sl.builtinSkills, "builtin", 2)
 
 	return skills
 }

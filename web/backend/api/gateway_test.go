@@ -2592,3 +2592,122 @@ func TestModelConfigsMatchingSignatureRefUsesResolverScore(t *testing.T) {
 		t.Fatalf("matches = %#v, want resolver-selected index 1", matches)
 	}
 }
+
+func TestGatewayStartReadyAllowsNoAPIKeyCustomModels(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.json")
+	raw := map[string]any{
+		"version": 3,
+		"agents": map[string]any{
+			"defaults": map[string]any{
+				"workspace":  filepath.Join(dir, "workspace"),
+				"model_name": "kilo-auto",
+			},
+		},
+		"model_list": []map[string]any{
+			{
+				"model_name": "kilo-auto",
+				"provider":   "",
+				"model":      "kilo-auto/free",
+				"api_base":   "https://api.kilo.ai/api/gateway/v1",
+			},
+			{
+				"model_name": "kilo-nemotron",
+				"provider":   "",
+				"model":      "nvidia/nemotron-3-ultra-550b-a55b:free",
+				"api_base":   "https://api.kilo.ai/api/gateway/v1",
+			},
+			{
+				"model_name": "llm7-gpt-oss-20b",
+				"provider":   "",
+				"model":      "gpt-oss:20b",
+				"api_base":   "https://api.llm7.io/v1",
+			},
+		},
+	}
+	data, err := json.Marshal(raw)
+	if err != nil {
+		t.Fatalf("marshal config: %v", err)
+	}
+	if err := os.WriteFile(configPath, data, 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	h := NewHandler(configPath)
+	ready, reason, err := h.gatewayStartReady()
+	if err != nil {
+		t.Fatalf("gatewayStartReady() error = %v", err)
+	}
+	if !ready {
+		t.Fatalf("gatewayStartReady() = false, reason = %q", reason)
+	}
+
+	cfg, err := config.LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+	for _, m := range cfg.ModelList {
+		status := modelConfigurationStatus(m)
+		if !status.Available {
+			t.Errorf("model %q status = %q, want available", m.ModelName, status.Status)
+		}
+		if !defaultModelAllowedForModelConfig(m, defaultChainProvider(cfg)) {
+			t.Errorf("model %q should be allowed as a default model", m.ModelName)
+		}
+	}
+}
+
+func TestGatewayRestartRequiredBySignature(t *testing.T) {
+	tests := []struct {
+		name             string
+		bootSignature    string
+		currentSignature string
+		status           string
+		hotReload        bool
+		want             bool
+	}{
+		{
+			name:             "changed config requires restart without hot reload",
+			bootSignature:    "boot",
+			currentSignature: "current",
+			status:           "running",
+			want:             true,
+		},
+		{
+			name:             "hot reload suppresses restart prompt",
+			bootSignature:    "boot",
+			currentSignature: "current",
+			status:           "running",
+			hotReload:        true,
+			want:             false,
+		},
+		{
+			name:             "stopped gateway never requires restart",
+			bootSignature:    "boot",
+			currentSignature: "current",
+			status:           "stopped",
+			want:             false,
+		},
+		{
+			name:             "missing signatures do not require restart",
+			bootSignature:    "",
+			currentSignature: "current",
+			status:           "running",
+			want:             false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := gatewayRestartRequiredBySignature(
+				tt.bootSignature,
+				tt.currentSignature,
+				tt.status,
+				tt.hotReload,
+			)
+			if got != tt.want {
+				t.Fatalf("gatewayRestartRequiredBySignature() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

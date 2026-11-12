@@ -58,17 +58,20 @@ export function validateModelField(
     }
   }
 
+  // When a provider is explicitly selected, the field is a full model ID for
+  // that provider. Slashes may be part of a case-sensitive upstream namespace
+  // (for example "ACME/gpt-4o-mini"), so do not reinterpret the prefix as a
+  // PicoClaw provider key.
+  if (selectedProvider) {
+    return {
+      level: "success",
+      messageKey: "models.validation.parsed",
+      messageParams: { provider: selectedProvider, model: trimmed },
+    }
+  }
+
   const slashIdx = trimmed.indexOf("/")
   if (slashIdx === -1) {
-    // No provider prefix — when a provider is already selected,
-    // the model ID is provider-local and needs no prefix.
-    if (selectedProvider) {
-      return {
-        level: "success",
-        messageKey: "models.validation.parsed",
-        messageParams: { provider: selectedProvider, model: trimmed },
-      }
-    }
     return {
       level: "warning",
       messageKey: "models.validation.defaultToOpenAI",
@@ -83,9 +86,11 @@ export function validateModelField(
   }
 
   if (!knownProviderKeys.has(provider)) {
-    // Check aliases
+    // Check aliases. Only suggest a rewrite when the canonical form is a
+    // provider we actually know; otherwise a case-sensitive upstream namespace
+    // would be lowercased by the one-click fix.
     const alias = getCanonicalProviderKey(provider, backendOptions)
-    if (alias && alias !== provider) {
+    if (alias && alias !== provider && knownProviderKeys.has(alias)) {
       return {
         level: "warning",
         messageKey: "models.validation.shouldUse",
