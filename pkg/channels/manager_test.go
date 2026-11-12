@@ -332,6 +332,130 @@ func TestStartAll_PartialFailure_StartsSuccessfulWorkers(t *testing.T) {
 	}
 }
 
+func TestStopAllWithPendingMessagesDoesNotPanic(t *testing.T) {
+	m := newTestManager()
+	sendStarted := make(chan struct{}, 1)
+	m.channels["slow"] = &mockChannel{
+		sendFn: func(ctx context.Context, _ bus.OutboundMessage) error {
+			select {
+			case sendStarted <- struct{}{}:
+			default:
+			}
+			<-ctx.Done()
+			return ctx.Err()
+		},
+	}
+
+	if err := m.StartAll(t.Context()); err != nil {
+		t.Fatalf("StartAll() error = %v", err)
+	}
+
+	pubCtx, pubCancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer pubCancel()
+
+	if err := m.bus.PublishOutbound(pubCtx, testOutboundMessage(bus.OutboundMessage{
+		Channel: "slow",
+		ChatID:  "chat-1",
+		Content: "first",
+	})); err != nil {
+		t.Fatalf("PublishOutbound() error = %v", err)
+	}
+
+	select {
+	case <-sendStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("channel send did not start")
+	}
+
+	// Fill the worker queue and make the dispatcher block on a full queue.
+	for i := 0; i < defaultChannelQueueSize*2; i++ {
+		if err := m.bus.PublishOutbound(pubCtx, testOutboundMessage(bus.OutboundMessage{
+			Channel: "slow",
+			ChatID:  "chat-1",
+			Content: fmt.Sprintf("pending-%d", i),
+		})); err != nil {
+			t.Fatalf("PublishOutbound(%d) error = %v", i, err)
+		}
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		done <- m.StopAll(context.Background())
+	}()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("StopAll() error = %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("StopAll() did not return with pending messages")
+	}
+}
+
+func TestUnregisterChannelWithPendingMessagesDoesNotPanic(t *testing.T) {
+	m := newTestManager()
+	sendStarted := make(chan struct{}, 1)
+	m.channels["slow"] = &mockChannel{
+		sendFn: func(ctx context.Context, _ bus.OutboundMessage) error {
+			select {
+			case sendStarted <- struct{}{}:
+			default:
+			}
+			<-ctx.Done()
+			return ctx.Err()
+		},
+	}
+
+	if err := m.StartAll(t.Context()); err != nil {
+		t.Fatalf("StartAll() error = %v", err)
+	}
+	defer func() {
+		stopCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = m.StopAll(stopCtx)
+	}()
+
+	pubCtx, pubCancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer pubCancel()
+
+	if err := m.bus.PublishOutbound(pubCtx, testOutboundMessage(bus.OutboundMessage{
+		Channel: "slow",
+		ChatID:  "chat-1",
+		Content: "first",
+	})); err != nil {
+		t.Fatalf("PublishOutbound() error = %v", err)
+	}
+
+	select {
+	case <-sendStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("channel send did not start")
+	}
+
+	for i := 0; i < defaultChannelQueueSize*2; i++ {
+		if err := m.bus.PublishOutbound(pubCtx, testOutboundMessage(bus.OutboundMessage{
+			Channel: "slow",
+			ChatID:  "chat-1",
+			Content: fmt.Sprintf("pending-%d", i),
+		})); err != nil {
+			t.Fatalf("PublishOutbound(%d) error = %v", i, err)
+		}
+	}
+
+	done := make(chan struct{})
+	go func() {
+		m.UnregisterChannel("slow")
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("UnregisterChannel() did not return with pending messages")
+	}
+}
+
 func TestStartAllPublishesLifecycleRuntimeEvents(t *testing.T) {
 	eventBus := runtimeevents.NewBus()
 	defer func() {

@@ -261,7 +261,7 @@ func Run(debug bool, homePath, configPath string, allowEmptyStartup bool) (runEr
 
 	go agentLoop.Run(ctx)
 
-	var configReloadChan <-chan *config.Config
+	var configReloadChan chan *config.Config
 	stopWatch := func() {}
 	if cfg.Gateway.HotReload {
 		configReloadChan, stopWatch = setupConfigWatcherPolling(configPath, debug)
@@ -280,7 +280,14 @@ func Run(debug bool, homePath, configPath string, allowEmptyStartup bool) (runEr
 			return nil
 		case newCfg := <-configReloadChan:
 			if !runningServices.reloading.CompareAndSwap(false, true) {
-				logger.Warn("Config reload skipped: another reload is in progress")
+				logger.Warn("Config reload queued: another reload is in progress")
+				// The channel has capacity one and was just drained, so this
+				// normally succeeds. If the watcher already queued a newer
+				// config, keep the newer one.
+				select {
+				case configReloadChan <- newCfg:
+				default:
+				}
 				continue
 			}
 			err := executeReload(ctx, agentLoop, newCfg, &provider, runningServices, msgBus, allowEmptyStartup, debug)
@@ -608,16 +615,9 @@ func handleConfigReload(
 
 	logger.Infof(" New model is '%s', recreating provider...", newModel)
 
-	logger.Info("  Stopping all services...")
-	stopAndCleanupServices(runningServices, serviceShutdownTimeout, true)
-
 	newProvider, newModelID, err := createStartupProvider(newCfg, allowEmptyStartup)
 	if err != nil {
 		logger.Errorf("  ⚠ Error creating new provider: %v", err)
-		logger.Warn("  Attempting to restart services with old provider and config...")
-		if restartErr := restartServices(al, runningServices, msgBus); restartErr != nil {
-			logger.Errorf("  ⚠ Failed to restart services: %v", restartErr)
-		}
 		return fmt.Errorf("error creating new provider: %w", err)
 	}
 
@@ -625,22 +625,27 @@ func handleConfigReload(
 		newCfg.Agents.Defaults.ModelName = newModelID
 	}
 
-	reloadCtx, reloadCancel := context.WithTimeout(context.Background(), providerReloadTimeout)
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	reloadCtx, reloadCancel := context.WithTimeout(ctx, providerReloadTimeout)
 	defer reloadCancel()
 
+	// Reload the agent before touching live services. A broken provider,
+	// hook, or config now fails while the previous configuration and all
+	// services are still running.
 	if err := al.ReloadProviderAndConfig(reloadCtx, newProvider, newCfg); err != nil {
 		logger.Errorf("  ⚠ Error reloading agent loop: %v", err)
 		if cp, ok := newProvider.(providers.StatefulProvider); ok {
 			cp.Close()
 		}
-		logger.Warn("  Attempting to restart services with old provider and config...")
-		if restartErr := restartServices(al, runningServices, msgBus); restartErr != nil {
-			logger.Errorf("  ⚠ Failed to restart services: %v", restartErr)
-		}
 		return fmt.Errorf("error reloading agent loop: %w", err)
 	}
 
 	*providerRef = newProvider
+
+	logger.Info("  Stopping all services...")
+	stopAndCleanupServices(runningServices, serviceShutdownTimeout, true)
 
 	logger.Info("  Restarting all services with new configuration...")
 	if err := restartServices(al, runningServices, msgBus); err != nil {
@@ -787,13 +792,12 @@ func setupConfigWatcherPolling(configPath string, debug bool) (chan *config.Conf
 
 					time.Sleep(500 * time.Millisecond)
 
-					lastModTime = currentModTime
-					lastSize = currentSize
-
 					newCfg, err := config.LoadConfig(configPath)
 					if err != nil {
 						logger.Errorf("⚠ Error loading new config: %v", err)
 						logger.Warn("  Using previous valid config")
+						// Keep the watermark unchanged so the watcher retries
+						// once the file becomes readable and valid.
 						continue
 					}
 
@@ -807,8 +811,13 @@ func setupConfigWatcherPolling(configPath string, debug bool) (chan *config.Conf
 
 					select {
 					case configChan <- newCfg:
-					default:
-						logger.Warn("⚠ Previous config reload still in progress, skipping")
+						// Advance the watermark only after the main loop has
+						// accepted the config. If a reload is in progress this
+						// blocks until it can be queued, so no edit is lost.
+						lastModTime = currentModTime
+						lastSize = currentSize
+					case <-stop:
+						return
 					}
 				}
 			case <-stop:
