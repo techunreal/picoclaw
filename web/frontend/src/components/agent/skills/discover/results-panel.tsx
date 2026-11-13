@@ -16,6 +16,10 @@ export function ResultsPanel({
   marketSearchError,
   isMarketSearchInitialLoading,
   isMarketSearchLoadingMore,
+  popularResults,
+  popularError,
+  isPopularInitialLoading,
+  isPopularLoadingMore,
   canInstallFromMarketplace,
   getInstalledSkill,
   isInstallPending,
@@ -29,6 +33,10 @@ export function ResultsPanel({
   marketSearchError: unknown
   isMarketSearchInitialLoading: boolean
   isMarketSearchLoadingMore: boolean
+  popularResults: SkillRegistrySearchResult[]
+  popularError: unknown
+  isPopularInitialLoading: boolean
+  isPopularLoadingMore: boolean
   canInstallFromMarketplace: boolean
   getInstalledSkill: (installedName?: string) => SkillSupportItem | null
   isInstallPending: (result: SkillRegistrySearchResult) => boolean
@@ -122,11 +130,75 @@ export function ResultsPanel({
             </span>
           </div>
         ) : (
-          <div className="border-border/40 bg-muted/10 flex min-h-[200px] flex-col items-center justify-center gap-3 rounded-xl border border-dashed">
-            <IconSearch className="text-muted-foreground/50 size-6" />
-            <span className="text-muted-foreground text-sm font-medium">
-              {t("pages.agent.skills.marketplace_idle")}
-            </span>
+          <div className="space-y-6">
+            <div className="rounded-xl border border-amber-200/80 bg-amber-50/70 px-4 py-3 text-sm text-amber-900">
+              <div className="font-semibold">
+                {t("pages.agent.skills.marketplace_notice_title")}
+              </div>
+              <div className="mt-1 leading-6">
+                {t("pages.agent.skills.marketplace_notice_body")}
+              </div>
+            </div>
+
+            <div className="border-border/40 flex items-center justify-between border-b pb-4">
+              <div>
+                <h3 className="text-foreground/85 text-base font-semibold">
+                  {t("pages.agent.skills.popular_title")}
+                </h3>
+                <p className="text-muted-foreground mt-1 text-xs">
+                  {t("pages.agent.skills.popular_hint")}
+                </p>
+              </div>
+            </div>
+
+            {isPopularInitialLoading ? (
+              <div className="border-border/40 bg-muted/10 flex min-h-[200px] flex-col items-center justify-center gap-4 rounded-xl border border-dashed">
+                <IconLoader2 className="text-muted-foreground/60 size-6 animate-spin" />
+                <span className="text-muted-foreground text-sm font-medium">
+                  {t("pages.agent.skills.popular_loading")}
+                </span>
+              </div>
+            ) : popularError ? (
+              <div className="border-destructive/20 bg-destructive/5 rounded-xl border px-6 py-5">
+                <div className="text-destructive flex items-center gap-3">
+                  <IconX className="size-5" />
+                  <span className="text-sm font-medium">
+                    {popularError instanceof Error
+                      ? popularError.message
+                      : t("pages.agent.skills.popular_error")}
+                  </span>
+                </div>
+              </div>
+            ) : popularResults.length ? (
+              <>
+                <div className="grid gap-4 lg:grid-cols-2">
+                  {popularResults.map((result) => (
+                    <MarketSkillCard
+                      key={`${result.registry_name}:${result.owner_handle ?? ""}:${result.slug}`}
+                      result={result}
+                      canInstall={canInstallFromMarketplace}
+                      installPending={isInstallPending(result)}
+                      installedSkill={getInstalledSkill(result.installed_name)}
+                      onInstall={() => onInstall(result)}
+                      onViewInstalled={onViewInstalled}
+                    />
+                  ))}
+                </div>
+                {isPopularLoadingMore ? (
+                  <div className="text-muted-foreground flex items-center justify-center gap-2 pt-2 text-sm">
+                    <IconLoader2 className="size-4 animate-spin" />
+                    <span>{t("pages.agent.skills.popular_loading_more")}</span>
+                  </div>
+                ) : null}
+              </>
+            ) : (
+              <div className="border-border/40 bg-muted/10 flex min-h-[200px] flex-col items-center justify-center gap-3 rounded-xl border border-dashed">
+                <IconSearch className="text-muted-foreground/50 size-6" />
+                <span className="text-muted-foreground text-sm font-medium">
+                  {t("pages.agent.skills.popular_empty")}
+                </span>
+              </div>
+            )}
           </div>
         )}
       </div>

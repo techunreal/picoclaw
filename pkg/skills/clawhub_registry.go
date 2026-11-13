@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -632,6 +633,88 @@ func handoffString(raw map[string]any, keys ...string) string {
 		}
 	}
 	return ""
+}
+
+type clawhubCatalogResponse struct {
+	Items []struct {
+		Slug          string              `json:"slug"`
+		DisplayName   string              `json:"displayName"`
+		Summary       string              `json:"summary"`
+		OwnerHandle   string              `json:"ownerHandle"`
+		LatestVersion *clawhubVersionInfo `json:"latestVersion"`
+		Stats         *struct {
+			Downloads int64 `json:"downloads"`
+		} `json:"stats"`
+	} `json:"items"`
+	NextCursor string `json:"nextCursor"`
+}
+
+// PopularSkills browses the ClawHub catalog sorted by lifetime downloads.
+// Cursor pagination follows the registry's nextCursor value.
+func (c *ClawHubRegistry) PopularSkills(
+	ctx context.Context, limit int, cursor string,
+) ([]SearchResult, string, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	if limit > 200 {
+		limit = 200
+	}
+	u, err := url.Parse(c.baseURL + c.skillsPath)
+	if err != nil {
+		return nil, "", fmt.Errorf("invalid base URL: %w", err)
+	}
+	q := u.Query()
+	q.Set("sort", "downloads")
+	q.Set("limit", strconv.Itoa(limit))
+	if strings.TrimSpace(cursor) != "" {
+		q.Set("cursor", cursor)
+	}
+	u.RawQuery = q.Encode()
+
+	body, err := c.doGet(ctx, u.String())
+	if err != nil {
+		return nil, "", fmt.Errorf("catalog request failed: %w", err)
+	}
+
+	var resp clawhubCatalogResponse
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return nil, "", fmt.Errorf("failed to parse catalog response: %w", err)
+	}
+
+	results := make([]SearchResult, 0, len(resp.Items))
+	for _, item := range resp.Items {
+		if strings.TrimSpace(item.Slug) == "" {
+			continue
+		}
+		displayName := strings.TrimSpace(item.DisplayName)
+		if displayName == "" {
+			displayName = item.Slug
+		}
+		owner := normalizeOwnerHandle(item.OwnerHandle)
+		downloads := int64(0)
+		if item.Stats != nil {
+			downloads = item.Stats.Downloads
+		}
+		version := ""
+		if item.LatestVersion != nil {
+			version = item.LatestVersion.Version
+		}
+		results = append(results, SearchResult{
+			Slug:             item.Slug,
+			DisplayName:      displayName,
+			Summary:          strings.TrimSpace(item.Summary),
+			Version:          version,
+			RegistryName:     c.Name(),
+			OwnerHandle:      owner,
+			InstallKind:      "clawhub",
+			InstallReference: strings.TrimPrefix(owner+"/"+item.Slug, "/"),
+			CanonicalURL:     c.SkillURLForOwner(item.Slug, owner, version),
+			Downloads:        downloads,
+			Installability:   "installable",
+		})
+	}
+	return results, resp.NextCursor, nil
 }
 
 // --- Security summary ---

@@ -319,6 +319,49 @@ func TestClawHubRegistrySearchNullableFields(t *testing.T) {
 	assert.Equal(t, "valid summary", r.Summary)
 }
 
+func TestClawHubRegistryPopularSkills(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "/api/v1/skills", r.URL.Path)
+		assert.Equal(t, "downloads", r.URL.Query().Get("sort"))
+		assert.Equal(t, "2", r.URL.Query().Get("limit"))
+		assert.Equal(t, "cursor-1", r.URL.Query().Get("cursor"))
+
+		json.NewEncoder(w).Encode(map[string]any{
+			"items": []map[string]any{
+				{
+					"slug":          "weather",
+					"displayName":   "Weather",
+					"summary":       "Forecasts",
+					"ownerHandle":   "steipete",
+					"latestVersion": map[string]any{"version": "1.0.0"},
+					"stats":         map[string]any{"downloads": 173791},
+				},
+				{
+					"slug":        "pdf",
+					"displayName": "PDF",
+					"summary":     "PDF tools",
+					"ownerHandle": "acme",
+					"stats":       map[string]any{"downloads": 500},
+				},
+			},
+			"nextCursor": "cursor-2",
+		})
+	}))
+	defer srv.Close()
+
+	reg := newTestRegistry(srv.URL, "")
+	results, nextCursor, err := reg.PopularSkills(context.Background(), 2, "cursor-1")
+	require.NoError(t, err)
+	assert.Equal(t, "cursor-2", nextCursor)
+	require.Len(t, results, 2)
+
+	assert.Equal(t, "weather", results[0].Slug)
+	assert.Equal(t, "steipete", results[0].OwnerHandle)
+	assert.Equal(t, int64(173791), results[0].Downloads)
+	assert.Equal(t, "clawhub", results[0].InstallKind)
+	assert.Equal(t, srv.URL+"/steipete/skills/weather", results[0].CanonicalURL)
+}
+
 // --- helpers ---
 
 func TestClawHubRegistrySearchPublisherMetadata(t *testing.T) {

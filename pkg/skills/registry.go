@@ -131,6 +131,12 @@ type OwnerAwareRegistry interface {
 	) (*InstallResult, error)
 }
 
+// CatalogRegistry is implemented by registries that expose a browsable
+// catalog independent of a search query (for example ClawHub's popular list).
+type CatalogRegistry interface {
+	PopularSkills(ctx context.Context, limit int, cursor string) ([]SearchResult, string, error)
+}
+
 // InstallTargetNormalizer is implemented by registries that can canonicalize
 // user-provided install targets into a stable slug for origin metadata.
 type InstallTargetNormalizer interface {

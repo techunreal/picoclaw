@@ -62,6 +62,7 @@ export interface SkillSearchResponse {
   limit: number
   offset: number
   next_offset?: number
+  next_cursor?: string
   has_more: boolean
   sort?: SkillSearchSort
 }
@@ -137,6 +138,19 @@ export async function searchSkills(
     sort,
   })
   return request<SkillSearchResponse>(`/api/skills/search?${params.toString()}`)
+}
+
+export async function getPopularSkills(
+  limit = 20,
+  cursor = "",
+): Promise<SkillSearchResponse> {
+  const params = new URLSearchParams({ limit: String(limit) })
+  if (cursor) {
+    params.set("cursor", cursor)
+  }
+  return request<SkillSearchResponse>(
+    `/api/skills/popular?${params.toString()}`,
+  )
 }
 
 export async function installSkill(

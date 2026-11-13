@@ -706,6 +706,84 @@ func TestHandleSearchSkills(t *testing.T) {
 	}
 }
 
+func TestHandlePopularSkills(t *testing.T) {
+	configPath, cleanup := setupOAuthTestEnv(t)
+	defer cleanup()
+
+	cfg, err := config.LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+	cfg.Agents.Defaults.Workspace = filepath.Join(t.TempDir(), "workspace")
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/skills":
+			if got := r.URL.Query().Get("sort"); got != "downloads" {
+				t.Fatalf("sort = %q, want downloads", got)
+			}
+			if got := r.URL.Query().Get("cursor"); got != "next-page" {
+				t.Fatalf("cursor = %q", got)
+			}
+			json.NewEncoder(w).Encode(map[string]any{
+				"items": []map[string]any{
+					{
+						"slug":          "popularone",
+						"displayName":   "Popular One",
+						"summary":       "Very popular",
+						"ownerHandle":   "acme",
+						"latestVersion": map[string]any{"version": "2.0.0"},
+						"stats":         map[string]any{"downloads": 999999},
+					},
+				},
+				"nextCursor": "",
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	setClawHubBaseURL(cfg, server.URL)
+	if err := config.SaveConfig(configPath, cfg); err != nil {
+		t.Fatalf("SaveConfig() error = %v", err)
+	}
+
+	h := NewHandler(configPath)
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(
+		http.MethodGet,
+		"/api/skills/popular?limit=1&cursor=next-page",
+		nil,
+	)
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var resp skillSearchResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+	if resp.Sort != "downloads" || resp.HasMore {
+		t.Fatalf("unexpected response: %#v", resp)
+	}
+	if len(resp.Results) != 1 {
+		t.Fatalf("results = %d, want 1", len(resp.Results))
+	}
+	item := resp.Results[0]
+	if item.Slug != "popularone" || item.OwnerHandle != "acme" ||
+		item.Downloads != 999999 || item.InstallStatus != "installable" {
+		t.Fatalf("unexpected item: %#v", item)
+	}
+	if item.URL != server.URL+"/acme/skills/popularone" {
+		t.Fatalf("URL = %q", item.URL)
+	}
+}
+
 func TestHandleSearchSkillsPublisherMetadataSecurityAndSort(t *testing.T) {
 	configPath, cleanup := setupOAuthTestEnv(t)
 	defer cleanup()

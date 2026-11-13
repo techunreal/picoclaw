@@ -741,8 +741,14 @@
         "market_sort_label": "Sort by",
         "market_sort": {
           "relevance": "Relevance",
-          "downloads": "Most downloaded"
+          "downloads": "Most downloaded (in results)"
         },
+        "popular_title": "Popular skills",
+        "popular_hint": "Most downloaded skills across the ClawHub catalog.",
+        "popular_loading": "Loading popular skills...",
+        "popular_loading_more": "Loading more popular skills...",
+        "popular_empty": "No popular skills are available right now.",
+        "popular_error": "Failed to load popular skills.",
         "security": {
           "clean": "Clean",
           "review": "Review",

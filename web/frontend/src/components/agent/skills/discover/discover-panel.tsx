@@ -49,6 +49,10 @@ export function DiscoverPanel({ onViewInstalled }: DiscoverPanelProps) {
             marketSearchError={discover.marketSearchError}
             isMarketSearchInitialLoading={discover.isMarketSearchInitialLoading}
             isMarketSearchLoadingMore={discover.isMarketSearchLoadingMore}
+            popularResults={discover.popularResults}
+            popularError={discover.popularError}
+            isPopularInitialLoading={discover.isPopularInitialLoading}
+            isPopularLoadingMore={discover.isPopularLoadingMore}
             canInstallFromMarketplace={discover.canInstallFromMarketplace}
             getInstalledSkill={discover.getInstalledSkill}
             isInstallPending={discover.isInstallPending}

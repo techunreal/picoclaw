@@ -15,6 +15,7 @@ import {
   type SkillSearchResponse,
   type SkillSearchSort,
   type SkillSupportItem,
+  getPopularSkills,
   getSkills,
   installSkill,
   searchSkills,
@@ -102,6 +103,7 @@ export function useSkillsDiscover() {
       setAmbiguousInstall(null)
       void queryClient.invalidateQueries({ queryKey: ["skills"] })
       void queryClient.invalidateQueries({ queryKey: ["skills-marketplace"] })
+      void queryClient.invalidateQueries({ queryKey: ["skills-popular"] })
     },
     onError: (err) => {
       if (
@@ -130,6 +132,35 @@ export function useSkillsDiscover() {
     },
   })
 
+  const {
+    data: popularData,
+    isPending: isPopularPending,
+    isFetching: isPopularFetching,
+    error: popularError,
+    hasNextPage: hasMorePopularResults,
+    fetchNextPage: fetchNextPopularPage,
+    isFetchingNextPage: isPopularFetchingNextPage,
+  } = useInfiniteQuery({
+    queryKey: ["skills-popular"],
+    initialPageParam: "",
+    queryFn: ({ pageParam }) =>
+      getPopularSkills(MARKET_SEARCH_LIMIT, String(pageParam || "")),
+    getNextPageParam: (lastPage: SkillSearchResponse) =>
+      lastPage.has_more ? (lastPage.next_cursor ?? undefined) : undefined,
+    enabled: canSearchMarketplace,
+    staleTime: 60 * 1000,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
+  })
+
+  const popularResults =
+    popularData?.pages.flatMap((page) => page.results) ?? []
+  const isPopularInitialLoading =
+    canSearchMarketplace &&
+    !popularData &&
+    (isPopularPending || isPopularFetching)
+  const isPopularLoadingMore = Boolean(popularData) && isPopularFetchingNextPage
+
   const allSkills = skillsData?.skills ?? []
   const workspaceSkillsByName = new Map(
     allSkills
@@ -157,10 +188,10 @@ export function useSkillsDiscover() {
   })
 
   useEffect(() => {
-    if (!isFetchingNextPage) {
+    if (!isFetchingNextPage && !isPopularFetchingNextPage) {
       isLoadMoreLockedRef.current = false
     }
-  }, [isFetchingNextPage])
+  }, [isFetchingNextPage, isPopularFetchingNextPage])
 
   const handleSearchSubmit = () => {
     const nextQuery = marketQuery.trim()
@@ -211,18 +242,25 @@ export function useSkillsDiscover() {
   }
 
   const handleScroll = (event: UIEvent<HTMLDivElement>) => {
-    if (
-      !isMarketSearchActive ||
-      !hasMoreMarketResults ||
-      isFetchingNextPage ||
-      isLoadMoreLockedRef.current
-    ) {
-      return
-    }
-
     const node = event.currentTarget
     const remaining = node.scrollHeight - node.scrollTop - node.clientHeight
     if (remaining > 240) {
+      return
+    }
+    if (isLoadMoreLockedRef.current) {
+      return
+    }
+
+    if (!hasSubmittedQuery) {
+      if (!hasMorePopularResults || isPopularFetchingNextPage) {
+        return
+      }
+      isLoadMoreLockedRef.current = true
+      void fetchNextPopularPage()
+      return
+    }
+
+    if (!isMarketSearchActive || !hasMoreMarketResults || isFetchingNextPage) {
       return
     }
 
@@ -249,6 +287,11 @@ export function useSkillsDiscover() {
     canInstallFromMarketplace,
     marketResults,
     marketSearchError,
+    popularResults,
+    popularError,
+    hasMorePopularResults,
+    isPopularInitialLoading,
+    isPopularLoadingMore,
     unavailableToolMessages,
     hasSubmittedQuery,
     isMarketSearchInitialLoading,

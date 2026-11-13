@@ -81,6 +81,7 @@ type skillSearchResponse struct {
 	Limit      int                     `json:"limit"`
 	Offset     int                     `json:"offset"`
 	NextOffset int                     `json:"next_offset,omitempty"`
+	NextCursor string                  `json:"next_cursor,omitempty"`
 	HasMore    bool                    `json:"has_more"`
 	Sort       string                  `json:"sort,omitempty"`
 }
@@ -133,6 +134,7 @@ func (h *Handler) registerSkillRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/skills", h.handleListSkills)
 	mux.HandleFunc("GET /api/skills/{name}", h.handleGetSkill)
 	mux.HandleFunc("GET /api/skills/search", h.handleSearchSkills)
+	mux.HandleFunc("GET /api/skills/popular", h.handlePopularSkills)
 	mux.HandleFunc("POST /api/skills/install", h.handleInstallSkill)
 	mux.HandleFunc("POST /api/skills/import", h.handleImportSkill)
 	mux.HandleFunc("DELETE /api/skills/{name}", h.handleDeleteSkill)
@@ -291,48 +293,10 @@ func (h *Handler) handleSearchSkills(w http.ResponseWriter, r *http.Request) {
 	pageResults := results[offset:end]
 	response := make([]skillSearchResultItem, 0, len(pageResults))
 	for _, result := range pageResults {
-		installedSkill, installed := installedSkills[result.Slug]
-		if !installed {
-			registry := registryMgr.GetRegistry(result.RegistryName)
-			if registry != nil {
-				dirName, err := registry.ResolveInstallDirName(result.Slug)
-				if err == nil {
-					installedSkill, installed = installedSkills[dirName]
-				}
-			}
-		}
-		resultURL := result.CanonicalURL
-		if resultURL == "" {
-			resultURL = registrySkillURLForOwner(
-				cfg,
-				result.RegistryName,
-				result.Slug,
-				result.OwnerHandle,
-				result.Version,
-			)
-		}
-		installStatus, installReason := deriveSkillInstallStatus(result, nil)
-		item := skillSearchResultItem{
-			Score:            result.Score,
-			Slug:             result.Slug,
-			DisplayName:      result.DisplayName,
-			Summary:          result.Summary,
-			Version:          result.Version,
-			RegistryName:     result.RegistryName,
-			URL:              resultURL,
-			Installed:        installed,
-			OwnerHandle:      result.OwnerHandle,
-			InstallKind:      result.InstallKind,
-			InstallReference: result.InstallReference,
-			CanonicalURL:     result.CanonicalURL,
-			Downloads:        result.Downloads,
-			InstallStatus:    installStatus,
-			InstallReason:    installReason,
-		}
-		if installed {
-			item.InstalledName = installedSkill.Name
-		}
-		response = append(response, item)
+		response = append(
+			response,
+			buildSkillSearchResultItem(cfg, registryMgr, installedSkills, result),
+		)
 	}
 
 	enrichSkillSearchSecurity(r.Context(), registryMgr, pageResults, response)
@@ -350,6 +314,72 @@ func (h *Handler) handleSearchSkills(w http.ResponseWriter, r *http.Request) {
 		NextOffset: nextOffset,
 		HasMore:    hasMore,
 		Sort:       sortOrder,
+	})
+}
+
+func (h *Handler) handlePopularSkills(w http.ResponseWriter, r *http.Request) {
+	cfg, loadErr := config.LoadConfig(h.configPath)
+	if loadErr != nil {
+		http.Error(w, fmt.Sprintf("Failed to load config: %v", loadErr), http.StatusInternalServerError)
+		return
+	}
+	if registryErr := ensureSkillRegistryToolEnabled(cfg, "find_skills"); registryErr != nil {
+		http.Error(w, registryErr.Error(), http.StatusBadRequest)
+		return
+	}
+
+	limit := 20
+	if rawLimit := strings.TrimSpace(r.URL.Query().Get("limit")); rawLimit != "" {
+		parsedLimit, parseErr := strconv.Atoi(rawLimit)
+		if parseErr != nil || parsedLimit < 1 || parsedLimit > 50 {
+			http.Error(w, "limit must be between 1 and 50", http.StatusBadRequest)
+			return
+		}
+		limit = parsedLimit
+	}
+	cursor := strings.TrimSpace(r.URL.Query().Get("cursor"))
+	if len(cursor) > 1024 {
+		http.Error(w, "cursor is too long", http.StatusBadRequest)
+		return
+	}
+
+	registryMgr := newSkillsRegistryManager(cfg)
+	registry := registryMgr.GetRegistry("clawhub")
+	catalog, ok := registry.(skills.CatalogRegistry)
+	if !ok {
+		http.Error(w, "popular skills are not supported by the configured registries", http.StatusBadRequest)
+		return
+	}
+
+	results, nextCursor, err := catalog.PopularSkills(r.Context(), limit, cursor)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to load popular skills: %v", err), http.StatusBadGateway)
+		return
+	}
+
+	installedSkills, err := buildOccupiedWorkspaceSkillsByDirectory(cfg)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to inspect installed skills: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	response := make([]skillSearchResultItem, 0, len(results))
+	for _, result := range results {
+		response = append(
+			response,
+			buildSkillSearchResultItem(cfg, registryMgr, installedSkills, result),
+		)
+	}
+	enrichSkillSearchSecurity(r.Context(), registryMgr, results, response)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(skillSearchResponse{
+		Results:    response,
+		Limit:      limit,
+		Offset:     0,
+		NextCursor: nextCursor,
+		HasMore:    nextCursor != "",
+		Sort:       "downloads",
 	})
 }
 
@@ -948,6 +978,57 @@ func deriveSkillInstallStatus(
 	default:
 		return "unsupported", "This skill cannot be installed from its current source."
 	}
+}
+
+func buildSkillSearchResultItem(
+	cfg *config.Config,
+	registryMgr *skills.RegistryManager,
+	installedSkills map[string]skillSupportItem,
+	result skills.SearchResult,
+) skillSearchResultItem {
+	installedSkill, installed := installedSkills[result.Slug]
+	if !installed {
+		registry := registryMgr.GetRegistry(result.RegistryName)
+		if registry != nil {
+			dirName, err := registry.ResolveInstallDirName(result.Slug)
+			if err == nil {
+				installedSkill, installed = installedSkills[dirName]
+			}
+		}
+	}
+
+	resultURL := result.CanonicalURL
+	if resultURL == "" {
+		resultURL = registrySkillURLForOwner(
+			cfg,
+			result.RegistryName,
+			result.Slug,
+			result.OwnerHandle,
+			result.Version,
+		)
+	}
+	installStatus, installReason := deriveSkillInstallStatus(result, nil)
+	item := skillSearchResultItem{
+		Score:            result.Score,
+		Slug:             result.Slug,
+		DisplayName:      result.DisplayName,
+		Summary:          result.Summary,
+		Version:          result.Version,
+		RegistryName:     result.RegistryName,
+		URL:              resultURL,
+		Installed:        installed,
+		OwnerHandle:      result.OwnerHandle,
+		InstallKind:      result.InstallKind,
+		InstallReference: result.InstallReference,
+		CanonicalURL:     result.CanonicalURL,
+		Downloads:        result.Downloads,
+		InstallStatus:    installStatus,
+		InstallReason:    installReason,
+	}
+	if installed {
+		item.InstalledName = installedSkill.Name
+	}
+	return item
 }
 
 // enrichSkillSearchSecurity attaches ClawHub audit verdicts to the current
