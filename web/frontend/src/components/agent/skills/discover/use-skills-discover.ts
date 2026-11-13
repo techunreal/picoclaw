@@ -9,6 +9,7 @@ import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
 
 import {
+  type InstallSkillRequest,
   SkillApiError,
   type SkillOwnerMatch,
   type SkillRegistrySearchResult,
@@ -34,6 +35,11 @@ interface AmbiguousInstallState {
   matches: SkillOwnerMatch[]
 }
 
+interface SuspiciousInstallState {
+  variables: InstallSkillRequest
+  summary?: string
+}
+
 export function useSkillsDiscover() {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
@@ -44,6 +50,8 @@ export function useSkillsDiscover() {
   const [marketSort, setMarketSort] = useState<SkillSearchSort>("relevance")
   const [ambiguousInstall, setAmbiguousInstall] =
     useState<AmbiguousInstallState | null>(null)
+  const [suspiciousInstall, setSuspiciousInstall] =
+    useState<SuspiciousInstallState | null>(null)
 
   const { data: skillsData } = useQuery({
     queryKey: ["skills"],
@@ -101,11 +109,26 @@ export function useSkillsDiscover() {
         }),
       )
       setAmbiguousInstall(null)
+      setSuspiciousInstall(null)
       void queryClient.invalidateQueries({ queryKey: ["skills"] })
       void queryClient.invalidateQueries({ queryKey: ["skills-marketplace"] })
       void queryClient.invalidateQueries({ queryKey: ["skills-popular"] })
     },
     onError: (err) => {
+      if (
+        err instanceof SkillApiError &&
+        err.status === 409 &&
+        err.code === "suspicious_skill"
+      ) {
+        const current = installMutation.variables
+        if (current) {
+          setSuspiciousInstall({
+            variables: current,
+            summary: err.summary,
+          })
+          return
+        }
+      }
       if (
         err instanceof SkillApiError &&
         err.status === 409 &&
@@ -228,6 +251,15 @@ export function useSkillsDiscover() {
     })
   }
 
+  const handleConfirmSuspicious = () => {
+    const pending = suspiciousInstall
+    if (!pending) {
+      return
+    }
+    setSuspiciousInstall(null)
+    installMutation.mutate({ ...pending.variables, accept_suspicious: true })
+  }
+
   const handleSortChange = (nextSort: SkillSearchSort) => {
     if (nextSort === marketSort) {
       return
@@ -300,12 +332,15 @@ export function useSkillsDiscover() {
     isMarketSearchLoadingMore,
     marketSort,
     ambiguousInstall,
+    suspiciousInstall,
     setMarketQuery,
     handleSearchSubmit,
     handleInstall,
     handleInstallWithOwner,
+    handleConfirmSuspicious,
     handleSortChange,
     clearAmbiguousInstall: () => setAmbiguousInstall(null),
+    clearSuspiciousInstall: () => setSuspiciousInstall(null),
     handleScroll,
     getInstalledSkill,
     isInstallPending,

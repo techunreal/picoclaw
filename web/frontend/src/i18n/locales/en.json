@@ -809,6 +809,29 @@
           "conflict_reload": "Reload",
           "conflict_overwrite": "Save anyway"
         },
+        "updates": {
+          "update": "Update",
+          "reinstall": "Reinstall",
+          "update_title": "Update skill?",
+          "update_description": "Fetch the latest version from {{registry}} and replace the installed files.",
+          "reinstall_title": "Reinstall skill?",
+          "reinstall_description": "Download the current version from {{registry}} again. Local edits to SKILL.md will be lost.",
+          "confirm_update": "Update",
+          "confirm_reinstall": "Reinstall",
+          "cancel": "Cancel",
+          "success": "Skill updated.",
+          "error": "Failed to update the skill.",
+          "no_moderation": "This source has no moderation or malware scanning. Review the skill before updating.",
+          "suspicious_title": "Suspicious skill",
+          "suspicious_description": "The registry flags this skill as suspicious. Install it anyway?",
+          "suspicious_confirm": "Install anyway"
+        },
+        "suspicious": {
+          "title": "Suspicious skill",
+          "description": "The registry flags this skill as suspicious. Review SKILL.md and any scripts before installing.",
+          "cancel": "Cancel",
+          "confirm": "Install anyway"
+        },
         "metadata": {
           "name": "Name",
           "directory": "Folder",

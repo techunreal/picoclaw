@@ -44,6 +44,8 @@ type skillSupportItem struct {
 	Editable         bool   `json:"editable"`
 	NameMismatch     bool   `json:"name_mismatch,omitempty"`
 	OwnerHandle      string `json:"owner_handle,omitempty"`
+	RegistrySlug     string `json:"registry_slug,omitempty"`
+	CanUpdate        bool   `json:"can_update,omitempty"`
 	RegistryName     string `json:"registry_name,omitempty"`
 	RegistryURL      string `json:"registry_url,omitempty"`
 	InstalledVersion string `json:"installed_version,omitempty"`
@@ -112,12 +114,13 @@ type skillSearchResponse struct {
 }
 
 type installSkillRequest struct {
-	Slug        string `json:"slug"`
-	Registry    string `json:"registry"`
-	Version     string `json:"version,omitempty"`
-	Force       bool   `json:"force,omitempty"`
-	OwnerHandle string `json:"owner_handle,omitempty"`
-	InstallKind string `json:"install_kind,omitempty"`
+	Slug             string `json:"slug"`
+	Registry         string `json:"registry"`
+	Version          string `json:"version,omitempty"`
+	Force            bool   `json:"force,omitempty"`
+	OwnerHandle      string `json:"owner_handle,omitempty"`
+	InstallKind      string `json:"install_kind,omitempty"`
+	AcceptSuspicious bool   `json:"accept_suspicious,omitempty"`
 }
 
 type installSkillResponse struct {
@@ -760,10 +763,26 @@ func (h *Handler) handleInstallSkill(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if result.IsMalwareBlocked {
-		http.Error(
+		writeSkillJSONError(
 			w,
-			fmt.Sprintf("skill %q is flagged as malicious and cannot be installed", req.Slug),
 			http.StatusForbidden,
+			"malware_blocked",
+			fmt.Sprintf("Skill %q is flagged as malicious and cannot be installed.", req.Slug),
+			nil,
+		)
+		return
+	}
+	if result.IsSuspicious && !req.AcceptSuspicious {
+		writeSkillJSONError(
+			w,
+			http.StatusConflict,
+			"suspicious_skill",
+			"This skill is flagged as suspicious. Review it before installing.",
+			map[string]any{
+				"slug":     req.Slug,
+				"registry": registry.Name(),
+				"summary":  result.Summary,
+			},
 		)
 		return
 	}
@@ -1190,6 +1209,10 @@ func enrichSkillInfo(cfg *config.Config, skill skills.SkillInfo) (skillSupportIt
 		meta, err := readInstalledSkillOriginMeta(skill.Path)
 		if err == nil && meta != nil {
 			item.OwnerHandle = normalizeSkillOwner(meta.OwnerHandle)
+			item.RegistrySlug = meta.Slug
+			item.CanUpdate = skill.Source == "workspace" &&
+				strings.TrimSpace(meta.Registry) != "" &&
+				strings.TrimSpace(meta.Slug) != ""
 			switch meta.OriginKind {
 			case "manual":
 				item.OriginKind = "manual"

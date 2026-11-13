@@ -1957,6 +1957,161 @@ func TestHandleInstallSkillForcePreservesExistingSkillOnFailure(t *testing.T) {
 	}
 }
 
+func TestHandleInstallSkillSuspiciousRequiresConfirmation(t *testing.T) {
+	configPath, cleanup := setupOAuthTestEnv(t)
+	defer cleanup()
+
+	cfg, err := config.LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+	workspace := filepath.Join(t.TempDir(), "workspace")
+	cfg.Agents.Defaults.Workspace = workspace
+
+	zipData := buildSkillZip(t, map[string]string{
+		"SKILL.md": "---\nname: suspicious\ndescription: Suspicious skill\n---\n# Suspicious\n",
+	})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/skills/suspicious":
+			json.NewEncoder(w).Encode(map[string]any{
+				"skill":         map[string]any{"slug": "suspicious", "summary": "Suspicious skill"},
+				"latestVersion": map[string]any{"version": "1.0.0"},
+				"owner":         map[string]any{"handle": "acme"},
+				"moderation": map[string]any{
+					"isMalwareBlocked": false,
+					"isSuspicious":     true,
+					"summary":          "Dynamic code execution",
+				},
+			})
+		case "/api/v1/download":
+			w.Header().Set("Content-Type", "application/zip")
+			w.Write(zipData)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	setClawHubBaseURL(cfg, server.URL)
+	if err := config.SaveConfig(configPath, cfg); err != nil {
+		t.Fatalf("SaveConfig() error = %v", err)
+	}
+
+	h := NewHandler(configPath)
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	install := func(accept bool) *httptest.ResponseRecorder {
+		body, _ := json.Marshal(installSkillRequest{
+			Slug:             "suspicious",
+			Registry:         "clawhub",
+			AcceptSuspicious: accept,
+		})
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/api/skills/install", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		mux.ServeHTTP(rec, req)
+		return rec
+	}
+
+	rec := install(false)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want 409, body=%s", rec.Code, rec.Body.String())
+	}
+	var payload map[string]any
+	_ = json.Unmarshal(rec.Body.Bytes(), &payload)
+	if payload["code"] != "suspicious_skill" {
+		t.Fatalf("code = %v", payload["code"])
+	}
+	if _, err := os.Stat(filepath.Join(workspace, "skills", "suspicious")); !os.IsNotExist(err) {
+		t.Fatal("suspicious skill must not be installed before confirmation")
+	}
+
+	rec = install(true)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("accepted status = %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	// Installed metadata exposes update fields.
+	rec = httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/skills/by-id/workspace:suspicious", nil)
+	mux.ServeHTTP(rec, req)
+	var detail skillDetailResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &detail); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+	if !detail.CanUpdate || detail.RegistrySlug != "suspicious" || detail.RegistryName != "clawhub" {
+		t.Fatalf("unexpected update metadata: %#v", detail.skillSupportItem)
+	}
+}
+
+func TestHandleInstallSkillBlocksMalware(t *testing.T) {
+	configPath, cleanup := setupOAuthTestEnv(t)
+	defer cleanup()
+
+	cfg, err := config.LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+	workspace := filepath.Join(t.TempDir(), "workspace")
+	cfg.Agents.Defaults.Workspace = workspace
+
+	zipData := buildSkillZip(t, map[string]string{
+		"SKILL.md": "---\nname: malware\ndescription: Malware\n---\n# Malware\n",
+	})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/skills/malware":
+			json.NewEncoder(w).Encode(map[string]any{
+				"skill":         map[string]any{"slug": "malware", "summary": "Malware"},
+				"latestVersion": map[string]any{"version": "1.0.0"},
+				"moderation": map[string]any{
+					"isMalwareBlocked": true,
+					"isSuspicious":     false,
+				},
+			})
+		case "/api/v1/download":
+			w.Header().Set("Content-Type", "application/zip")
+			w.Write(zipData)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	setClawHubBaseURL(cfg, server.URL)
+	if err := config.SaveConfig(configPath, cfg); err != nil {
+		t.Fatalf("SaveConfig() error = %v", err)
+	}
+
+	h := NewHandler(configPath)
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	body, _ := json.Marshal(installSkillRequest{
+		Slug:             "malware",
+		Registry:         "clawhub",
+		AcceptSuspicious: true,
+	})
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/skills/install", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403, body=%s", rec.Code, rec.Body.String())
+	}
+	var payload map[string]any
+	_ = json.Unmarshal(rec.Body.Bytes(), &payload)
+	if payload["code"] != "malware_blocked" {
+		t.Fatalf("code = %v", payload["code"])
+	}
+	if _, err := os.Stat(filepath.Join(workspace, "skills", "malware")); !os.IsNotExist(err) {
+		t.Fatal("malware skill must not be installed")
+	}
+}
+
 func TestHandleInstallSkillFromGitHubTreeURL(t *testing.T) {
 	configPath, cleanup := setupOAuthTestEnv(t)
 	defer cleanup()

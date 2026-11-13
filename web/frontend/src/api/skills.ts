@@ -11,6 +11,8 @@ export interface SkillSupportItem {
   editable: boolean
   name_mismatch?: boolean
   owner_handle?: string
+  registry_slug?: string
+  can_update?: boolean
   registry_name?: string
   registry_url?: string
   installed_version?: string
@@ -94,24 +96,28 @@ export interface InstallSkillRequest {
   force?: boolean
   owner_handle?: string
   install_kind?: string
+  accept_suspicious?: boolean
 }
 
 export class SkillApiError extends Error {
   status: number
   code?: string
   matches?: SkillOwnerMatch[]
+  summary?: string
 
   constructor(
     message: string,
     status: number,
     code?: string,
     matches?: SkillOwnerMatch[],
+    summary?: string,
   ) {
     super(message)
     this.name = "SkillApiError"
     this.status = status
     this.code = code
     this.matches = matches
+    this.summary = summary
   }
 }
 
@@ -248,6 +254,7 @@ async function readSkillApiError(res: Response): Promise<SkillApiError> {
         errors?: string[]
         code?: string
         matches?: SkillOwnerMatch[]
+        summary?: string
       }
       let message = `API error: ${res.status} ${res.statusText}`
       if (Array.isArray(body.errors) && body.errors.length > 0) {
@@ -260,6 +267,7 @@ async function readSkillApiError(res: Response): Promise<SkillApiError> {
         res.status,
         typeof body.code === "string" ? body.code : undefined,
         Array.isArray(body.matches) ? body.matches : undefined,
+        typeof body.summary === "string" ? body.summary : undefined,
       )
     } catch {
       return new SkillApiError(raw.trim(), res.status)

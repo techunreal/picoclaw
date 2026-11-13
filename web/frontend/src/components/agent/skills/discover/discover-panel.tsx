@@ -2,6 +2,7 @@ import { useTranslation } from "react-i18next"
 
 import {
   AlertDialog,
+  AlertDialogAction,
   AlertDialogCancel,
   AlertDialogContent,
   AlertDialogDescription,
@@ -107,6 +108,41 @@ export function DiscoverPanel({ onViewInstalled }: DiscoverPanelProps) {
             <AlertDialogCancel>
               {t("pages.agent.skills.publisher_required_cancel")}
             </AlertDialogCancel>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      <AlertDialog
+        open={discover.suspiciousInstall !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            discover.clearSuspiciousInstall()
+          }
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t("pages.agent.skills.suspicious.title")}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("pages.agent.skills.suspicious.description")}
+              {discover.suspiciousInstall?.summary ? (
+                <span className="mt-2 block font-mono text-xs">
+                  {discover.suspiciousInstall.summary}
+                </span>
+              ) : null}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>
+              {t("pages.agent.skills.suspicious.cancel")}
+            </AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              onClick={discover.handleConfirmSuspicious}
+            >
+              {t("pages.agent.skills.suspicious.confirm")}
+            </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

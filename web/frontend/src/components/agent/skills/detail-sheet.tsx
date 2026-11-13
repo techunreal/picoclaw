@@ -2,8 +2,10 @@ import {
   IconAlertTriangle,
   IconArrowBackUp,
   IconDeviceFloppy,
+  IconDownload,
   IconFileCode,
   IconLoader2,
+  IconRefresh,
   IconSparkles,
   IconWorld,
   IconX,
@@ -19,9 +21,11 @@ import remarkGfm from "remark-gfm"
 import { toast } from "sonner"
 
 import {
+  type InstallSkillRequest,
   SkillApiError,
   type SkillDetailResponse,
   type SkillSupportItem,
+  installSkill,
   saveSkillContent,
 } from "@/api/skills"
 import {
@@ -95,6 +99,10 @@ export function DetailSheet({
   const queryClient = useQueryClient()
   const [draft, setDraft] = useState("")
   const [conflictOpen, setConflictOpen] = useState(false)
+  const [updateMode, setUpdateMode] = useState<"update" | "reinstall" | null>(
+    null,
+  )
+  const [suspiciousOpen, setSuspiciousOpen] = useState(false)
 
   const editable = Boolean(selectedSkillDetail?.editable)
   const detailViews: SkillDetailView[] = editable
@@ -163,6 +171,48 @@ export function DetailSheet({
         queryKey: ["skills", "detail", selectedSkillDetail.id],
       })
     }
+  }
+
+  const updateMutation = useMutation({
+    mutationFn: (input: InstallSkillRequest) => installSkill(input),
+    onSuccess: () => {
+      toast.success(t("pages.agent.skills.updates.success"))
+      setUpdateMode(null)
+      setSuspiciousOpen(false)
+      void queryClient.invalidateQueries({ queryKey: ["skills"] })
+    },
+    onError: (err) => {
+      if (
+        err instanceof SkillApiError &&
+        err.status === 409 &&
+        err.code === "suspicious_skill"
+      ) {
+        setSuspiciousOpen(true)
+        return
+      }
+      toast.error(
+        err instanceof Error
+          ? err.message
+          : t("pages.agent.skills.updates.error"),
+      )
+    },
+  })
+
+  const runUpdate = (acceptSuspicious = false) => {
+    if (
+      !selectedSkillDetail?.can_update ||
+      !selectedSkillDetail.registry_name ||
+      !selectedSkillDetail.registry_slug
+    ) {
+      return
+    }
+    updateMutation.mutate({
+      registry: selectedSkillDetail.registry_name,
+      slug: selectedSkillDetail.registry_slug,
+      owner_handle: selectedSkillDetail.owner_handle,
+      force: true,
+      accept_suspicious: acceptSuspicious || undefined,
+    })
   }
 
   return (
@@ -263,6 +313,29 @@ export function DetailSheet({
                         directory: selectedSkillDetail.directory,
                       })}
                     </span>
+                  </div>
+                ) : null}
+
+                {selectedSkillDetail.can_update ? (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setUpdateMode("update")}
+                      disabled={updateMutation.isPending}
+                    >
+                      <IconRefresh className="size-4" />
+                      {t("pages.agent.skills.updates.update")}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setUpdateMode("reinstall")}
+                      disabled={updateMutation.isPending}
+                    >
+                      <IconDownload className="size-4" />
+                      {t("pages.agent.skills.updates.reinstall")}
+                    </Button>
                   </div>
                 ) : null}
 
@@ -421,6 +494,77 @@ export function DetailSheet({
               disabled={saveMutation.isPending}
             >
               {t("pages.agent.skills.editor.conflict_overwrite")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={updateMode !== null}
+        onOpenChange={(nextOpen) => {
+          if (!nextOpen) {
+            setUpdateMode(null)
+          }
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {updateMode === "reinstall"
+                ? t("pages.agent.skills.updates.reinstall_title")
+                : t("pages.agent.skills.updates.update_title")}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {updateMode === "reinstall"
+                ? t("pages.agent.skills.updates.reinstall_description", {
+                    registry: selectedSkillDetail?.registry_name ?? "",
+                  })
+                : t("pages.agent.skills.updates.update_description", {
+                    registry: selectedSkillDetail?.registry_name ?? "",
+                  })}
+              {selectedSkillDetail?.registry_name === "github" ? (
+                <span className="mt-2 block text-amber-600">
+                  {t("pages.agent.skills.updates.no_moderation")}
+                </span>
+              ) : null}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>
+              {t("pages.agent.skills.updates.cancel")}
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => runUpdate()}
+              disabled={updateMutation.isPending}
+            >
+              {updateMode === "reinstall"
+                ? t("pages.agent.skills.updates.confirm_reinstall")
+                : t("pages.agent.skills.updates.confirm_update")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={suspiciousOpen} onOpenChange={setSuspiciousOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t("pages.agent.skills.updates.suspicious_title")}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("pages.agent.skills.updates.suspicious_description")}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>
+              {t("pages.agent.skills.updates.cancel")}
+            </AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              onClick={() => runUpdate(true)}
+              disabled={updateMutation.isPending}
+            >
+              {t("pages.agent.skills.updates.suspicious_confirm")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
