@@ -1,11 +1,15 @@
 import { launcherFetch } from "@/api/http"
 
 export interface SkillSupportItem {
+  id: string
   name: string
   path: string
+  directory: string
   source: "workspace" | "global" | "builtin" | string
   description: string
   origin_kind: "builtin" | "third_party" | "manual" | string
+  editable: boolean
+  owner_handle?: string
   registry_name?: string
   registry_url?: string
   installed_version?: string
@@ -41,6 +45,7 @@ export interface SkillRegistrySearchResult {
   url?: string
   installed: boolean
   installed_name?: string
+  installed_id?: string
   owner_handle?: string
   install_kind?: string
   install_reference?: string
@@ -125,6 +130,12 @@ export async function getSkill(name: string): Promise<SkillDetailResponse> {
   return request<SkillDetailResponse>(`/api/skills/${encodeURIComponent(name)}`)
 }
 
+export async function getSkillById(id: string): Promise<SkillDetailResponse> {
+  return request<SkillDetailResponse>(
+    `/api/skills/by-id/${encodeURIComponent(id)}`,
+  )
+}
+
 export async function searchSkills(
   query: string,
   limit = 20,
@@ -180,6 +191,17 @@ export async function importSkill(file: File): Promise<SkillActionResponse> {
 export async function deleteSkill(name: string): Promise<SkillActionResponse> {
   return request<SkillActionResponse>(
     `/api/skills/${encodeURIComponent(name)}`,
+    {
+      method: "DELETE",
+    },
+  )
+}
+
+export async function deleteSkillById(
+  id: string,
+): Promise<SkillActionResponse> {
+  return request<SkillActionResponse>(
+    `/api/skills/by-id/${encodeURIComponent(id)}`,
     {
       method: "DELETE",
     },

@@ -55,7 +55,7 @@ export function SkillsPage({ tab, onTabChange }: SkillsPageProps) {
     setDetailView,
     openImportDialog,
     handleViewSkill,
-    handleViewSkillByName,
+    handleViewSkillById,
     handleRequestDelete,
     handleConfirmDelete,
     handleImportClick,
@@ -118,7 +118,7 @@ export function SkillsPage({ tab, onTabChange }: SkillsPageProps) {
       </div>
 
       {tab === "discover" ? (
-        <DiscoverPanel onViewInstalled={handleViewSkillByName} />
+        <DiscoverPanel onViewInstalled={handleViewSkillById} />
       ) : (
         <div className="flex-1 overflow-auto px-6 py-6">
           <div className="w-full max-w-6xl space-y-8">

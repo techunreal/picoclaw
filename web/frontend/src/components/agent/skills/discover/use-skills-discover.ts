@@ -162,11 +162,6 @@ export function useSkillsDiscover() {
   const isPopularLoadingMore = Boolean(popularData) && isPopularFetchingNextPage
 
   const allSkills = skillsData?.skills ?? []
-  const workspaceSkillsByName = new Map(
-    allSkills
-      .filter((skill) => skill.source === "workspace")
-      .map((skill) => [skill.name, skill] as const),
-  )
   const marketResults =
     marketSearchData?.pages.flatMap((page) => page.results) ?? []
   const hasMoreMarketResults = hasNextPage ?? false
@@ -269,12 +264,19 @@ export function useSkillsDiscover() {
   }
 
   const getInstalledSkill = (
+    installedId?: string,
     installedName?: string,
   ): SkillSupportItem | null => {
-    if (!installedName) {
-      return null
+    if (installedId) {
+      const byID = allSkills.find((skill) => skill.id === installedId)
+      if (byID) {
+        return byID
+      }
     }
-    return workspaceSkillsByName.get(installedName) ?? null
+    if (installedName) {
+      return allSkills.find((skill) => skill.name === installedName) ?? null
+    }
+    return null
   }
 
   const isInstallPending = (result: SkillRegistrySearchResult) =>

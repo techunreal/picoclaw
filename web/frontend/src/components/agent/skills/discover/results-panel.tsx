@@ -38,10 +38,10 @@ export function ResultsPanel({
   isPopularInitialLoading: boolean
   isPopularLoadingMore: boolean
   canInstallFromMarketplace: boolean
-  getInstalledSkill: (installedName?: string) => SkillSupportItem | null
+  getInstalledSkill: (installedId?: string) => SkillSupportItem | null
   isInstallPending: (result: SkillRegistrySearchResult) => boolean
   onInstall: (result: SkillRegistrySearchResult) => void
-  onViewInstalled: (installedName: string) => void
+  onViewInstalled: (installedId: string) => void
 }) {
   const { t } = useTranslation()
 
@@ -97,7 +97,7 @@ export function ResultsPanel({
                       result={result}
                       canInstall={canInstallFromMarketplace}
                       installPending={isInstallPending(result)}
-                      installedSkill={getInstalledSkill(result.installed_name)}
+                      installedSkill={getInstalledSkill(result.installed_id)}
                       onInstall={() => onInstall(result)}
                       onViewInstalled={onViewInstalled}
                     />
@@ -178,7 +178,7 @@ export function ResultsPanel({
                       result={result}
                       canInstall={canInstallFromMarketplace}
                       installPending={isInstallPending(result)}
-                      installedSkill={getInstalledSkill(result.installed_name)}
+                      installedSkill={getInstalledSkill(result.installed_id)}
                       onInstall={() => onInstall(result)}
                       onViewInstalled={onViewInstalled}
                     />

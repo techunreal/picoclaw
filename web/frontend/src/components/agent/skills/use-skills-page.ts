@@ -13,8 +13,8 @@ import { toast } from "sonner"
 
 import {
   type SkillSupportItem,
-  deleteSkill,
-  getSkill,
+  deleteSkillById,
+  getSkillById,
   getSkills,
   importSkill,
 } from "@/api/skills"
@@ -61,9 +61,9 @@ export function useSkillsPage() {
   })
 
   const skillDetailQuery = useQuery({
-    queryKey: ["skills", selectedSkill?.name],
-    queryFn: () => getSkill(selectedSkill!.name),
-    enabled: selectedSkill !== null,
+    queryKey: ["skills", "detail", selectedSkill?.id],
+    queryFn: () => getSkillById(selectedSkill!.id),
+    enabled: selectedSkill !== null && Boolean(selectedSkill.id),
   })
 
   const importMutation = useMutation({
@@ -75,11 +75,15 @@ export function useSkillsPage() {
         setDetailView("preview")
         if (importedSkill.name) {
           setSelectedSkill({
+            id: importedSkill.id ?? "",
             name: importedSkill.name,
             path: importedSkill.path ?? "",
+            directory: importedSkill.directory ?? importedSkill.name,
             source: importedSkill.source ?? "workspace",
             description: importedSkill.description ?? "",
             origin_kind: importedSkill.origin_kind ?? "manual",
+            editable: importedSkill.editable ?? true,
+            owner_handle: importedSkill.owner_handle,
             registry_name: importedSkill.registry_name,
             registry_url: importedSkill.registry_url,
             installed_version: importedSkill.installed_version,
@@ -99,14 +103,11 @@ export function useSkillsPage() {
   })
 
   const deleteMutation = useMutation({
-    mutationFn: async (name: string) => deleteSkill(name),
-    onSuccess: (_, deletedName) => {
+    mutationFn: async (skill: SkillSupportItem) => deleteSkillById(skill.id),
+    onSuccess: (_, deletedSkill) => {
       toast.success(t("pages.agent.skills.delete_success"))
       setSkillPendingDelete(null)
-      if (
-        selectedSkill?.name === deletedName &&
-        selectedSkill.source === "workspace"
-      ) {
+      if (selectedSkill?.id === deletedSkill.id) {
         setSelectedSkill(null)
       }
       void queryClient.invalidateQueries({ queryKey: ["skills"] })
@@ -201,11 +202,8 @@ export function useSkillsPage() {
     setSelectedSkill(skill)
   }
 
-  const handleViewSkillByName = (name: string) => {
-    const skill =
-      allSkills.find(
-        (item) => item.name === name && item.source === "workspace",
-      ) ?? allSkills.find((item) => item.name === name)
+  const handleViewSkillById = (id: string) => {
+    const skill = allSkills.find((item) => item.id === id)
     if (!skill) {
       toast.error(t("pages.agent.skills.view_local_missing"))
       return
@@ -220,7 +218,7 @@ export function useSkillsPage() {
 
   const handleConfirmDelete = () => {
     if (skillPendingDelete) {
-      deleteMutation.mutate(skillPendingDelete.name)
+      deleteMutation.mutate(skillPendingDelete)
     }
   }
 
@@ -338,7 +336,7 @@ export function useSkillsPage() {
     setDetailView,
     openImportDialog: () => setIsImportDialogOpen(true),
     handleViewSkill,
-    handleViewSkillByName,
+    handleViewSkillById,
     handleRequestDelete,
     handleConfirmDelete,
     handleImportClick,

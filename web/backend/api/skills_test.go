@@ -706,6 +706,236 @@ func TestHandleSearchSkills(t *testing.T) {
 	}
 }
 
+func TestHandleGetSkillByIDDisambiguatesSameName(t *testing.T) {
+	configPath, cleanup := setupOAuthTestEnv(t)
+	defer cleanup()
+
+	cfg, err := config.LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+	workspace := filepath.Join(t.TempDir(), "workspace")
+	cfg.Agents.Defaults.Workspace = workspace
+	if err := config.SaveConfig(configPath, cfg); err != nil {
+		t.Fatalf("SaveConfig() error = %v", err)
+	}
+
+	writeWorkspaceSkill := func(root, dir, content string) {
+		t.Helper()
+		path := filepath.Join(root, dir, "SKILL.md")
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatalf("MkdirAll() error = %v", err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatalf("WriteFile() error = %v", err)
+		}
+	}
+	writeWorkspaceSkill(
+		filepath.Join(workspace, "skills"),
+		"dup-a",
+		"---\nname: dup\ndescription: Workspace duplicate A\n---\nworkspace content A\n",
+	)
+	writeWorkspaceSkill(
+		filepath.Join(workspace, "skills"),
+		"dup-b",
+		"---\nname: dup\ndescription: Workspace duplicate B\n---\nworkspace content B\n",
+	)
+	writeWorkspaceSkill(
+		filepath.Join(globalConfigDir(), "skills"),
+		"globalsolo",
+		"---\nname: globalsolo\ndescription: Global skill\n---\nglobal content\n",
+	)
+
+	h := NewHandler(configPath)
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	for _, testCase := range []struct {
+		id      string
+		source  string
+		content string
+	}{
+		{id: "workspace:dup-a", source: "workspace", content: "workspace content A"},
+		{id: "workspace:dup-b", source: "workspace", content: "workspace content B"},
+		{id: "global:globalsolo", source: "global", content: "global content"},
+	} {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(
+			http.MethodGet,
+			"/api/skills/by-id/"+testCase.id,
+			nil,
+		)
+		mux.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s: status = %d body=%s", testCase.id, rec.Code, rec.Body.String())
+		}
+		var detail skillDetailResponse
+		if err := json.Unmarshal(rec.Body.Bytes(), &detail); err != nil {
+			t.Fatalf("Unmarshal() error = %v", err)
+		}
+		if detail.ID != testCase.id || detail.Source != testCase.source {
+			t.Fatalf("%s: unexpected detail %#v", testCase.id, detail.skillSupportItem)
+		}
+		if detail.Directory != strings.Split(testCase.id, ":")[1] ||
+			!strings.Contains(detail.Content, testCase.content) {
+			t.Fatalf("%s: wrong content/source: %#v", testCase.id, detail)
+		}
+	}
+}
+
+func TestHandleDeleteSkillByID(t *testing.T) {
+	configPath, cleanup := setupOAuthTestEnv(t)
+	defer cleanup()
+
+	cfg, err := config.LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+	workspace := filepath.Join(t.TempDir(), "workspace")
+	cfg.Agents.Defaults.Workspace = workspace
+	if err := config.SaveConfig(configPath, cfg); err != nil {
+		t.Fatalf("SaveConfig() error = %v", err)
+	}
+
+	workspaceDir := filepath.Join(workspace, "skills", "delme")
+	globalDir := filepath.Join(globalConfigDir(), "skills", "delme")
+	for _, dir := range []string{workspaceDir, globalDir} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("MkdirAll() error = %v", err)
+		}
+		content := "---\nname: delme\ndescription: Delete test\n---\n# Delete\n"
+		if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(content), 0o644); err != nil {
+			t.Fatalf("WriteFile() error = %v", err)
+		}
+	}
+
+	h := NewHandler(configPath)
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodDelete, "/api/skills/by-id/workspace:delme", nil)
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("workspace delete status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	if _, err := os.Stat(workspaceDir); !os.IsNotExist(err) {
+		t.Fatalf("workspace skill directory should be deleted, stat err=%v", err)
+	}
+	if _, err := os.Stat(globalDir); err != nil {
+		t.Fatalf("global skill should remain untouched: %v", err)
+	}
+
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodDelete, "/api/skills/by-id/global:delme", nil)
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("global delete status = %d, want 400", rec.Code)
+	}
+
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodDelete, "/api/skills/by-id/workspace:..", nil)
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotFound && rec.Code != http.StatusBadRequest {
+		t.Fatalf("invalid id status = %d, want 400/404", rec.Code)
+	}
+}
+
+func TestHandleSearchSkillsMatchesInstalledByOwnerAndGlobal(t *testing.T) {
+	configPath, cleanup := setupOAuthTestEnv(t)
+	defer cleanup()
+
+	cfg, err := config.LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+	workspace := filepath.Join(t.TempDir(), "workspace")
+	cfg.Agents.Defaults.Workspace = workspace
+
+	ownedDir := filepath.Join(workspace, "skills", "owned")
+	if err := os.MkdirAll(ownedDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	ownedContent := "---\nname: owned\ndescription: Owned skill\n---\n# Owned\n"
+	if err := os.WriteFile(filepath.Join(ownedDir, "SKILL.md"), []byte(ownedContent), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	if err := writeSkillOriginMeta(ownedDir, installedSkillOriginMeta{
+		Version:     1,
+		OriginKind:  "third_party",
+		Registry:    "clawhub",
+		Slug:        "owned",
+		OwnerHandle: "alice",
+		InstalledAt: time.Now().UnixMilli(),
+	}); err != nil {
+		t.Fatalf("writeSkillOriginMeta() error = %v", err)
+	}
+
+	globalDir := filepath.Join(globalConfigDir(), "skills", "globalskill")
+	if err := os.MkdirAll(globalDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(globalDir, "SKILL.md"),
+		[]byte("---\nname: globalskill\ndescription: Global skill\n---\n# Global\n"),
+		0o644,
+	); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/search" {
+			http.NotFound(w, r)
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]any{
+			"results": []map[string]any{
+				{"score": 0.9, "slug": "owned", "displayName": "Owned", "summary": "Owned", "ownerHandle": "alice", "install": map[string]any{"kind": "clawhub"}},
+				{"score": 0.8, "slug": "owned", "displayName": "Owned", "summary": "Owned", "ownerHandle": "bob", "install": map[string]any{"kind": "clawhub"}},
+				{"score": 0.7, "slug": "globalskill", "displayName": "Global", "summary": "Global", "ownerHandle": "someone", "install": map[string]any{"kind": "clawhub"}},
+			},
+		})
+	}))
+	defer server.Close()
+
+	setClawHubBaseURL(cfg, server.URL)
+	if err := config.SaveConfig(configPath, cfg); err != nil {
+		t.Fatalf("SaveConfig() error = %v", err)
+	}
+
+	h := NewHandler(configPath)
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/skills/search?q=owned&limit=10", nil)
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var resp skillSearchResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+	byOwner := map[string]skillSearchResultItem{}
+	for _, item := range resp.Results {
+		byOwner[item.OwnerHandle+"/"+item.Slug] = item
+	}
+
+	alice := byOwner["alice/owned"]
+	if !alice.Installed || alice.InstalledID != "workspace:owned" {
+		t.Fatalf("alice/owned should be installed, got %#v", alice)
+	}
+	bob := byOwner["bob/owned"]
+	if bob.Installed {
+		t.Fatalf("bob/owned must not be installed just because the folder matches, got %#v", bob)
+	}
+	global := byOwner["someone/globalskill"]
+	if !global.Installed || global.InstalledID != "global:globalskill" {
+		t.Fatalf("global skill should count as installed, got %#v", global)
+	}
+}
+
 func TestHandlePopularSkills(t *testing.T) {
 	configPath, cleanup := setupOAuthTestEnv(t)
 	defer cleanup()

@@ -31,11 +31,15 @@ type skillSupportResponse struct {
 }
 
 type skillSupportItem struct {
+	ID               string `json:"id"`
 	Name             string `json:"name"`
 	Path             string `json:"path"`
+	Directory        string `json:"directory"`
 	Source           string `json:"source"`
 	Description      string `json:"description"`
 	OriginKind       string `json:"origin_kind"`
+	Editable         bool   `json:"editable"`
+	OwnerHandle      string `json:"owner_handle,omitempty"`
 	RegistryName     string `json:"registry_name,omitempty"`
 	RegistryURL      string `json:"registry_url,omitempty"`
 	InstalledVersion string `json:"installed_version,omitempty"`
@@ -57,6 +61,7 @@ type skillSearchResultItem struct {
 	URL           string  `json:"url,omitempty"`
 	Installed     bool    `json:"installed"`
 	InstalledName string  `json:"installed_name,omitempty"`
+	InstalledID   string  `json:"installed_id,omitempty"`
 
 	OwnerHandle      string             `json:"owner_handle,omitempty"`
 	InstallKind      string             `json:"install_kind,omitempty"`
@@ -135,9 +140,11 @@ func (h *Handler) registerSkillRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/skills/{name}", h.handleGetSkill)
 	mux.HandleFunc("GET /api/skills/search", h.handleSearchSkills)
 	mux.HandleFunc("GET /api/skills/popular", h.handlePopularSkills)
+	mux.HandleFunc("GET /api/skills/by-id/{id}", h.handleGetSkillByID)
 	mux.HandleFunc("POST /api/skills/install", h.handleInstallSkill)
 	mux.HandleFunc("POST /api/skills/import", h.handleImportSkill)
 	mux.HandleFunc("DELETE /api/skills/{name}", h.handleDeleteSkill)
+	mux.HandleFunc("DELETE /api/skills/by-id/{id}", h.handleDeleteSkillByID)
 }
 
 func (h *Handler) handleListSkills(w http.ResponseWriter, r *http.Request) {
@@ -192,6 +199,68 @@ func (h *Handler) handleGetSkill(w http.ResponseWriter, r *http.Request) {
 	}
 
 	http.Error(w, "Skill not found", http.StatusNotFound)
+}
+
+var skillIDPattern = regexp.MustCompile(`^(workspace|global|builtin):([^/\\]+)$`)
+
+func parseSkillID(id string) (source, directory string, ok bool) {
+	matches := skillIDPattern.FindStringSubmatch(id)
+	if len(matches) != 3 {
+		return "", "", false
+	}
+	directory = matches[2]
+	if directory == "." || directory == ".." {
+		return "", "", false
+	}
+	return matches[1], directory, true
+}
+
+func findSkillByID(cfg *config.Config, id string) (*skillSupportItem, error) {
+	source, directory, ok := parseSkillID(id)
+	if !ok {
+		return nil, errors.New("invalid skill id")
+	}
+	items, err := buildSkillSupportItems(cfg)
+	if err != nil {
+		return nil, err
+	}
+	for _, item := range items {
+		if item.Source == source && item.Directory == directory {
+			itemCopy := item
+			return &itemCopy, nil
+		}
+	}
+	return nil, nil
+}
+
+func (h *Handler) handleGetSkillByID(w http.ResponseWriter, r *http.Request) {
+	cfg, err := config.LoadConfig(h.configPath)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to load config: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	item, err := findSkillByID(cfg, r.PathValue("id"))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if item == nil {
+		http.Error(w, "Skill not found", http.StatusNotFound)
+		return
+	}
+
+	content, err := loadSkillContent(item.Path)
+	if err != nil {
+		http.Error(w, "Skill content not found", http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(skillDetailResponse{
+		skillSupportItem: *item,
+		Content:          content,
+	})
 }
 
 func (h *Handler) handleSearchSkills(w http.ResponseWriter, r *http.Request) {
@@ -574,17 +643,13 @@ func (h *Handler) handleInstallSkill(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	installedSkill := &skillSupportItem{
-		Name:             validatedSkill.Name,
-		Path:             validatedSkill.Path,
-		Source:           validatedSkill.Source,
-		Description:      validatedSkill.Description,
-		OriginKind:       "third_party",
-		RegistryName:     registry.Name(),
-		RegistryURL:      registryURL,
-		InstalledVersion: result.Version,
-		InstalledAt:      installedAt,
-	}
+	installedSkill := *validatedSkill
+	installedSkill.OriginKind = "third_party"
+	installedSkill.RegistryName = registry.Name()
+	installedSkill.RegistryURL = registryURL
+	installedSkill.InstalledVersion = result.Version
+	installedSkill.InstalledAt = installedAt
+	installedSkill.OwnerHandle = req.OwnerHandle
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(installSkillResponse{
@@ -594,7 +659,7 @@ func (h *Handler) handleInstallSkill(w http.ResponseWriter, r *http.Request) {
 		Version:        result.Version,
 		Summary:        result.Summary,
 		IsSuspicious:   result.IsSuspicious,
-		InstalledSkill: installedSkill,
+		InstalledSkill: &installedSkill,
 	})
 }
 
@@ -677,6 +742,39 @@ func (h *Handler) handleDeleteSkill(w http.ResponseWriter, r *http.Request) {
 	http.Error(w, "Skill not found", http.StatusNotFound)
 }
 
+func (h *Handler) handleDeleteSkillByID(w http.ResponseWriter, r *http.Request) {
+	cfg, err := config.LoadConfig(h.configPath)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to load config: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	item, err := findSkillByID(cfg, r.PathValue("id"))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if item == nil {
+		http.Error(w, "Skill not found", http.StatusNotFound)
+		return
+	}
+	if item.Source != "workspace" {
+		http.Error(w, "only workspace skills can be deleted", http.StatusBadRequest)
+		return
+	}
+
+	workspaceSkillWriteMu.Lock()
+	defer workspaceSkillWriteMu.Unlock()
+
+	if err := os.RemoveAll(filepath.Dir(item.Path)); err != nil {
+		http.Error(w, fmt.Sprintf("Failed to delete skill: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+}
+
 func newSkillsLoader(workspace string) *skills.SkillsLoader {
 	return skills.NewSkillsLoader(
 		workspace,
@@ -738,25 +836,79 @@ func buildOccupiedWorkspaceSkillsByDirectory(cfg *config.Config) (map[string]ski
 		return nil, err
 	}
 	for _, skill := range items {
-		if skill.Source != "workspace" {
-			continue
-		}
-
-		dirName := filepath.Base(filepath.Dir(skill.Path))
+		dirName := strings.ToLower(skill.Directory)
 		if dirName != "" {
-			result[dirName] = skill
-		}
-		if meta, err := readInstalledSkillOriginMeta(skill.Path); err == nil && meta != nil && meta.Slug != "" {
-			key := skills.NormalizeInstallTargetForRegistry(cfg.Tools.Skills, meta.Registry, meta.Slug)
-			if key == "" {
-				key = meta.Slug
-			}
-			if key != "" {
+			key := "dir:" + dirName
+			existing, exists := result[key]
+			if !exists || (existing.Source != "workspace" && skill.Source == "workspace") {
 				result[key] = skill
 			}
 		}
+
+		meta, err := readInstalledSkillOriginMeta(skill.Path)
+		if err != nil || meta == nil || meta.Slug == "" {
+			continue
+		}
+		registryName := strings.ToLower(strings.TrimSpace(meta.Registry))
+		slug := strings.ToLower(strings.TrimSpace(meta.Slug))
+		if slug == "" {
+			continue
+		}
+		owner := normalizeSkillOwner(meta.OwnerHandle)
+		if owner != "" {
+			result["owner:"+registryName+"|"+owner+"|"+slug] = skill
+		} else {
+			result["slug:"+registryName+"|"+slug] = skill
+		}
 	}
 	return result, nil
+}
+
+// findInstalledSkill matches a search result to an installed skill by
+// registry + owner + slug first, then by legacy slug-only metadata, and
+// finally by install directory (manual, global, and builtin skills).
+func findInstalledSkill(
+	installedSkills map[string]skillSupportItem,
+	registryMgr *skills.RegistryManager,
+	result skills.SearchResult,
+) (skillSupportItem, bool) {
+	registryName := strings.ToLower(strings.TrimSpace(result.RegistryName))
+	slug := strings.ToLower(strings.TrimSpace(result.Slug))
+	owner := normalizeSkillOwner(result.OwnerHandle)
+
+	if owner != "" {
+		if skill, ok := installedSkills["owner:"+registryName+"|"+owner+"|"+slug]; ok {
+			return skill, true
+		}
+	}
+	if skill, ok := installedSkills["slug:"+registryName+"|"+slug]; ok {
+		return skill, true
+	}
+
+	dirCandidates := []string{slug}
+	if registryMgr != nil {
+		if registry := registryMgr.GetRegistry(result.RegistryName); registry != nil {
+			if dirName, err := registry.ResolveInstallDirName(result.Slug); err == nil {
+				dirCandidates = append([]string{strings.ToLower(dirName)}, dirCandidates...)
+			}
+		}
+	}
+	for _, dirName := range dirCandidates {
+		if dirName == "" {
+			continue
+		}
+		skill, ok := installedSkills["dir:"+dirName]
+		if !ok {
+			continue
+		}
+		// A third-party skill installed by a different publisher must not be
+		// reported as the same skill just because the folder name matches.
+		if skill.OwnerHandle != "" && owner != "" && !strings.EqualFold(skill.OwnerHandle, owner) {
+			continue
+		}
+		return skill, true
+	}
+	return skillSupportItem{}, false
 }
 
 func findWorkspaceSkillByDirectory(cfg *config.Config, directory string) *skillSupportItem {
@@ -833,12 +985,16 @@ func reserveTempDirPath(parent, pattern string) (string, error) {
 }
 
 func enrichSkillInfo(cfg *config.Config, skill skills.SkillInfo) (skillSupportItem, error) {
+	directory := filepath.Base(filepath.Dir(skill.Path))
 	item := skillSupportItem{
+		ID:          skill.Source + ":" + directory,
 		Name:        skill.Name,
 		Path:        skill.Path,
+		Directory:   directory,
 		Source:      skill.Source,
 		Description: skill.Description,
 		OriginKind:  "builtin",
+		Editable:    skill.Source == "workspace",
 	}
 
 	switch skill.Source {
@@ -849,6 +1005,7 @@ func enrichSkillInfo(cfg *config.Config, skill skills.SkillInfo) (skillSupportIt
 	case "workspace":
 		meta, err := readInstalledSkillOriginMeta(skill.Path)
 		if err == nil && meta != nil {
+			item.OwnerHandle = normalizeSkillOwner(meta.OwnerHandle)
 			switch meta.OriginKind {
 			case "manual":
 				item.OriginKind = "manual"
@@ -996,16 +1153,7 @@ func buildSkillSearchResultItem(
 	installedSkills map[string]skillSupportItem,
 	result skills.SearchResult,
 ) skillSearchResultItem {
-	installedSkill, installed := installedSkills[result.Slug]
-	if !installed {
-		registry := registryMgr.GetRegistry(result.RegistryName)
-		if registry != nil {
-			dirName, err := registry.ResolveInstallDirName(result.Slug)
-			if err == nil {
-				installedSkill, installed = installedSkills[dirName]
-			}
-		}
-	}
+	installedSkill, installed := findInstalledSkill(installedSkills, registryMgr, result)
 
 	resultURL := result.CanonicalURL
 	if resultURL == "" {
@@ -1037,6 +1185,7 @@ func buildSkillSearchResultItem(
 	}
 	if installed {
 		item.InstalledName = installedSkill.Name
+		item.InstalledID = installedSkill.ID
 	}
 	return item
 }
@@ -1412,11 +1561,14 @@ func finalizeImportedSkill(
 	}
 
 	return &skillSupportItem{
+		ID:          "workspace:" + skillName,
 		Name:        skillName,
 		Path:        filepath.Join(skillDir, "SKILL.md"),
+		Directory:   skillName,
 		Source:      "workspace",
 		Description: "Imported skill",
 		OriginKind:  "manual",
+		Editable:    true,
 	}, http.StatusOK, nil
 }
 
