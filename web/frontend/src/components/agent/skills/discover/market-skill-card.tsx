@@ -37,7 +37,7 @@ export function MarketSkillCard({
   installPending: boolean
   installedSkill: SkillSupportItem | null
   onInstall: () => void
-  onViewInstalled: () => void
+  onViewInstalled: (installedName: string) => void
 }) {
   const { t } = useTranslation()
 
@@ -134,7 +134,7 @@ export function MarketSkillCard({
               <Button
                 variant="outline"
                 size="xs"
-                onClick={onViewInstalled}
+                onClick={() => onViewInstalled(result.installed_name ?? "")}
                 className="hover:bg-muted w-full shadow-sm"
               >
                 <IconFileInfo className="mr-1 size-3.5" />

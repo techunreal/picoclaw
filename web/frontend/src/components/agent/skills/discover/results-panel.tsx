@@ -33,7 +33,7 @@ export function ResultsPanel({
   getInstalledSkill: (installedName?: string) => SkillSupportItem | null
   isInstallPending: (result: SkillRegistrySearchResult) => boolean
   onInstall: (result: SkillRegistrySearchResult) => void
-  onViewInstalled: () => void
+  onViewInstalled: (installedName: string) => void
 }) {
   const { t } = useTranslation()
 

@@ -4,7 +4,6 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query"
-import { useNavigate } from "@tanstack/react-router"
 import { type UIEvent, useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
@@ -23,9 +22,8 @@ import { buildUnavailableToolMessages } from "./tool-support"
 
 const MARKET_SEARCH_LIMIT = 20
 
-export function useHubMarketplace() {
+export function useSkillsDiscover() {
   const { t } = useTranslation()
-  const navigate = useNavigate()
   const queryClient = useQueryClient()
   const isLoadMoreLockedRef = useRef(false)
 
@@ -153,10 +151,6 @@ export function useHubMarketplace() {
     })
   }
 
-  const handleViewInstalled = () => {
-    void navigate({ to: "/agent/skills" })
-  }
-
   const handleScroll = (event: UIEvent<HTMLDivElement>) => {
     if (
       !isMarketSearchActive ||
@@ -203,7 +197,6 @@ export function useHubMarketplace() {
     setMarketQuery,
     handleSearchSubmit,
     handleInstall,
-    handleViewInstalled,
     handleScroll,
     getInstalledSkill,
     isInstallPending,

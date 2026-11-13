@@ -201,6 +201,19 @@ export function useSkillsPage() {
     setSelectedSkill(skill)
   }
 
+  const handleViewSkillByName = (name: string) => {
+    const skill =
+      allSkills.find(
+        (item) => item.name === name && item.source === "workspace",
+      ) ?? allSkills.find((item) => item.name === name)
+    if (!skill) {
+      toast.error(t("pages.agent.skills.view_local_missing"))
+      return
+    }
+    setDetailView("preview")
+    setSelectedSkill(skill)
+  }
+
   const handleRequestDelete = (skill: SkillSupportItem) => {
     setSkillPendingDelete(skill)
   }
@@ -325,6 +338,7 @@ export function useSkillsPage() {
     setDetailView,
     openImportDialog: () => setIsImportDialogOpen(true),
     handleViewSkill,
+    handleViewSkillByName,
     handleRequestDelete,
     handleConfirmDelete,
     handleImportClick,

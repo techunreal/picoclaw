@@ -1,11 +1,11 @@
-import { createFileRoute } from "@tanstack/react-router"
-
-import { HubPage } from "@/components/agent/hub/hub-page"
+import { createFileRoute, redirect } from "@tanstack/react-router"
 
 export const Route = createFileRoute("/agent/hub")({
-  component: AgentHubRoute,
+  beforeLoad: () => {
+    throw redirect({
+      to: "/agent/skills",
+      search: { tab: "discover" },
+      replace: true,
+    })
+  },
 })
-
-function AgentHubRoute() {
-  return <HubPage />
-}

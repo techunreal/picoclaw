@@ -7,7 +7,6 @@ import {
   IconListDetails,
   IconMessageCircle,
   IconNotebook,
-  IconSearch,
   IconSettings,
   IconSparkles,
   IconTools,
@@ -137,12 +136,6 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
             title: "navigation.memory",
             url: "/agent/files",
             icon: IconNotebook,
-            translateTitle: true,
-          },
-          {
-            title: "navigation.hub",
-            url: "/agent/hub",
-            icon: IconSearch,
             translateTitle: true,
           },
           {

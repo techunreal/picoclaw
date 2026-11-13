@@ -688,6 +688,12 @@
         "install_success": "Installed {{name}}.",
         "install_error": "Failed to install skill.",
         "search_placeholder": "Search by name, description, or registry",
+        "search_installed_placeholder": "Search installed skills",
+        "tabs": {
+          "installed": "Installed",
+          "discover": "Discover"
+        },
+        "view_local_missing": "This skill is not available locally yet.",
         "source_label": "Type",
         "sort_label": "Sort",
         "import": "Import Skill",

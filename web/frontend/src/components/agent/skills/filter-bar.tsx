@@ -46,7 +46,7 @@ export function FilterBar({
         <Input
           value={searchQuery}
           onChange={(event) => onSearchQueryChange(event.target.value)}
-          placeholder={t("pages.agent.skills.search_placeholder")}
+          placeholder={t("pages.agent.skills.search_installed_placeholder")}
           className="hover:bg-background/50 focus-visible:bg-background h-9 border-transparent bg-transparent pl-9 shadow-none focus-visible:ring-1"
         />
       </div>
