@@ -15,6 +15,13 @@ import (
 	"github.com/sipeed/picoclaw/pkg/config"
 )
 
+func skipOnWindows(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("requires a Unix shell")
+	}
+}
+
 // TestShellTool_Success verifies successful command execution
 func TestShellTool_Success(t *testing.T) {
 	tool, err := NewExecTool("", false)
@@ -499,6 +506,7 @@ func TestShellTool_RelativePathWithSlashAllowed(t *testing.T) {
 }
 
 func TestShellTool_AttachedAbsolutePathsStillBlocked(t *testing.T) {
+	skipOnWindows(t)
 	tmpDir := t.TempDir()
 	tool, err := NewExecTool(tmpDir, true)
 	if err != nil {
@@ -553,6 +561,7 @@ func TestShellTool_OptionValueRelativeSymlinkEscapeBlocked(t *testing.T) {
 
 // TestShellTool_DevNullAllowed verifies that /dev/null redirections are not blocked (issue #964).
 func TestShellTool_DevNullAllowed(t *testing.T) {
+	skipOnWindows(t)
 	tmpDir := t.TempDir()
 	tool, err := NewExecTool(tmpDir, true)
 	if err != nil {
@@ -608,6 +617,7 @@ func TestShellTool_BlockDevices(t *testing.T) {
 // TestShellTool_SafePathsInWorkspaceRestriction verifies that safe kernel pseudo-devices
 // are allowed even when workspace restriction is active.
 func TestShellTool_SafePathsInWorkspaceRestriction(t *testing.T) {
+	skipOnWindows(t)
 	tmpDir := t.TempDir()
 	tool, err := NewExecTool(tmpDir, true)
 	if err != nil {
@@ -665,6 +675,7 @@ func TestShellTool_ExitCodeDetails(t *testing.T) {
 
 // TestShellTool_TimeoutWithPartialOutput verifies timeout includes partial output
 func TestShellTool_TimeoutWithPartialOutput(t *testing.T) {
+	skipOnWindows(t)
 	tool, err := NewExecTool("", false)
 	if err != nil {
 		t.Fatalf("unable to configure exec tool: %s", err)
@@ -762,6 +773,7 @@ func TestShellTool_URLsNotBlocked(t *testing.T) {
 // TestShellTool_FileURISandboxing verifies that file:// URIs that escape the
 // workspace are still blocked, even though other URLs are allowed (issue #1254).
 func TestShellTool_FileURISandboxing(t *testing.T) {
+	skipOnWindows(t)
 	tmpDir := t.TempDir()
 	tool, err := NewExecTool(tmpDir, true)
 	if err != nil {
@@ -806,6 +818,7 @@ func TestShellTool_FileURISandboxing(t *testing.T) {
 // sandbox by smuggling a real path after a URL that contains the same //path substring.
 // e.g. "echo https://etc/passwd && cat //etc/passwd" must still be blocked.
 func TestShellTool_URLBypassPrevented(t *testing.T) {
+	skipOnWindows(t)
 	tmpDir := t.TempDir()
 	tool, err := NewExecTool(tmpDir, true)
 	if err != nil {
@@ -1355,6 +1368,7 @@ func TestShellTool_PTY_Kill(t *testing.T) {
 }
 
 func TestShellTool_Write_Read_NonPTY(t *testing.T) {
+	skipOnWindows(t)
 	tool, err := NewExecTool("", false)
 	require.NoError(t, err)
 
@@ -1409,6 +1423,7 @@ func TestShellTool_Write_Read_NonPTY(t *testing.T) {
 }
 
 func TestShellTool_Read_NonPTY_Running(t *testing.T) {
+	skipOnWindows(t)
 	tool, err := NewExecTool("", false)
 	require.NoError(t, err)
 
@@ -1678,6 +1693,7 @@ func TestShellTool_PTY_Background_ReadNoBlock(t *testing.T) {
 }
 
 func TestShellTool_Poll_Status(t *testing.T) {
+	skipOnWindows(t)
 	tool, err := NewExecTool("", false)
 	require.NoError(t, err)
 

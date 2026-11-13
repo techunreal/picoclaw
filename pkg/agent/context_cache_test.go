@@ -3,6 +3,7 @@ package agent
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -450,6 +451,9 @@ Updated content.`
 func TestGlobalSkillFileContentChange(t *testing.T) {
 	tmpHome := t.TempDir()
 	t.Setenv("HOME", tmpHome)
+	if runtime.GOOS == "windows" {
+		t.Setenv("USERPROFILE", tmpHome)
+	}
 
 	tmpDir := setupWorkspace(t, nil)
 	defer os.RemoveAll(tmpDir)
@@ -507,6 +511,9 @@ description: global-v2
 func TestBuiltinSkillFileContentChange(t *testing.T) {
 	tmpHome := t.TempDir()
 	t.Setenv("HOME", tmpHome)
+	if runtime.GOOS == "windows" {
+		t.Setenv("USERPROFILE", tmpHome)
+	}
 
 	tmpDir := setupWorkspace(t, nil)
 	defer os.RemoveAll(tmpDir)

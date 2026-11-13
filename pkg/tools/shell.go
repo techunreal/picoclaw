@@ -1281,7 +1281,9 @@ func (t *ExecTool) guardCommand(command, cwd string) string {
 
 			rel, err := filepath.Rel(cwdPath, p)
 			if err != nil {
-				continue
+				// Different Windows volumes, for example C:\Users vs D:\workspace.
+				// Rel cannot express that relationship; treat it as outside.
+				return "Command blocked by safety guard (path outside working dir)"
 			}
 
 			if strings.HasPrefix(rel, "..") {
@@ -1294,6 +1296,14 @@ func (t *ExecTool) guardCommand(command, cwd string) string {
 }
 
 func commandPathAbs(pathText, cwdPath string) (string, error) {
+	// On Windows, a leading "/" is rooted on the current drive even though
+	// filepath.IsAbs reports false. Resolve it against the workspace drive so
+	// "/tmp" cannot silently become <workspace>/tmp.
+	if runtime.GOOS == "windows" && strings.HasPrefix(pathText, "/") {
+		if volume := filepath.VolumeName(cwdPath); volume != "" {
+			return filepath.Abs(volume + filepath.FromSlash(pathText))
+		}
+	}
 	if filepath.IsAbs(pathText) {
 		return filepath.Abs(pathText)
 	}

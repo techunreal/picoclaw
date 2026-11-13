@@ -158,6 +158,14 @@ func (m *seahorseContextManager) Ingest(ctx context.Context, req *IngestRequest)
 }
 
 // Clear removes all stored context for a session (seahorse DB + JSONL).
+// Close releases the underlying seahorse database handle.
+func (m *seahorseContextManager) Close() error {
+	if m == nil || m.engine == nil {
+		return nil
+	}
+	return m.engine.Close()
+}
+
 func (m *seahorseContextManager) Clear(ctx context.Context, sessionKey string) error {
 	if err := m.engine.ClearSession(ctx, sessionKey); err != nil {
 		return err

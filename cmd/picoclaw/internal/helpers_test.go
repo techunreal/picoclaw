@@ -14,6 +14,9 @@ import (
 
 func TestGetConfigPath(t *testing.T) {
 	t.Setenv("HOME", "/tmp/home")
+	if runtime.GOOS == "windows" {
+		t.Setenv("USERPROFILE", "/tmp/home")
+	}
 
 	got := GetConfigPath()
 	want := filepath.Join("/tmp/home", ".picoclaw", "config.json")

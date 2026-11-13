@@ -17,8 +17,9 @@ func TestResolveInstanceRoot_UsesPicoclawHome(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResolveInstanceRoot() error = %v", err)
 	}
-	if root != "/custom/picoclaw/home" {
-		t.Fatalf("ResolveInstanceRoot() = %q, want %q", root, "/custom/picoclaw/home")
+	want := filepath.FromSlash("/custom/picoclaw/home")
+	if root != want {
+		t.Fatalf("ResolveInstanceRoot() = %q, want %q", root, want)
 	}
 }
 
@@ -78,20 +79,22 @@ func TestIsSupportedOn(t *testing.T) {
 }
 
 func TestValidateExposePaths(t *testing.T) {
-	err := ValidateExposePaths([]config.ExposePath{{Source: "/src", Target: "/dst", Mode: "ro"}})
+	src := t.TempDir()
+	dst := t.TempDir()
+	err := ValidateExposePaths([]config.ExposePath{{Source: src, Target: dst, Mode: "ro"}})
 	if err != nil {
 		t.Fatalf("ValidateExposePaths() error = %v", err)
 	}
 
-	err = ValidateExposePaths([]config.ExposePath{{Source: "/src", Target: "/dst", Mode: "bad"}})
+	err = ValidateExposePaths([]config.ExposePath{{Source: src, Target: dst, Mode: "bad"}})
 	if err == nil {
 		t.Fatal("ValidateExposePaths() expected invalid mode error")
 	}
 
 	err = ValidateExposePaths(
 		[]config.ExposePath{
-			{Source: "/src", Target: "/dst", Mode: "ro"},
-			{Source: "/other", Target: "/dst", Mode: "rw"},
+			{Source: src, Target: dst, Mode: "ro"},
+			{Source: t.TempDir(), Target: dst, Mode: "rw"},
 		},
 	)
 	if err == nil {
@@ -100,15 +103,18 @@ func TestValidateExposePaths(t *testing.T) {
 }
 
 func TestMergeExposePaths_OverrideByTarget(t *testing.T) {
+	srcA := t.TempDir()
+	srcB := t.TempDir()
+	dst := t.TempDir()
 	merged := MergeExposePaths(
-		[]config.ExposePath{{Source: "/src-a", Target: "/dst", Mode: "ro"}},
-		[]config.ExposePath{{Source: "/src-b", Target: "/dst", Mode: "rw"}},
+		[]config.ExposePath{{Source: srcA, Target: dst, Mode: "ro"}},
+		[]config.ExposePath{{Source: srcB, Target: dst, Mode: "rw"}},
 	)
 	if len(merged) != 1 {
 		t.Fatalf("MergeExposePaths len = %d, want 1", len(merged))
 	}
-	if got := merged[0]; got.Source != "/src-b" || got.Target != "/dst" || got.Mode != "rw" {
-		t.Fatalf("merged[0] = %+v, want source=/src-b target=/dst mode=rw", got)
+	if got := merged[0]; got.Source != srcB || got.Target != dst || got.Mode != "rw" {
+		t.Fatalf("merged[0] = %+v, want source=%q target=%q mode=rw", got, srcB, dst)
 	}
 }
 
@@ -233,6 +239,9 @@ func TestPrepareCommand_AppliesUserEnv(t *testing.T) {
 	t.Cleanup(func() { Configure(config.DefaultConfig()) })
 	cmd := exec.Command("sh", "-c", "true")
 	if err := PrepareCommand(cmd); err != nil {
+		if runtime.GOOS == "windows" {
+			t.Skipf("windows isolation token unavailable in this environment: %v", err)
+		}
 		t.Fatalf("PrepareCommand() error = %v", err)
 	}
 	hasHome := false

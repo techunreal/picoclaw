@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"time"
 )
 
@@ -55,13 +56,10 @@ func WriteFileAtomic(path string, data []byte, perm os.FileMode) error {
 		return fmt.Errorf("failed to create directory: %w", err)
 	}
 
-	// Create temp file in the same directory (ensures atomic rename works)
-	// Using a hidden prefix (.tmp-) to avoid issues with some tools
-	tmpFile, err := os.OpenFile(
-		filepath.Join(dir, fmt.Sprintf(".tmp-%d-%d", os.Getpid(), time.Now().UnixNano())),
-		os.O_WRONLY|os.O_CREATE|os.O_EXCL,
-		perm,
-	)
+	// Create temp file in the same directory (ensures atomic rename works).
+	// CreateTemp guarantees a unique name even when concurrent writers call
+	// this function in the same nanosecond (Windows timer resolution is coarse).
+	tmpFile, err := os.CreateTemp(dir, ".tmp-*")
 	if err != nil {
 		return fmt.Errorf("failed to create temp file: %w", err)
 	}
@@ -101,8 +99,9 @@ func WriteFileAtomic(path string, data []byte, perm os.FileMode) error {
 
 	// Atomic rename: temp file becomes the target
 	// On POSIX: rename() is atomic
-	// On Windows: Rename() is atomic for files
-	if err := os.Rename(tmpPath, path); err != nil {
+	// On Windows: Rename() is atomic for files, but a concurrent reader or
+	// antivirus scan can briefly hold the target. Retry that transient case.
+	if err := renameAtomic(tmpPath, path); err != nil {
 		return fmt.Errorf("failed to rename temp file: %w", err)
 	}
 
@@ -112,10 +111,29 @@ func WriteFileAtomic(path string, data []byte, perm os.FileMode) error {
 		_ = dirFile.Sync()
 		_ = dirFile.Close()
 	}
-
 	// Success: skip cleanup (file was renamed, no temp to remove)
 	cleanup = false
 	return nil
+}
+
+// renameAtomic renames tmpPath over targetPath. On Windows a concurrent
+// reader, indexer, or antivirus scan can briefly hold the target, so retry
+// that transient access-denied case.
+func renameAtomic(tmpPath, targetPath string) error {
+	err := os.Rename(tmpPath, targetPath)
+	if err == nil || runtime.GOOS != "windows" {
+		return err
+	}
+
+	for attempt := 1; attempt <= 10; attempt++ {
+		time.Sleep(time.Duration(attempt) * 10 * time.Millisecond)
+		if retryErr := os.Rename(tmpPath, targetPath); retryErr == nil {
+			return nil
+		} else {
+			err = retryErr
+		}
+	}
+	return err
 }
 
 func CopyFile(src, dst string, perm os.FileMode) error {

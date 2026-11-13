@@ -4,11 +4,15 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
 
 func TestRunIntegrationTestsScriptExecutesSuiteCommand(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("requires a POSIX shell environment")
+	}
 	bashPath, err := exec.LookPath("bash")
 	if err != nil {
 		t.Skip("bash not available")

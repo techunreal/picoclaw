@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -92,7 +93,7 @@ func TestWritePidFile(t *testing.T) {
 		t.Fatalf("failed to stat pid file: %v", err)
 	}
 	perm := info.Mode().Perm()
-	if perm != 0o600 {
+	if runtime.GOOS != "windows" && perm != 0o600 {
 		t.Errorf("file permission = %o, want 0600", perm)
 	}
 }

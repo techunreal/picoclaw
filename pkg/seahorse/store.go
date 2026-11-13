@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
@@ -1701,8 +1702,12 @@ func (s *Store) scanSummaries(rows *sql.Rows) ([]Summary, error) {
 	return summaries, nil
 }
 
-func generateSummaryID(content string, t time.Time) string {
-	return fmt.Sprintf("sum_%x", t.UnixNano())
+var summaryIDSeq atomic.Uint64
+
+func generateSummaryID(_ string, t time.Time) string {
+	// UnixNano has coarse resolution on Windows; the counter guarantees
+	// uniqueness when summaries are created in rapid succession.
+	return fmt.Sprintf("sum_%x_%x", t.UnixNano(), summaryIDSeq.Add(1))
 }
 
 func isUniqueViolation(err error) bool {

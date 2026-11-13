@@ -1467,3 +1467,14 @@ func TestStoreReplaceContextItemsWithSummary(t *testing.T) {
 		ordinalSet[item.Ordinal] = true
 	}
 }
+
+func TestGenerateSummaryIDUnique(t *testing.T) {
+	seen := make(map[string]struct{}, 1000)
+	for i := 0; i < 1000; i++ {
+		id := generateSummaryID("content", time.Unix(0, 0))
+		if _, exists := seen[id]; exists {
+			t.Fatalf("duplicate summary id at iteration %d: %s", i, id)
+		}
+		seen[id] = struct{}{}
+	}
+}

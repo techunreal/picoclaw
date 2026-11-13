@@ -354,14 +354,17 @@ func TestAssemblerSummaryXMLWithParents(t *testing.T) {
 	ctx := context.Background()
 
 	// Create a leaf and a condensed summary (condensed has parent)
-	leaf, _ := s.CreateSummary(ctx, CreateSummaryInput{
+	leaf, err := s.CreateSummary(ctx, CreateSummaryInput{
 		ConversationID: convID,
 		Kind:           SummaryKindLeaf,
 		Depth:          0,
 		Content:        "leaf content",
 		TokenCount:     20,
 	})
-	condensed, _ := s.CreateSummary(ctx, CreateSummaryInput{
+	if err != nil {
+		t.Fatalf("CreateSummary(leaf): %v", err)
+	}
+	condensed, err := s.CreateSummary(ctx, CreateSummaryInput{
 		ConversationID: convID,
 		Kind:           SummaryKindCondensed,
 		Depth:          1,
@@ -369,13 +372,21 @@ func TestAssemblerSummaryXMLWithParents(t *testing.T) {
 		TokenCount:     15,
 		ParentIDs:      []string{leaf.SummaryID},
 	})
+	if err != nil {
+		t.Fatalf("CreateSummary(condensed): %v", err)
+	}
 
-	msg, _ := s.AddMessage(ctx, convID, "user", "fresh", 5)
+	msg, err := s.AddMessage(ctx, convID, "user", "fresh", 5)
+	if err != nil {
+		t.Fatalf("AddMessage: %v", err)
+	}
 
-	s.UpsertContextItems(ctx, convID, []ContextItem{
+	if err := s.UpsertContextItems(ctx, convID, []ContextItem{
 		{Ordinal: 100, ItemType: "summary", SummaryID: condensed.SummaryID, TokenCount: 15},
 		{Ordinal: 200, ItemType: "message", MessageID: msg.ID, TokenCount: 5},
-	})
+	}); err != nil {
+		t.Fatalf("UpsertContextItems: %v", err)
+	}
 
 	a := &Assembler{store: s, config: Config{}}
 	result, err := a.Assemble(ctx, convID, AssembleInput{Budget: 1000})

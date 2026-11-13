@@ -245,8 +245,11 @@ func TestSetDefaultModel_ModelWithoutAPIKey(t *testing.T) {
 }
 
 func TestSetDefaultModel_SaveConfigError(t *testing.T) {
-	// Use an invalid path to trigger save error
-	invalidPath := "/nonexistent/directory/config.json"
+	// A regular file cannot be used as a parent directory on any OS.
+	dir := t.TempDir()
+	blocker := filepath.Join(dir, "blocker")
+	require.NoError(t, os.WriteFile(blocker, []byte("not a directory"), 0o600))
+	invalidPath := filepath.Join(blocker, "config.json")
 
 	cfg := &config.Config{
 		Agents: config.AgentsConfig{
@@ -266,8 +269,9 @@ func TestSetDefaultModel_SaveConfigError(t *testing.T) {
 
 	err := setDefaultModel(invalidPath, cfg, "new-model")
 
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to save config")
+	if assert.Error(t, err) {
+		assert.Contains(t, err.Error(), "failed to save config")
+	}
 }
 
 func TestFormatModelName(t *testing.T) {

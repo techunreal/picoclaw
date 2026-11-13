@@ -22,8 +22,8 @@ func ExpandHome(path string) string {
 	}
 	if path[0] == '~' {
 		home, _ := os.UserHomeDir()
-		if len(path) > 1 && path[1] == '/' {
-			return home + path[1:]
+		if len(path) > 1 && (path[1] == '/' || path[1] == '\\') {
+			return filepath.Join(home, filepath.FromSlash(path[2:]))
 		}
 		return home
 	}
