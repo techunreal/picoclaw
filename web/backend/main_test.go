@@ -601,3 +601,21 @@ func mustAtoi(t *testing.T, value string) int {
 	}
 	return n
 }
+
+func TestNewLauncherHTTPServerTimeouts(t *testing.T) {
+	srv := newLauncherHTTPServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	if srv.ReadHeaderTimeout != 10*time.Second {
+		t.Fatalf("ReadHeaderTimeout = %v, want 10s", srv.ReadHeaderTimeout)
+	}
+	if srv.IdleTimeout != 120*time.Second {
+		t.Fatalf("IdleTimeout = %v, want 120s", srv.IdleTimeout)
+	}
+	// Long-lived /pico/ws WebSocket connections rely on these staying unset.
+	if srv.ReadTimeout != 0 || srv.WriteTimeout != 0 {
+		t.Fatalf(
+			"ReadTimeout/WriteTimeout = %v/%v, want 0/0 for WebSocket compatibility",
+			srv.ReadTimeout,
+			srv.WriteTimeout,
+		)
+	}
+}

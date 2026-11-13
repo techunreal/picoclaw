@@ -397,6 +397,17 @@ func launcherAllowlistBypassLogPolicy(
 	return launcherAllowlistBypassLogDecision{}
 }
 
+func newLauncherHTTPServer(handler http.Handler) *http.Server {
+	return &http.Server{
+		Handler: handler,
+		// Bound slow header reads (slowloris) and idle keep-alive connections.
+		// ReadTimeout and WriteTimeout intentionally stay zero because
+		// /pico/ws is a long-lived WebSocket; a global deadline would close it.
+		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       120 * time.Second,
+	}
+}
+
 func main() {
 	port := flag.String("port", "18800", "Port to listen on")
 	host := flag.String("host", "", "Host to listen on (overrides -public when set)")
@@ -732,7 +743,7 @@ func main() {
 	// Start the server(s) in goroutines.
 	servers = make([]*http.Server, 0, len(listeners))
 	for _, ln := range listeners {
-		srv := &http.Server{Handler: handler}
+		srv := newLauncherHTTPServer(handler)
 		servers = append(servers, srv)
 
 		go func(s *http.Server, l net.Listener) {
