@@ -621,6 +621,12 @@
       "load_error": "Failed to load agent support information.",
       "memory": {
         "load_error": "Failed to load agent files.",
+        "master_switch_label": "Memory in prompts",
+        "master_switch_on": "Included in new messages",
+        "master_switch_off": "Disabled for new messages",
+        "master_switch_success_on": "Memory enabled for prompts.",
+        "master_switch_success_off": "Memory disabled for prompts.",
+        "master_switch_error": "Failed to update the memory setting.",
         "detail_load_error": "Failed to load this file.",
         "select_file": "Select a file to view or edit.",
         "empty_group": "No files in this group.",

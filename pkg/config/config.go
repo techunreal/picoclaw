@@ -420,8 +420,25 @@ type ToolFeedbackConfig struct {
 	SeparateMessages bool `json:"separate_messages" env:"PICOCLAW_AGENTS_DEFAULTS_TOOL_FEEDBACK_SEPARATE_MESSAGES"`
 }
 
+// MemoryConfig controls whether workspace memory is injected into prompts.
+// A missing "enabled" field means enabled, so existing configs keep working.
+type MemoryConfig struct {
+	Enabled *bool `json:"enabled,omitempty"`
+}
+
+// IsEnabled reports whether memory context should be included. Default: true.
+func (m MemoryConfig) IsEnabled() bool {
+	return m.Enabled == nil || *m.Enabled
+}
+
+// SetEnabled stores an explicit enable/disable decision.
+func (m *MemoryConfig) SetEnabled(enabled bool) {
+	m.Enabled = &enabled
+}
+
 type AgentDefaults struct {
 	Workspace                 string             `json:"workspace"                        env:"PICOCLAW_AGENTS_DEFAULTS_WORKSPACE"`
+	Memory                    MemoryConfig       `json:"memory,omitempty"`
 	RestrictToWorkspace       bool               `json:"restrict_to_workspace"            env:"PICOCLAW_AGENTS_DEFAULTS_RESTRICT_TO_WORKSPACE"`
 	AllowReadOutsideWorkspace bool               `json:"allow_read_outside_workspace"     env:"PICOCLAW_AGENTS_DEFAULTS_ALLOW_READ_OUTSIDE_WORKSPACE"`
 	Provider                  string             `json:"provider"                         env:"PICOCLAW_AGENTS_DEFAULTS_PROVIDER"`

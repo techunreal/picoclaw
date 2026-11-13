@@ -107,6 +107,9 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	// Agent memory/definition files
 	h.registerAgentFileRoutes(mux)
 
+	// Memory prompt master switch
+	h.registerAgentMemoryRoutes(mux)
+
 	// OS startup / launch-at-login
 	h.registerStartupRoutes(mux)
 

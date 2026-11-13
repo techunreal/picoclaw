@@ -332,6 +332,39 @@ func TestCacheStability(t *testing.T) {
 	}
 }
 
+// TestMemoryMasterSwitchInvalidatesCache verifies that toggling the global
+// memory switch rebuilds the cached prompt and removes memory content.
+func TestMemoryMasterSwitchInvalidatesCache(t *testing.T) {
+	defer SetMemoryEnabled(true)
+
+	tmpDir := setupWorkspace(t, map[string]string{
+		"memory/MEMORY.md": "# Memory\nsecret-memory-token",
+	})
+	defer os.RemoveAll(tmpDir)
+
+	SetMemoryEnabled(true)
+	cb := NewContextBuilder(tmpDir)
+	withMemory := cb.BuildSystemPromptWithCache()
+	if !strings.Contains(withMemory, "secret-memory-token") {
+		t.Fatal("memory should be included while the switch is enabled")
+	}
+
+	SetMemoryEnabled(false)
+	withoutMemory := cb.BuildSystemPromptWithCache()
+	if strings.Contains(withoutMemory, "secret-memory-token") {
+		t.Fatal("memory must be removed after disabling the master switch")
+	}
+	if withoutMemory == withMemory {
+		t.Fatal("cached prompt should be rebuilt when the switch changes")
+	}
+
+	SetMemoryEnabled(true)
+	reEnabled := cb.BuildSystemPromptWithCache()
+	if !strings.Contains(reEnabled, "secret-memory-token") {
+		t.Fatal("memory should return after re-enabling the switch")
+	}
+}
+
 // TestNewFileCreationInvalidatesCache verifies that creating a source file that
 // did not exist when the cache was built triggers a cache rebuild.
 // This catches the "from nothing to something" edge case that the old

@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 
@@ -20,6 +21,24 @@ import (
 	"github.com/sipeed/picoclaw/pkg/skills"
 	"github.com/sipeed/picoclaw/pkg/utils"
 )
+
+// memoryPromptEnabled is the global master switch for injecting workspace
+// memory into prompts. It defaults to enabled and can be flipped at runtime.
+var memoryPromptEnabled atomic.Bool
+
+func init() {
+	memoryPromptEnabled.Store(true)
+}
+
+// SetMemoryEnabled toggles memory injection for all agents immediately.
+func SetMemoryEnabled(enabled bool) {
+	memoryPromptEnabled.Store(enabled)
+}
+
+// MemoryEnabled reports whether memory context is currently injected.
+func MemoryEnabled() bool {
+	return memoryPromptEnabled.Load()
+}
 
 type ContextBuilder struct {
 	workspace      string
@@ -35,6 +54,7 @@ type ContextBuilder struct {
 	systemPromptMutex  sync.RWMutex
 	cachedSystemPrompt string
 	cachedAt           time.Time // max observed mtime across tracked paths at cache build time
+	cachedMemoryOn     bool      // memory master switch state at cache build time
 
 	// existedAtCache tracks which source file paths existed the last time the
 	// cache was built. This lets sourceFilesChanged detect files that are newly
@@ -305,19 +325,21 @@ func (cb *ContextBuilder) buildSystemPromptParts(opts systemPromptBuildOptions) 
 		})
 	}
 
-	// Memory context
-	memoryContext := cb.memory.GetMemoryContext()
-	if memoryContext != "" {
-		add(PromptPart{
-			ID:      "context.memory",
-			Layer:   PromptLayerContext,
-			Slot:    PromptSlotMemory,
-			Source:  PromptSource{ID: PromptSourceMemory, Name: "memory:workspace"},
-			Title:   "memory",
-			Content: "# Memory\n\n" + memoryContext,
-			Stable:  true,
-			Cache:   PromptCacheEphemeral,
-		})
+	// Memory context (global master switch, default enabled)
+	if MemoryEnabled() && cb.memory != nil {
+		memoryContext := cb.memory.GetMemoryContext()
+		if memoryContext != "" {
+			add(PromptPart{
+				ID:      "context.memory",
+				Layer:   PromptLayerContext,
+				Slot:    PromptSlotMemory,
+				Source:  PromptSource{ID: PromptSourceMemory, Name: "memory:workspace"},
+				Title:   "memory",
+				Content: "# Memory\n\n" + memoryContext,
+				Stable:  true,
+				Cache:   PromptCacheEphemeral,
+			})
+		}
 	}
 
 	// Multi-Message Sending (if enabled)
@@ -373,6 +395,7 @@ func (cb *ContextBuilder) BuildSystemPromptWithCache() string {
 	prompt := cb.BuildSystemPrompt()
 	cb.cachedSystemPrompt = prompt
 	cb.cachedAt = baseline.maxMtime
+	cb.cachedMemoryOn = MemoryEnabled()
 	cb.existedAtCache = baseline.existed
 	cb.skillFilesAtCache = baseline.skillFiles
 
@@ -526,6 +549,7 @@ func (cb *ContextBuilder) InvalidateCache() {
 
 	cb.cachedSystemPrompt = ""
 	cb.cachedAt = time.Time{}
+	cb.cachedMemoryOn = false
 	cb.existedAtCache = nil
 	cb.skillFilesAtCache = nil
 
@@ -628,6 +652,9 @@ func (cb *ContextBuilder) buildCacheBaseline() cacheBaseline {
 // which already holds RLock or Lock).
 func (cb *ContextBuilder) sourceFilesChangedLocked() bool {
 	if cb.cachedAt.IsZero() {
+		return true
+	}
+	if cb.cachedMemoryOn != MemoryEnabled() {
 		return true
 	}
 
