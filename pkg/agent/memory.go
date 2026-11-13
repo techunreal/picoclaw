@@ -16,6 +16,10 @@ import (
 	"github.com/sipeed/picoclaw/pkg/fileutil"
 )
 
+// recentDailyNoteDays is the number of days of daily notes included in the
+// memory context and tracked for system prompt cache invalidation.
+const recentDailyNoteDays = 3
+
 // MemoryStore manages persistent memory for the agent.
 // - Long-term memory: memory/MEMORY.md
 // - Daily notes: memory/YYYYMM/YYYYMMDD.md
@@ -41,12 +45,33 @@ func NewMemoryStore(workspace string) *MemoryStore {
 	}
 }
 
+// dailyNotePath returns the path of the daily note for the given date
+// (memory/YYYYMM/YYYYMMDD.md). The month directory and file may not exist.
+func (ms *MemoryStore) dailyNotePath(date time.Time) string {
+	dateStr := date.Format("20060102") // YYYYMMDD
+	monthDir := dateStr[:6]            // YYYYMM
+	return filepath.Join(ms.memoryDir, monthDir, dateStr+".md")
+}
+
 // getTodayFile returns the path to today's daily note file (memory/YYYYMM/YYYYMMDD.md).
 func (ms *MemoryStore) getTodayFile() string {
-	today := time.Now().Format("20060102") // YYYYMMDD
-	monthDir := today[:6]                  // YYYYMM
-	filePath := filepath.Join(ms.memoryDir, monthDir, today+".md")
-	return filePath
+	return ms.dailyNotePath(time.Now())
+}
+
+// RecentDailyNotePaths returns the paths of the daily notes for the last
+// `days` days (today first). Paths are returned even when the files do not
+// exist yet, so callers can detect both creation and modification.
+func (ms *MemoryStore) RecentDailyNotePaths(days int) []string {
+	if days <= 0 {
+		return nil
+	}
+
+	now := time.Now()
+	paths := make([]string, 0, days)
+	for i := range days {
+		paths = append(paths, ms.dailyNotePath(now.AddDate(0, 0, -i)))
+	}
+	return paths
 }
 
 // ReadLongTerm reads the long-term memory (MEMORY.md).
@@ -111,12 +136,7 @@ func (ms *MemoryStore) GetRecentDailyNotes(days int) string {
 	var sb strings.Builder
 	first := true
 
-	for i := range days {
-		date := time.Now().AddDate(0, 0, -i)
-		dateStr := date.Format("20060102") // YYYYMMDD
-		monthDir := dateStr[:6]            // YYYYMM
-		filePath := filepath.Join(ms.memoryDir, monthDir, dateStr+".md")
-
+	for _, filePath := range ms.RecentDailyNotePaths(days) {
 		if data, err := os.ReadFile(filePath); err == nil {
 			if !first {
 				sb.WriteString("\n\n---\n\n")
@@ -133,7 +153,7 @@ func (ms *MemoryStore) GetRecentDailyNotes(days int) string {
 // Includes long-term memory and recent daily notes.
 func (ms *MemoryStore) GetMemoryContext() string {
 	longTerm := ms.ReadLongTerm()
-	recentNotes := ms.GetRecentDailyNotes(3)
+	recentNotes := ms.GetRecentDailyNotes(recentDailyNoteDays)
 
 	if longTerm == "" && recentNotes == "" {
 		return ""

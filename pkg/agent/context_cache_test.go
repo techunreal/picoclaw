@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -387,6 +388,99 @@ func TestNewFileCreationInvalidatesCache(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestDailyNoteInvalidatesCache verifies that daily notes
+// (memory/YYYYMM/YYYYMMDD.md) are tracked for system prompt cache invalidation.
+// Both creating today's note and editing an existing note must rebuild the
+// prompt on the next message, since daily notes are part of the memory context.
+func TestDailyNoteInvalidatesCache(t *testing.T) {
+	dailyNoteRelPath := func(offsetDays int) string {
+		day := time.Now().AddDate(0, 0, -offsetDays).Format("20060102")
+		return filepath.Join("memory", day[:6], day+".md")
+	}
+
+	t.Run("recent daily note paths are tracked", func(t *testing.T) {
+		tmpDir := setupWorkspace(t, nil)
+		defer os.RemoveAll(tmpDir)
+
+		cb := NewContextBuilder(tmpDir)
+		tracked := cb.sourcePaths()
+		for offset := range recentDailyNoteDays {
+			want := filepath.Join(tmpDir, dailyNoteRelPath(offset))
+			if !slices.Contains(tracked, want) {
+				t.Errorf("sourcePaths() should track recent daily note %q", want)
+			}
+		}
+	})
+
+	t.Run("today note created after cache build", func(t *testing.T) {
+		tmpDir := setupWorkspace(t, map[string]string{
+			"AGENT.md": "# Agent\nTest agent.",
+		})
+		defer os.RemoveAll(tmpDir)
+
+		cb := NewContextBuilder(tmpDir)
+		sp1 := cb.BuildSystemPromptWithCache()
+		if strings.Contains(sp1, "marker-daily-created") {
+			t.Fatal("prompt should not contain the daily note content before the note exists")
+		}
+
+		notePath := filepath.Join(tmpDir, dailyNoteRelPath(0))
+		if err := os.MkdirAll(filepath.Dir(notePath), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(notePath, []byte("marker-daily-created"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		// Set future mtime to guarantee detection
+		future := time.Now().Add(2 * time.Second)
+		os.Chtimes(notePath, future, future)
+
+		cb.systemPromptMutex.RLock()
+		changed := cb.sourceFilesChangedLocked()
+		cb.systemPromptMutex.RUnlock()
+		if !changed {
+			t.Fatal("sourceFilesChangedLocked() should detect a newly created daily note")
+		}
+
+		sp2 := cb.BuildSystemPromptWithCache()
+		if !strings.Contains(sp2, "marker-daily-created") {
+			t.Error("cache not invalidated when today's daily note was created")
+		}
+		if sp1 == sp2 {
+			t.Error("prompt should change after today's daily note is created")
+		}
+	})
+
+	t.Run("existing note edited after cache build", func(t *testing.T) {
+		tmpDir := setupWorkspace(t, map[string]string{
+			"AGENT.md":          "# Agent\nTest agent.",
+			dailyNoteRelPath(1): "marker-daily-v1",
+		})
+		defer os.RemoveAll(tmpDir)
+
+		cb := NewContextBuilder(tmpDir)
+		sp1 := cb.BuildSystemPromptWithCache()
+		if !strings.Contains(sp1, "marker-daily-v1") {
+			t.Fatal("expected initial prompt to contain the existing daily note")
+		}
+
+		notePath := filepath.Join(tmpDir, dailyNoteRelPath(1))
+		if err := os.WriteFile(notePath, []byte("marker-daily-v2"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		future := time.Now().Add(2 * time.Second)
+		os.Chtimes(notePath, future, future)
+
+		sp2 := cb.BuildSystemPromptWithCache()
+		if !strings.Contains(sp2, "marker-daily-v2") {
+			t.Error("cache not invalidated when an existing daily note was edited")
+		}
+		if strings.Contains(sp2, "marker-daily-v1") {
+			t.Error("rebuilt prompt should no longer contain the old daily note content")
+		}
+	})
 }
 
 // TestSkillFileContentChange verifies that modifying a skill file's content
