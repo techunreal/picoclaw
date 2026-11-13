@@ -303,6 +303,24 @@ func dedupeModelNameList(names []string) []string {
 	return deduped
 }
 
+// modelNameTaken reports whether another model in cfg already uses modelName.
+// exceptIndex skips the entry being updated (-1 when creating a new model).
+func modelNameTaken(cfg *config.Config, modelName string, exceptIndex int) bool {
+	modelName = strings.TrimSpace(modelName)
+	if cfg == nil || modelName == "" {
+		return false
+	}
+	for i, model := range cfg.ModelList {
+		if i == exceptIndex || model == nil {
+			continue
+		}
+		if strings.TrimSpace(model.ModelName) == modelName {
+			return true
+		}
+	}
+	return false
+}
+
 func modelConfigsByName(cfg *config.Config) map[string][]*config.ModelConfig {
 	models := make(map[string][]*config.ModelConfig, len(cfg.ModelList))
 	for _, model := range cfg.ModelList {
@@ -735,6 +753,14 @@ func (h *Handler) handleAddModel(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, fmt.Sprintf("Validation error: %v", err), http.StatusBadRequest)
 		return
 	}
+	if modelNameTaken(cfg, mc.ModelConfig.ModelName, -1) {
+		http.Error(
+			w,
+			fmt.Sprintf("model name %q already exists", strings.TrimSpace(mc.ModelConfig.ModelName)),
+			http.StatusConflict,
+		)
+		return
+	}
 
 	cfg.ModelList = append(cfg.ModelList, &mc.ModelConfig)
 	normalizeStoredModelProviders(cfg)
@@ -955,6 +981,14 @@ func (h *Handler) updateModel(
 		return
 	}
 	newModelName := strings.TrimSpace(mc.ModelConfig.ModelName)
+	if newModelName != oldModelName && modelNameTaken(cfg, newModelName, idx) {
+		http.Error(
+			w,
+			fmt.Sprintf("model name %q already exists", newModelName),
+			http.StatusConflict,
+		)
+		return
+	}
 	defaultReferenceRenamed := false
 	fallbackReferenceRenamed := false
 	if oldModelName != "" && newModelName != "" && oldModelName != newModelName {

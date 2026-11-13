@@ -981,7 +981,7 @@ func TestHandleAddModel_TrimsModelName(t *testing.T) {
 	}
 }
 
-func TestHandleAddModel_NormalizesDefaultChainWhenDuplicateAliasUnsupported(t *testing.T) {
+func TestHandleAddModel_RejectsDuplicateAliasAndKeepsDefaultChain(t *testing.T) {
 	configPath, cleanup := setupOAuthTestEnv(t)
 	defer cleanup()
 
@@ -990,18 +990,21 @@ func TestHandleAddModel_NormalizesDefaultChainWhenDuplicateAliasUnsupported(t *t
 		geminiModelConfig("backup-b"),
 	}, "primary", []string{"backup-b"})
 
-	addModelAndLoadLatest(t, configPath, `{
+	rec := serveModelsRequest(t, configPath, http.MethodPost, "/api/models", `{
 		"model_name":"primary",
 		"provider":"elevenlabs",
 		"model":"scribe_v1",
 		"api_key":"sk-elevenlabs"
 	}`)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want %d, body=%s", rec.Code, http.StatusConflict, rec.Body.String())
+	}
 
 	updated, err := config.LoadConfig(configPath)
 	if err != nil {
 		t.Fatalf("LoadConfig() error = %v", err)
 	}
-	assertDefaultChain(t, updated, "", nil)
+	assertDefaultChain(t, updated, "primary", []string{"backup-b"})
 }
 
 func TestModelWriteHandlers_PreserveRawDefaultChain(t *testing.T) {
@@ -3528,7 +3531,7 @@ func TestHandleUpdateModel_RenamesFallbackModelReference(t *testing.T) {
 	assertDefaultChain(t, updated, "primary", []string{"backup-a-renamed", "backup-b"})
 }
 
-func TestHandleUpdateModel_RemovesFallbackWhenRenamedToDefaultModel(t *testing.T) {
+func TestHandleUpdateModel_RejectsRenameToDefaultModelName(t *testing.T) {
 	configPath, cleanup := setupOAuthTestEnv(t)
 	defer cleanup()
 
@@ -3537,17 +3540,24 @@ func TestHandleUpdateModel_RemovesFallbackWhenRenamedToDefaultModel(t *testing.T
 		anthropicModelConfig("backup-a"),
 	}, "primary", []string{"backup-a"})
 
-	updated := updateModelAndLoadConfig(t, configPath, 1, `{
+	rec := serveModelsRequest(t, configPath, http.MethodPut, "/api/models/1", `{
 		"model_name":"primary",
 		"provider":"anthropic",
 		"model":"claude-sonnet-4.6",
 		"api_key":"sk-backup-a"
 	}`)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want %d, body=%s", rec.Code, http.StatusConflict, rec.Body.String())
+	}
 
-	assertDefaultChain(t, updated, "primary", nil)
+	updated, err := config.LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+	assertDefaultChain(t, updated, "primary", []string{"backup-a"})
 }
 
-func TestHandleUpdateModel_RemovesFallbackWhenDefaultRenamedToFallbackModel(t *testing.T) {
+func TestHandleUpdateModel_RejectsDefaultRenameToFallbackModelName(t *testing.T) {
 	configPath, cleanup := setupOAuthTestEnv(t)
 	defer cleanup()
 
@@ -3556,14 +3566,21 @@ func TestHandleUpdateModel_RemovesFallbackWhenDefaultRenamedToFallbackModel(t *t
 		anthropicModelConfig("backup-a"),
 	}, "primary", []string{"backup-a"})
 
-	updated := updateModelAndLoadConfig(t, configPath, 0, `{
+	rec := serveModelsRequest(t, configPath, http.MethodPut, "/api/models/0", `{
 		"model_name":"backup-a",
 		"provider":"openai",
 		"model":"gpt-4o",
 		"api_key":"sk-primary"
 	}`)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want %d, body=%s", rec.Code, http.StatusConflict, rec.Body.String())
+	}
 
-	assertDefaultChain(t, updated, "backup-a", nil)
+	updated, err := config.LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+	assertDefaultChain(t, updated, "primary", []string{"backup-a"})
 }
 
 func TestHandleUpdateModel_DoesNotRenameDefaultChainReferenceWhenAliasStillExists(t *testing.T) {
@@ -3586,7 +3603,7 @@ func TestHandleUpdateModel_DoesNotRenameDefaultChainReferenceWhenAliasStillExist
 	assertDefaultChain(t, updated, "shared-alias", []string{"backup-b"})
 }
 
-func TestHandleUpdateModel_ClearsDefaultWhenRenamedAliasGroupUnsupported(t *testing.T) {
+func TestHandleUpdateModel_RejectsRenameOntoExistingAlias(t *testing.T) {
 	configPath, cleanup := setupOAuthTestEnv(t)
 	defer cleanup()
 
@@ -3596,14 +3613,21 @@ func TestHandleUpdateModel_ClearsDefaultWhenRenamedAliasGroupUnsupported(t *test
 		geminiModelConfig("backup-b"),
 	}, "source-alias", []string{"backup-b"})
 
-	updated := updateModelAndLoadConfig(t, configPath, 0, `{
+	rec := serveModelsRequest(t, configPath, http.MethodPut, "/api/models/0", `{
 		"model_name":"target-alias",
 		"provider":"openai",
 		"model":"gpt-4o",
 		"api_key":"sk-openai"
 	}`)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want %d, body=%s", rec.Code, http.StatusConflict, rec.Body.String())
+	}
 
-	assertDefaultChain(t, updated, "", nil)
+	updated, err := config.LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+	assertDefaultChain(t, updated, "source-alias", []string{"backup-b"})
 }
 
 func TestHandleUpdateModel_RenamesDefaultChainReferenceWhenRemainingAliasUnsupported(t *testing.T) {
