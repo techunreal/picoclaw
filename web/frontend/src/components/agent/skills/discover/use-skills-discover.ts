@@ -9,8 +9,11 @@ import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
 
 import {
+  SkillApiError,
+  type SkillOwnerMatch,
   type SkillRegistrySearchResult,
   type SkillSearchResponse,
+  type SkillSearchSort,
   type SkillSupportItem,
   getSkills,
   installSkill,
@@ -22,6 +25,14 @@ import { buildUnavailableToolMessages } from "./tool-support"
 
 const MARKET_SEARCH_LIMIT = 20
 
+interface AmbiguousInstallState {
+  slug: string
+  registry: string
+  version?: string
+  installKind?: string
+  matches: SkillOwnerMatch[]
+}
+
 export function useSkillsDiscover() {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
@@ -29,6 +40,9 @@ export function useSkillsDiscover() {
 
   const [marketQuery, setMarketQuery] = useState("")
   const [submittedMarketQuery, setSubmittedMarketQuery] = useState("")
+  const [marketSort, setMarketSort] = useState<SkillSearchSort>("relevance")
+  const [ambiguousInstall, setAmbiguousInstall] =
+    useState<AmbiguousInstallState | null>(null)
 
   const { data: skillsData } = useQuery({
     queryKey: ["skills"],
@@ -60,13 +74,14 @@ export function useSkillsDiscover() {
     fetchNextPage,
     refetch: refetchMarketSearch,
   } = useInfiniteQuery({
-    queryKey: ["skills-marketplace", submittedMarketQuery],
+    queryKey: ["skills-marketplace", submittedMarketQuery, marketSort],
     initialPageParam: 0,
     queryFn: ({ pageParam }) =>
       searchSkills(
         submittedMarketQuery,
         MARKET_SEARCH_LIMIT,
         Number(pageParam) || 0,
+        marketSort,
       ),
     getNextPageParam: (lastPage: SkillSearchResponse) =>
       lastPage.has_more ? (lastPage.next_offset ?? undefined) : undefined,
@@ -84,10 +99,29 @@ export function useSkillsDiscover() {
           name: response.skill?.name ?? response.slug,
         }),
       )
+      setAmbiguousInstall(null)
       void queryClient.invalidateQueries({ queryKey: ["skills"] })
       void queryClient.invalidateQueries({ queryKey: ["skills-marketplace"] })
     },
     onError: (err) => {
+      if (
+        err instanceof SkillApiError &&
+        err.status === 409 &&
+        err.code === "ambiguous_slug" &&
+        err.matches?.length
+      ) {
+        const current = installMutation.variables
+        if (current) {
+          setAmbiguousInstall({
+            slug: current.slug,
+            registry: current.registry,
+            version: current.version,
+            installKind: current.install_kind,
+            matches: err.matches,
+          })
+          return
+        }
+      }
       toast.error(
         err instanceof Error
           ? err.message
@@ -148,7 +182,32 @@ export function useSkillsDiscover() {
       slug: result.slug,
       registry: result.registry_name,
       version: result.version || undefined,
+      owner_handle: result.owner_handle || undefined,
+      install_kind: result.install_kind || undefined,
     })
+  }
+
+  const handleInstallWithOwner = (ownerHandle: string) => {
+    const pending = ambiguousInstall
+    if (!pending) {
+      return
+    }
+    setAmbiguousInstall(null)
+    installMutation.mutate({
+      slug: pending.slug,
+      registry: pending.registry,
+      version: pending.version,
+      owner_handle: ownerHandle,
+      install_kind: pending.installKind,
+    })
+  }
+
+  const handleSortChange = (nextSort: SkillSearchSort) => {
+    if (nextSort === marketSort) {
+      return
+    }
+    isLoadMoreLockedRef.current = false
+    setMarketSort(nextSort)
   }
 
   const handleScroll = (event: UIEvent<HTMLDivElement>) => {
@@ -194,9 +253,14 @@ export function useSkillsDiscover() {
     hasSubmittedQuery,
     isMarketSearchInitialLoading,
     isMarketSearchLoadingMore,
+    marketSort,
+    ambiguousInstall,
     setMarketQuery,
     handleSearchSubmit,
     handleInstall,
+    handleInstallWithOwner,
+    handleSortChange,
+    clearAmbiguousInstall: () => setAmbiguousInstall(null),
     handleScroll,
     getInstalledSkill,
     isInstallPending,

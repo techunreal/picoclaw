@@ -1,14 +1,18 @@
 package skills
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/url"
 	"os"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/sipeed/picoclaw/pkg/config"
@@ -126,11 +130,28 @@ func (c *ClawHubRegistry) ResolveInstallDirName(target string) (string, error) {
 	return target, nil
 }
 
-func (c *ClawHubRegistry) SkillURL(slug, _ string) string {
+func (c *ClawHubRegistry) SkillURL(slug, version string) string {
+	return c.SkillURLForOwner(slug, "", version)
+}
+
+// SkillURLForOwner returns the canonical ClawHub URL. ClawHub canonical URLs
+// are scoped by publisher: /{owner}/skills/{slug}.
+func (c *ClawHubRegistry) SkillURLForOwner(slug, ownerHandle, _ string) string {
+	slug = strings.TrimSpace(slug)
 	if slug == "" {
 		return ""
 	}
-	return c.baseURL + "/skills/" + url.PathEscape(slug)
+	ownerHandle = normalizeOwnerHandle(ownerHandle)
+	if ownerHandle == "" {
+		return c.baseURL + "/skills/" + url.PathEscape(slug)
+	}
+	return c.baseURL + "/" + url.PathEscape(ownerHandle) + "/skills/" + url.PathEscape(slug)
+}
+
+func normalizeOwnerHandle(owner string) string {
+	owner = strings.TrimSpace(owner)
+	owner = strings.TrimLeft(owner, "@")
+	return strings.ToLower(owner)
 }
 
 func (c ClawHubConfig) IsEnabled() bool {
@@ -148,11 +169,41 @@ type clawhubSearchResponse struct {
 }
 
 type clawhubSearchResult struct {
-	Score       float64 `json:"score"`
-	Slug        *string `json:"slug"`
-	DisplayName *string `json:"displayName"`
-	Summary     *string `json:"summary"`
-	Version     *string `json:"version"`
+	Score        float64 `json:"score"`
+	Slug         *string `json:"slug"`
+	DisplayName  *string `json:"displayName"`
+	Summary      *string `json:"summary"`
+	Version      *string `json:"version"`
+	OwnerHandle  *string `json:"ownerHandle"`
+	CanonicalURL *string `json:"canonicalUrl"`
+	Downloads    *int64  `json:"downloads"`
+
+	Install *struct {
+		Kind      string `json:"kind"`
+		Reference string `json:"reference"`
+		SourceURL string `json:"sourceUrl"`
+	} `json:"install"`
+
+	Links *struct {
+		Canonical string `json:"canonical"`
+		Source    string `json:"source"`
+	} `json:"links"`
+
+	Trust *struct {
+		Installability string `json:"installability"`
+	} `json:"trust"`
+
+	Metrics *struct {
+		Rolling60DayInstalls int64 `json:"rolling60DayInstalls"`
+	} `json:"metrics"`
+
+	Native *struct {
+		OwnerHandle string `json:"ownerHandle"`
+	} `json:"native"`
+
+	SourceIdentity *struct {
+		Owner string `json:"owner"`
+	} `json:"sourceIdentity"`
 }
 
 func (c *ClawHubRegistry) Search(ctx context.Context, query string, limit int) ([]SearchResult, error) {
@@ -195,27 +246,100 @@ func (c *ClawHubRegistry) Search(ctx context.Context, query string, limit int) (
 			displayName = slug
 		}
 
+		ownerHandle := utils.DerefStr(r.OwnerHandle, "")
+		if ownerHandle == "" && r.Native != nil {
+			ownerHandle = r.Native.OwnerHandle
+		}
+		if ownerHandle == "" && r.SourceIdentity != nil {
+			ownerHandle = r.SourceIdentity.Owner
+		}
+
+		installKind := ""
+		installReference := ""
+		sourceURL := ""
+		if r.Install != nil {
+			installKind = r.Install.Kind
+			installReference = r.Install.Reference
+			sourceURL = r.Install.SourceURL
+		}
+
+		canonicalURL := utils.DerefStr(r.CanonicalURL, "")
+		if canonicalURL == "" && r.Links != nil {
+			canonicalURL = r.Links.Canonical
+		}
+		canonicalURL = c.absoluteURL(canonicalURL)
+		if canonicalURL == "" {
+			canonicalURL = c.SkillURLForOwner(slug, ownerHandle, utils.DerefStr(r.Version, ""))
+		}
+
+		downloads := int64(0)
+		if r.Downloads != nil {
+			downloads = *r.Downloads
+		} else if r.Metrics != nil {
+			downloads = r.Metrics.Rolling60DayInstalls
+		}
+
+		installability := ""
+		if r.Trust != nil {
+			installability = r.Trust.Installability
+		}
+
 		results = append(results, SearchResult{
-			Score:        r.Score,
-			Slug:         slug,
-			DisplayName:  displayName,
-			Summary:      summary,
-			Version:      utils.DerefStr(r.Version, ""),
-			RegistryName: c.Name(),
+			Score:            r.Score,
+			Slug:             slug,
+			DisplayName:      displayName,
+			Summary:          summary,
+			Version:          utils.DerefStr(r.Version, ""),
+			RegistryName:     c.Name(),
+			OwnerHandle:      ownerHandle,
+			InstallKind:      installKind,
+			InstallReference: installReference,
+			CanonicalURL:     canonicalURL,
+			SourceURL:        sourceURL,
+			Downloads:        downloads,
+			Installability:   installability,
 		})
 	}
 
 	return results, nil
 }
 
+func (c *ClawHubRegistry) absoluteURL(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return ""
+	}
+	if parsed.IsAbs() {
+		return raw
+	}
+	return strings.TrimRight(c.baseURL, "/") + "/" + strings.TrimLeft(raw, "/")
+}
+
 // --- GetSkillMeta ---
 
 type clawhubSkillResponse struct {
-	Slug          string                 `json:"slug"`
-	DisplayName   string                 `json:"displayName"`
-	Summary       string                 `json:"summary"`
+	Skill *struct {
+		Slug        string `json:"slug"`
+		DisplayName string `json:"displayName"`
+		Summary     string `json:"summary"`
+	} `json:"skill"`
+	Owner         *clawhubOwnerInfo      `json:"owner"`
 	LatestVersion *clawhubVersionInfo    `json:"latestVersion"`
 	Moderation    *clawhubModerationInfo `json:"moderation"`
+
+	// Legacy flat shape (older ClawHub deployments).
+	Slug        string `json:"slug"`
+	DisplayName string `json:"displayName"`
+	Summary     string `json:"summary"`
+}
+
+type clawhubOwnerInfo struct {
+	Handle      string `json:"handle"`
+	DisplayName string `json:"displayName"`
 }
 
 type clawhubVersionInfo struct {
@@ -223,20 +347,54 @@ type clawhubVersionInfo struct {
 }
 
 type clawhubModerationInfo struct {
-	IsMalwareBlocked bool `json:"isMalwareBlocked"`
-	IsSuspicious     bool `json:"isSuspicious"`
+	IsMalwareBlocked bool     `json:"isMalwareBlocked"`
+	IsSuspicious     bool     `json:"isSuspicious"`
+	Verdict          string   `json:"verdict"`
+	ReasonCodes      []string `json:"reasonCodes"`
+	Summary          string   `json:"summary"`
+}
+
+type clawhubAmbiguousResponse struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+	Slug    string `json:"slug"`
+	Matches []struct {
+		OwnerHandle string `json:"ownerHandle"`
+		Slug        string `json:"slug"`
+		Ref         string `json:"ref"`
+		URL         string `json:"url"`
+	} `json:"matches"`
 }
 
 func (c *ClawHubRegistry) GetSkillMeta(ctx context.Context, slug string) (*SkillMeta, error) {
+	return c.GetSkillMetaForOwner(ctx, slug, "")
+}
+
+// GetSkillMetaForOwner fetches metadata for one publisher's skill.
+func (c *ClawHubRegistry) GetSkillMetaForOwner(ctx context.Context, slug, ownerHandle string) (*SkillMeta, error) {
 	if err := utils.ValidateSkillIdentifier(slug); err != nil {
 		return nil, fmt.Errorf("invalid slug %q: error: %s", slug, err.Error())
 	}
 
-	u := c.baseURL + c.skillsPath + "/" + url.PathEscape(slug)
+	u, err := url.Parse(c.baseURL + c.skillsPath + "/" + url.PathEscape(slug))
+	if err != nil {
+		return nil, fmt.Errorf("invalid base URL: %w", err)
+	}
+	if owner := normalizeOwnerHandle(ownerHandle); owner != "" {
+		q := u.Query()
+		q.Set("ownerHandle", owner)
+		u.RawQuery = q.Encode()
+	}
 
-	body, err := c.doGet(ctx, u)
+	body, status, err := c.doGetWithStatus(ctx, u.String())
 	if err != nil {
 		return nil, fmt.Errorf("skill metadata request failed: %w", err)
+	}
+	if status == http.StatusConflict {
+		return nil, parseClawHubAmbiguousError(slug, body)
+	}
+	if status < 200 || status >= 300 {
+		return nil, fmt.Errorf("skill metadata request failed: HTTP %d: %s", status, string(body))
 	}
 
 	var resp clawhubSkillResponse
@@ -244,11 +402,29 @@ func (c *ClawHubRegistry) GetSkillMeta(ctx context.Context, slug string) (*Skill
 		return nil, fmt.Errorf("failed to parse skill metadata: %w", err)
 	}
 
-	meta := &SkillMeta{
-		Slug:         resp.Slug,
-		DisplayName:  resp.DisplayName,
-		Summary:      resp.Summary,
-		RegistryName: c.Name(),
+	meta := &SkillMeta{RegistryName: c.Name()}
+	if resp.Skill != nil {
+		meta.Slug = resp.Skill.Slug
+		meta.DisplayName = resp.Skill.DisplayName
+		meta.Summary = resp.Skill.Summary
+	}
+	if meta.Slug == "" {
+		meta.Slug = resp.Slug
+	}
+	if meta.DisplayName == "" {
+		meta.DisplayName = resp.DisplayName
+	}
+	if meta.Summary == "" {
+		meta.Summary = resp.Summary
+	}
+	if resp.Owner != nil {
+		meta.OwnerHandle = normalizeOwnerHandle(resp.Owner.Handle)
+	}
+	if meta.OwnerHandle == "" {
+		meta.OwnerHandle = normalizeOwnerHandle(ownerHandle)
+	}
+	if meta.OwnerHandle != "" {
+		meta.CanonicalURL = c.SkillURLForOwner(slug, meta.OwnerHandle, "")
 	}
 
 	if resp.LatestVersion != nil {
@@ -256,30 +432,58 @@ func (c *ClawHubRegistry) GetSkillMeta(ctx context.Context, slug string) (*Skill
 	}
 	if resp.Moderation != nil {
 		meta.IsMalwareBlocked = resp.Moderation.IsMalwareBlocked
-		meta.IsSuspicious = resp.Moderation.IsSuspicious
+		meta.IsSuspicious = resp.Moderation.IsSuspicious ||
+			strings.EqualFold(resp.Moderation.Verdict, "suspicious")
 	}
 
 	return meta, nil
 }
 
+func parseClawHubAmbiguousError(slug string, body []byte) error {
+	var resp clawhubAmbiguousResponse
+	_ = json.Unmarshal(body, &resp)
+	err := &AmbiguousSkillSlugError{Slug: slug}
+	for _, match := range resp.Matches {
+		err.Matches = append(err.Matches, SkillOwnerMatch{
+			OwnerHandle: normalizeOwnerHandle(match.OwnerHandle),
+			Slug:        match.Slug,
+			Ref:         match.Ref,
+			URL:         match.URL,
+		})
+	}
+	return err
+}
+
 // --- DownloadAndInstall ---
 
 // DownloadAndInstall fetches metadata (with fallback), resolves version,
-// downloads the skill ZIP, and extracts it to targetDir.
-// Returns an InstallResult for the caller to use for moderation decisions.
+// downloads the skill artifact, and extracts it to targetDir.
 func (c *ClawHubRegistry) DownloadAndInstall(
 	ctx context.Context,
 	slug, version, targetDir string,
+) (*InstallResult, error) {
+	return c.DownloadAndInstallForOwner(ctx, slug, version, "", targetDir)
+}
+
+// DownloadAndInstallForOwner is the publisher-scoped install path.
+func (c *ClawHubRegistry) DownloadAndInstallForOwner(
+	ctx context.Context,
+	slug, version, ownerHandle, targetDir string,
 ) (*InstallResult, error) {
 	if err := utils.ValidateSkillIdentifier(slug); err != nil {
 		return nil, fmt.Errorf("invalid slug %q: error: %s", slug, err.Error())
 	}
 
-	// Step 1: Fetch metadata (with fallback).
+	owner := normalizeOwnerHandle(ownerHandle)
+
+	// Step 1: Fetch metadata (with fallback), but keep ambiguity errors.
 	result := &InstallResult{}
-	meta, err := c.GetSkillMeta(ctx, slug)
+	meta, err := c.GetSkillMetaForOwner(ctx, slug, owner)
 	if err != nil {
-		// Fallback: proceed without metadata.
+		var ambiguous *AmbiguousSkillSlugError
+		if errors.As(err, &ambiguous) {
+			return nil, ambiguous
+		}
 		meta = nil
 	}
 
@@ -287,6 +491,9 @@ func (c *ClawHubRegistry) DownloadAndInstall(
 		result.IsMalwareBlocked = meta.IsMalwareBlocked
 		result.IsSuspicious = meta.IsSuspicious
 		result.Summary = meta.Summary
+		if owner == "" && meta.OwnerHandle != "" {
+			owner = meta.OwnerHandle
+		}
 	}
 
 	// Step 2: Resolve version.
@@ -299,7 +506,7 @@ func (c *ClawHubRegistry) DownloadAndInstall(
 	}
 	result.Version = installVersion
 
-	// Step 3: Download ZIP to temp file (streams in ~32KB chunks).
+	// Step 3: Download the artifact (ZIP or JSON GitHub handoff).
 	u, err := url.Parse(c.baseURL + c.downloadPath)
 	if err != nil {
 		return nil, fmt.Errorf("invalid base URL: %w", err)
@@ -307,18 +514,27 @@ func (c *ClawHubRegistry) DownloadAndInstall(
 
 	q := u.Query()
 	q.Set("slug", slug)
+	if owner != "" {
+		q.Set("ownerHandle", owner)
+	}
 	if installVersion != "latest" {
 		q.Set("version", installVersion)
 	}
 	u.RawQuery = q.Encode()
 
-	tmpPath, err := c.downloadToTempFileWithRetry(ctx, u.String())
+	tmpPath, contentType, err := c.downloadToTempFileWithRetry(ctx, u.String(), slug)
 	if err != nil {
 		return nil, fmt.Errorf("download failed: %w", err)
 	}
 	defer os.Remove(tmpPath)
 
-	// Step 4: Extract from file on disk.
+	// Step 4: Install from ZIP or GitHub handoff descriptor.
+	if isJSONArtifact(tmpPath, contentType) {
+		if err := c.installFromHandoff(ctx, tmpPath, targetDir); err != nil {
+			return nil, err
+		}
+		return result, nil
+	}
 	if err := utils.ExtractZipFile(tmpPath, targetDir); err != nil {
 		return nil, err
 	}
@@ -326,31 +542,297 @@ func (c *ClawHubRegistry) DownloadAndInstall(
 	return result, nil
 }
 
+// --- GitHub handoff ---
+
+func isJSONArtifact(filePath, contentType string) bool {
+	if strings.Contains(strings.ToLower(contentType), "json") {
+		return true
+	}
+	file, err := os.Open(filePath)
+	if err != nil {
+		return false
+	}
+	defer file.Close()
+
+	head := make([]byte, 512)
+	n, _ := io.ReadFull(file, head)
+	trimmed := bytes.TrimSpace(head[:n])
+	return len(trimmed) > 0 && trimmed[0] == '{'
+}
+
+func (c *ClawHubRegistry) installFromHandoff(
+	ctx context.Context, handoffPath, targetDir string,
+) error {
+	data, err := os.ReadFile(handoffPath)
+	if err != nil {
+		return fmt.Errorf("failed to read GitHub handoff: %w", err)
+	}
+
+	var raw map[string]any
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return fmt.Errorf("failed to parse GitHub handoff: %w", err)
+	}
+	if nested, ok := raw["handoff"].(map[string]any); ok {
+		raw = nested
+	}
+	if nested, ok := raw["source"].(map[string]any); ok {
+		raw = nested
+	}
+
+	archiveURL := handoffString(raw, "archiveUrl", "archive_url")
+	if archiveURL != "" {
+		parsed, err := url.Parse(archiveURL)
+		if err != nil || (parsed.Scheme != "https" && parsed.Scheme != "http") || parsed.Host == "" {
+			return fmt.Errorf("GitHub handoff has an invalid archive URL")
+		}
+		tmpPath, contentType, err := c.downloadToTempFileWithRetry(ctx, archiveURL, "")
+		if err != nil {
+			return fmt.Errorf("failed to download GitHub archive: %w", err)
+		}
+		defer os.Remove(tmpPath)
+		if isJSONArtifact(tmpPath, contentType) {
+			return fmt.Errorf("GitHub handoff archive did not return a ZIP file")
+		}
+		if err := utils.ExtractZipFile(tmpPath, targetDir); err != nil {
+			return err
+		}
+		return nil
+	}
+
+	repo := handoffString(raw, "repo", "repository", "repoUrl", "repo_url")
+	if repo == "" {
+		return fmt.Errorf("GitHub handoff does not include an archive URL or repository")
+	}
+	commit := handoffString(raw, "commit", "ref", "sha")
+	subPath := handoffString(raw, "path", "subPath", "sub_path")
+
+	installTarget := repo
+	if subPath != "" {
+		installTarget = strings.TrimRight(repo, "/") + "/" + strings.Trim(subPath, "/")
+	}
+
+	installer, err := NewSkillInstallerWithBaseURL("", "", "", "")
+	if err != nil {
+		return fmt.Errorf("failed to create GitHub installer: %w", err)
+	}
+	if _, err := installer.InstallFromGitHubToDir(ctx, installTarget, commit, targetDir); err != nil {
+		return fmt.Errorf("failed to install GitHub handoff: %w", err)
+	}
+	return nil
+}
+
+func handoffString(raw map[string]any, keys ...string) string {
+	for _, key := range keys {
+		value, ok := raw[key]
+		if !ok {
+			continue
+		}
+		if text, ok := value.(string); ok && strings.TrimSpace(text) != "" {
+			return strings.TrimSpace(text)
+		}
+	}
+	return ""
+}
+
+// --- Security summary ---
+
+const clawhubSecurityCacheTTL = 5 * time.Minute
+
+type clawhubSecurityCacheEntry struct {
+	security *SkillSecurity
+	expires  time.Time
+}
+
+var clawhubSecurityCache sync.Map // key: owner/slug
+
+func resetClawHubSecurityCache() {
+	clawhubSecurityCache.Range(func(key, _ any) bool {
+		clawhubSecurityCache.Delete(key)
+		return true
+	})
+}
+
+type clawhubScanResponse struct {
+	Skill *struct {
+		Slug        string `json:"slug"`
+		DisplayName string `json:"displayName"`
+	} `json:"skill"`
+	Version *struct {
+		Version string `json:"version"`
+	} `json:"version"`
+	Moderation *clawhubModerationInfo `json:"moderation"`
+	Security   *struct {
+		Status        string `json:"status"`
+		HasScanResult bool   `json:"hasScanResult"`
+		Scanners      *struct {
+			SkillSpector *struct {
+				Status     string  `json:"status"`
+				Severity   string  `json:"severity"`
+				Score      float64 `json:"score"`
+				IssueCount int     `json:"issueCount"`
+			} `json:"skillspector"`
+			LLM *struct {
+				Status   string `json:"status"`
+				Verdict  string `json:"verdict"`
+				Summary  string `json:"summary"`
+				Guidance string `json:"guidance"`
+			} `json:"llm"`
+		} `json:"scanners"`
+	} `json:"security"`
+}
+
+// GetSecuritySummary returns the normalized ClawHub audit verdict for a skill.
+// Results are cached briefly to keep search responses fast.
+func (c *ClawHubRegistry) GetSecuritySummary(
+	ctx context.Context, slug, ownerHandle string,
+) (*SkillSecurity, error) {
+	slug = strings.TrimSpace(slug)
+	if slug == "" {
+		return nil, nil
+	}
+	owner := normalizeOwnerHandle(ownerHandle)
+	cacheKey := owner + "/" + slug
+	if cached, ok := clawhubSecurityCache.Load(cacheKey); ok {
+		if entry, ok := cached.(clawhubSecurityCacheEntry); ok && time.Now().Before(entry.expires) {
+			return entry.security, nil
+		}
+	}
+
+	u, err := url.Parse(c.baseURL + c.skillsPath + "/" + url.PathEscape(slug) + "/scan")
+	if err != nil {
+		return nil, fmt.Errorf("invalid base URL: %w", err)
+	}
+	q := u.Query()
+	q.Set("tag", "latest")
+	if owner != "" {
+		q.Set("ownerHandle", owner)
+	}
+	u.RawQuery = q.Encode()
+
+	body, status, err := c.doGetWithStatus(ctx, u.String())
+	if err != nil {
+		return nil, err
+	}
+	if status == http.StatusNotFound {
+		return nil, nil
+	}
+	if status < 200 || status >= 300 {
+		return nil, fmt.Errorf("security scan request failed: HTTP %d: %s", status, string(body))
+	}
+
+	var resp clawhubScanResponse
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return nil, fmt.Errorf("failed to parse security scan: %w", err)
+	}
+
+	security := &SkillSecurity{
+		Decision: "unknown",
+		Status:   "unknown",
+	}
+	if resp.Security != nil {
+		security.Status = strings.ToLower(strings.TrimSpace(resp.Security.Status))
+		switch security.Status {
+		case "clean", "benign":
+			security.Decision = "pass"
+			security.Status = "clean"
+		case "suspicious", "warn", "warning":
+			security.Decision = "warn"
+			security.Status = "suspicious"
+		case "malicious", "fail", "blocked":
+			security.Decision = "fail"
+			security.Status = "malicious"
+		}
+		if resp.Security.Scanners != nil {
+			if resp.Security.Scanners.SkillSpector != nil {
+				security.RiskLevel = strings.ToUpper(strings.TrimSpace(
+					resp.Security.Scanners.SkillSpector.Severity,
+				))
+			}
+			if resp.Security.Scanners.LLM != nil {
+				security.Summary = strings.TrimSpace(resp.Security.Scanners.LLM.Summary)
+				if security.Summary == "" {
+					security.Summary = strings.TrimSpace(resp.Security.Scanners.LLM.Guidance)
+				}
+			}
+		}
+	}
+	if resp.Moderation != nil {
+		if resp.Moderation.IsMalwareBlocked {
+			security.Decision = "fail"
+			security.Status = "malicious"
+		} else if resp.Moderation.IsSuspicious && security.Decision == "pass" {
+			security.Decision = "warn"
+			security.Status = "suspicious"
+		}
+		if security.Summary == "" {
+			security.Summary = strings.TrimSpace(resp.Moderation.Summary)
+		}
+	}
+	if security.RiskLevel == "" {
+		switch security.Decision {
+		case "pass":
+			security.RiskLevel = "LOW"
+		case "warn":
+			security.RiskLevel = "MEDIUM"
+		case "fail":
+			security.RiskLevel = "CRITICAL"
+		}
+	}
+
+	version := ""
+	if resp.Version != nil {
+		version = strings.TrimSpace(resp.Version.Version)
+	}
+	auditURL := c.SkillURLForOwner(slug, owner, version)
+	if auditURL != "" {
+		auditURL += "/security-audit"
+		if version != "" {
+			auditURL += "?version=" + url.QueryEscape(version)
+		}
+	}
+	security.AuditURL = auditURL
+
+	clawhubSecurityCache.Store(cacheKey, clawhubSecurityCacheEntry{
+		security: security,
+		expires:  time.Now().Add(clawhubSecurityCacheTTL),
+	})
+	return security, nil
+}
+
 // --- HTTP helper ---
 
 func (c *ClawHubRegistry) doGet(ctx context.Context, urlStr string) ([]byte, error) {
-	req, err := c.newGetRequest(ctx, urlStr, "application/json")
+	body, status, err := c.doGetWithStatus(ctx, urlStr)
 	if err != nil {
 		return nil, err
+	}
+	if status < 200 || status >= 300 {
+		return nil, fmt.Errorf("HTTP %d: %s", status, string(body))
+	}
+	return body, nil
+}
+
+// doGetWithStatus returns the body even for non-2xx responses so callers can
+// parse structured errors (for example ambiguous slug responses).
+func (c *ClawHubRegistry) doGetWithStatus(ctx context.Context, urlStr string) ([]byte, int, error) {
+	req, err := c.newGetRequest(ctx, urlStr, "application/json")
+	if err != nil {
+		return nil, 0, err
 	}
 
 	resp, err := utils.DoRequestWithRetry(c.client, req)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	defer resp.Body.Close()
 
 	// Limit response body read to prevent memory issues.
 	body, err := io.ReadAll(io.LimitReader(resp.Body, int64(c.maxResponseSize)))
 	if err != nil {
-		return nil, fmt.Errorf("failed to read response: %w", err)
+		return nil, resp.StatusCode, fmt.Errorf("failed to read response: %w", err)
 	}
 
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(body))
-	}
-
-	return body, nil
+	return body, resp.StatusCode, nil
 }
 
 func (c *ClawHubRegistry) newGetRequest(ctx context.Context, urlStr, accept string) (*http.Request, error) {
@@ -365,27 +847,32 @@ func (c *ClawHubRegistry) newGetRequest(ctx context.Context, urlStr, accept stri
 	return req, nil
 }
 
-func (c *ClawHubRegistry) downloadToTempFileWithRetry(ctx context.Context, urlStr string) (string, error) {
-	req, err := c.newGetRequest(ctx, urlStr, "application/zip")
+func (c *ClawHubRegistry) downloadToTempFileWithRetry(
+	ctx context.Context, urlStr, slug string,
+) (string, string, error) {
+	req, err := c.newGetRequest(ctx, urlStr, "application/zip, application/json;q=0.9, */*;q=0.8")
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 
 	resp, err := utils.DoRequestWithRetry(c.client, req)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		errBody := make([]byte, 512)
+		errBody := make([]byte, 1024)
 		n, _ := io.ReadFull(resp.Body, errBody)
-		return "", fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(errBody[:n]))
+		if resp.StatusCode == http.StatusConflict {
+			return "", "", &AmbiguousSkillSlugError{Slug: slug}
+		}
+		return "", "", fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(errBody[:n]))
 	}
 
 	tmpFile, err := os.CreateTemp("", "picoclaw-dl-*")
 	if err != nil {
-		return "", fmt.Errorf("failed to create temp file: %w", err)
+		return "", "", fmt.Errorf("failed to create temp file: %w", err)
 	}
 	tmpPath := tmpFile.Name()
 
@@ -398,18 +885,18 @@ func (c *ClawHubRegistry) downloadToTempFileWithRetry(ctx context.Context, urlSt
 	written, err := io.Copy(tmpFile, src)
 	if err != nil {
 		cleanup()
-		return "", fmt.Errorf("download write failed: %w", err)
+		return "", "", fmt.Errorf("download write failed: %w", err)
 	}
 
 	if written > int64(c.maxZipSize) {
 		cleanup()
-		return "", fmt.Errorf("download too large: %d bytes (max %d)", written, c.maxZipSize)
+		return "", "", fmt.Errorf("download too large: %d bytes (max %d)", written, c.maxZipSize)
 	}
 
 	if err := tmpFile.Close(); err != nil {
 		_ = os.Remove(tmpPath)
-		return "", fmt.Errorf("failed to close temp file: %w", err)
+		return "", "", fmt.Errorf("failed to close temp file: %w", err)
 	}
 
-	return tmpPath, nil
+	return tmpPath, resp.Header.Get("Content-Type"), nil
 }

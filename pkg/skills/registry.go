@@ -22,6 +22,50 @@ type SearchResult struct {
 	Summary      string  `json:"summary"`
 	Version      string  `json:"version"`
 	RegistryName string  `json:"registry_name"`
+
+	// Publisher-scoped metadata. ClawHub slugs are not globally unique; the
+	// owner handle is required to download or inspect a specific skill.
+	OwnerHandle      string `json:"owner_handle,omitempty"`
+	InstallKind      string `json:"install_kind,omitempty"`
+	InstallReference string `json:"install_reference,omitempty"`
+	CanonicalURL     string `json:"canonical_url,omitempty"`
+	SourceURL        string `json:"source_url,omitempty"`
+	Downloads        int64  `json:"downloads,omitempty"`
+	Installability   string `json:"installability,omitempty"`
+
+	// Security is populated only for registries that expose audit data.
+	Security *SkillSecurity `json:"security,omitempty"`
+}
+
+// SkillSecurity is a normalized safety summary for a search result.
+type SkillSecurity struct {
+	Decision  string `json:"decision"` // pass, warn, fail, unknown
+	Status    string `json:"status"`   // clean, suspicious, malicious, unknown
+	RiskLevel string `json:"risk_level,omitempty"`
+	Summary   string `json:"summary,omitempty"`
+	AuditURL  string `json:"audit_url,omitempty"`
+}
+
+// SkillOwnerMatch identifies one publisher when a slug is ambiguous.
+type SkillOwnerMatch struct {
+	OwnerHandle string `json:"owner_handle"`
+	Slug        string `json:"slug"`
+	Ref         string `json:"ref,omitempty"`
+	URL         string `json:"url,omitempty"`
+}
+
+// AmbiguousSkillSlugError is returned when a registry slug is shared by more
+// than one publisher and the caller did not specify an owner handle.
+type AmbiguousSkillSlugError struct {
+	Slug    string
+	Matches []SkillOwnerMatch
+}
+
+func (e *AmbiguousSkillSlugError) Error() string {
+	if e == nil {
+		return ""
+	}
+	return fmt.Sprintf("ambiguous skill slug %q: multiple publishers use this slug", e.Slug)
 }
 
 // SkillMeta holds metadata about a skill from a registry.
@@ -33,6 +77,8 @@ type SkillMeta struct {
 	IsMalwareBlocked bool   `json:"is_malware_blocked"`
 	IsSuspicious     bool   `json:"is_suspicious"`
 	RegistryName     string `json:"registry_name"`
+	OwnerHandle      string `json:"owner_handle,omitempty"`
+	CanonicalURL     string `json:"canonical_url,omitempty"`
 }
 
 // InstallResult is returned by DownloadAndInstall to carry metadata
@@ -71,6 +117,18 @@ type SkillRegistry interface {
 	// installs the skill to targetDir. Returns an InstallResult with metadata
 	// for the caller to use for moderation and user messaging.
 	DownloadAndInstall(ctx context.Context, slug, version, targetDir string) (*InstallResult, error)
+}
+
+// OwnerAwareRegistry is implemented by registries whose skills are scoped by
+// publisher (for example ClawHub ownerHandle). Callers should prefer these
+// methods when an owner handle is available and fall back to the generic
+// SkillRegistry methods otherwise.
+type OwnerAwareRegistry interface {
+	SkillURLForOwner(slug, ownerHandle, version string) string
+	GetSecuritySummary(ctx context.Context, slug, ownerHandle string) (*SkillSecurity, error)
+	DownloadAndInstallForOwner(
+		ctx context.Context, slug, version, ownerHandle, targetDir string,
+	) (*InstallResult, error)
 }
 
 // InstallTargetNormalizer is implemented by registries that can canonicalize

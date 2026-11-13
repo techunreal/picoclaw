@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -55,6 +57,23 @@ type skillSearchResultItem struct {
 	URL           string  `json:"url,omitempty"`
 	Installed     bool    `json:"installed"`
 	InstalledName string  `json:"installed_name,omitempty"`
+
+	OwnerHandle      string             `json:"owner_handle,omitempty"`
+	InstallKind      string             `json:"install_kind,omitempty"`
+	InstallReference string             `json:"install_reference,omitempty"`
+	CanonicalURL     string             `json:"canonical_url,omitempty"`
+	Downloads        int64              `json:"downloads,omitempty"`
+	InstallStatus    string             `json:"install_status"`
+	InstallReason    string             `json:"install_reason,omitempty"`
+	Security         *skillSecurityItem `json:"security,omitempty"`
+}
+
+type skillSecurityItem struct {
+	Decision  string `json:"decision"`
+	Status    string `json:"status"`
+	RiskLevel string `json:"risk_level,omitempty"`
+	Summary   string `json:"summary,omitempty"`
+	AuditURL  string `json:"audit_url,omitempty"`
 }
 
 type skillSearchResponse struct {
@@ -63,13 +82,16 @@ type skillSearchResponse struct {
 	Offset     int                     `json:"offset"`
 	NextOffset int                     `json:"next_offset,omitempty"`
 	HasMore    bool                    `json:"has_more"`
+	Sort       string                  `json:"sort,omitempty"`
 }
 
 type installSkillRequest struct {
-	Slug     string `json:"slug"`
-	Registry string `json:"registry"`
-	Version  string `json:"version,omitempty"`
-	Force    bool   `json:"force,omitempty"`
+	Slug        string `json:"slug"`
+	Registry    string `json:"registry"`
+	Version     string `json:"version,omitempty"`
+	Force       bool   `json:"force,omitempty"`
+	OwnerHandle string `json:"owner_handle,omitempty"`
+	InstallKind string `json:"install_kind,omitempty"`
 }
 
 type installSkillResponse struct {
@@ -87,6 +109,7 @@ type installedSkillOriginMeta struct {
 	OriginKind       string `json:"origin_kind,omitempty"`
 	Registry         string `json:"registry,omitempty"`
 	Slug             string `json:"slug,omitempty"`
+	OwnerHandle      string `json:"owner_handle,omitempty"`
 	RegistryURL      string `json:"registry_url,omitempty"`
 	InstalledVersion string `json:"installed_version,omitempty"`
 	InstalledAt      int64  `json:"installed_at"`
@@ -201,6 +224,15 @@ func (h *Handler) handleSearchSkills(w http.ResponseWriter, r *http.Request) {
 		offset = parsedOffset
 	}
 
+	sortOrder := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("sort")))
+	if sortOrder == "" {
+		sortOrder = "relevance"
+	}
+	if sortOrder != "relevance" && sortOrder != "downloads" {
+		http.Error(w, "sort must be relevance or downloads", http.StatusBadRequest)
+		return
+	}
+
 	installedSkills, err := buildOccupiedWorkspaceSkillsByDirectory(cfg)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to inspect installed skills: %v", err), http.StatusInternalServerError)
@@ -214,12 +246,18 @@ func (h *Handler) handleSearchSkills(w http.ResponseWriter, r *http.Request) {
 			Limit:   limit,
 			Offset:  offset,
 			HasMore: false,
+			Sort:    sortOrder,
 		})
 		return
 	}
 
 	registryMgr := newSkillsRegistryManager(cfg)
 	searchLimit := offset + limit + 1
+	if sortOrder == "downloads" {
+		// Downloads live on each result, so a wider relevance window is needed
+		// before sorting to keep the popular ordering meaningful.
+		searchLimit = maxRegistrySearchFanout
+	}
 	if searchLimit > maxRegistrySearchFanout {
 		searchLimit = maxRegistrySearchFanout
 	}
@@ -227,6 +265,18 @@ func (h *Handler) handleSearchSkills(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to search skills: %v", err), http.StatusBadGateway)
 		return
+	}
+
+	if sortOrder == "downloads" {
+		sort.SliceStable(results, func(i, j int) bool {
+			if results[i].Downloads != results[j].Downloads {
+				return results[i].Downloads > results[j].Downloads
+			}
+			if results[i].Score != results[j].Score {
+				return results[i].Score > results[j].Score
+			}
+			return results[i].Slug < results[j].Slug
+		})
 	}
 
 	if offset > len(results) {
@@ -251,21 +301,41 @@ func (h *Handler) handleSearchSkills(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
+		resultURL := result.CanonicalURL
+		if resultURL == "" {
+			resultURL = registrySkillURLForOwner(
+				cfg,
+				result.RegistryName,
+				result.Slug,
+				result.OwnerHandle,
+				result.Version,
+			)
+		}
+		installStatus, installReason := deriveSkillInstallStatus(result, nil)
 		item := skillSearchResultItem{
-			Score:        result.Score,
-			Slug:         result.Slug,
-			DisplayName:  result.DisplayName,
-			Summary:      result.Summary,
-			Version:      result.Version,
-			RegistryName: result.RegistryName,
-			URL:          registrySkillURL(cfg, result.RegistryName, result.Slug, result.Version),
-			Installed:    installed,
+			Score:            result.Score,
+			Slug:             result.Slug,
+			DisplayName:      result.DisplayName,
+			Summary:          result.Summary,
+			Version:          result.Version,
+			RegistryName:     result.RegistryName,
+			URL:              resultURL,
+			Installed:        installed,
+			OwnerHandle:      result.OwnerHandle,
+			InstallKind:      result.InstallKind,
+			InstallReference: result.InstallReference,
+			CanonicalURL:     result.CanonicalURL,
+			Downloads:        result.Downloads,
+			InstallStatus:    installStatus,
+			InstallReason:    installReason,
 		}
 		if installed {
 			item.InstalledName = installedSkill.Name
 		}
 		response = append(response, item)
 	}
+
+	enrichSkillSearchSecurity(r.Context(), registryMgr, pageResults, response)
 
 	w.Header().Set("Content-Type", "application/json")
 	nextOffset := 0
@@ -279,6 +349,7 @@ func (h *Handler) handleSearchSkills(w http.ResponseWriter, r *http.Request) {
 		Offset:     offset,
 		NextOffset: nextOffset,
 		HasMore:    hasMore,
+		Sort:       sortOrder,
 	})
 }
 
@@ -302,6 +373,8 @@ func (h *Handler) handleInstallSkill(w http.ResponseWriter, r *http.Request) {
 	req.Slug = strings.TrimSpace(req.Slug)
 	req.Registry = strings.TrimSpace(req.Registry)
 	req.Version = strings.TrimSpace(req.Version)
+	req.OwnerHandle = normalizeSkillOwner(req.OwnerHandle)
+	req.InstallKind = strings.ToLower(strings.TrimSpace(req.InstallKind))
 	if req.Registry == "" {
 		req.Registry = defaultInstallSkillRegistry
 	}
@@ -311,6 +384,20 @@ func (h *Handler) handleInstallSkill(w http.ResponseWriter, r *http.Request) {
 			w,
 			fmt.Sprintf("invalid registry %q: error: %s", req.Registry, validateErr.Error()),
 			http.StatusBadRequest,
+		)
+		return
+	}
+	if err := validateSkillOwner(req.OwnerHandle); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if req.InstallKind == "skills-sh" {
+		writeSkillJSONError(
+			w,
+			http.StatusUnprocessableEntity,
+			"unsupported_source",
+			"skills.sh skills are not supported yet. Install it from its GitHub repository instead.",
+			nil,
 		)
 		return
 	}
@@ -357,8 +444,26 @@ func (h *Handler) handleInstallSkill(w http.ResponseWriter, r *http.Request) {
 	}
 	defer os.RemoveAll(stagedWorkspaceRoot)
 
-	result, err := registry.DownloadAndInstall(r.Context(), req.Slug, req.Version, stagedTargetDir)
+	result, err := installSkillFromRegistry(
+		r.Context(),
+		registry,
+		req.Slug,
+		req.Version,
+		req.OwnerHandle,
+		stagedTargetDir,
+	)
 	if err != nil {
+		var ambiguous *skills.AmbiguousSkillSlugError
+		if errors.As(err, &ambiguous) {
+			writeSkillJSONError(
+				w,
+				http.StatusConflict,
+				"ambiguous_slug",
+				ambiguous.Error(),
+				map[string]any{"slug": ambiguous.Slug, "matches": ambiguous.Matches},
+			)
+			return
+		}
 		http.Error(w, fmt.Sprintf("Failed to install skill: %v", err), http.StatusBadGateway)
 		return
 	}
@@ -381,12 +486,26 @@ func (h *Handler) handleInstallSkill(w http.ResponseWriter, r *http.Request) {
 	}
 
 	installedAt := time.Now().UnixMilli()
-	normalizedSlug, registryURL := skills.BuildInstallMetadataForRegistryInstance(registry, req.Slug, result.Version)
+	normalizedSlug := skills.NormalizeInstallTargetForRegistryInstance(registry, req.Slug)
+	registryURL := registrySkillURLForOwner(
+		cfg,
+		registry.Name(),
+		req.Slug,
+		req.OwnerHandle,
+		result.Version,
+	)
+	if registryURL == "" {
+		registryURL = registry.SkillURL(req.Slug, result.Version)
+	}
+	if registryURL == "" {
+		registryURL = registry.SkillURL(normalizedSlug, result.Version)
+	}
 	if err := persistSkillOriginMeta(stagedTargetDir, installedSkillOriginMeta{
 		Version:          1,
 		OriginKind:       "third_party",
 		Registry:         registry.Name(),
 		Slug:             normalizedSlug,
+		OwnerHandle:      req.OwnerHandle,
 		RegistryURL:      registryURL,
 		InstalledVersion: result.Version,
 		InstalledAt:      installedAt,
@@ -747,12 +866,24 @@ func writeSkillOriginMeta(targetDir string, meta installedSkillOriginMeta) error
 }
 
 func registrySkillURL(cfg *config.Config, registryName, slug, version string) string {
+	return registrySkillURLForOwner(cfg, registryName, slug, "", version)
+}
+
+func registrySkillURLForOwner(
+	cfg *config.Config,
+	registryName, slug, ownerHandle, version string,
+) string {
 	if cfg == nil || registryName == "" || slug == "" {
 		return ""
 	}
 	registry := skills.LookupRegistryFromToolsConfig(cfg.Tools.Skills, registryName)
 	if registry == nil {
 		return ""
+	}
+	if ownerAware, ok := registry.(skills.OwnerAwareRegistry); ok && ownerHandle != "" {
+		if url := ownerAware.SkillURLForOwner(slug, ownerHandle, version); url != "" {
+			return url
+		}
 	}
 	return registry.SkillURL(slug, version)
 }
@@ -767,7 +898,142 @@ func registrySkillURLFromMeta(cfg *config.Config, meta *installedSkillOriginMeta
 	if cfg == nil || meta.Registry == "" {
 		return ""
 	}
-	return registrySkillURL(cfg, meta.Registry, meta.Slug, meta.InstalledVersion)
+	return registrySkillURLForOwner(cfg, meta.Registry, meta.Slug, meta.OwnerHandle, meta.InstalledVersion)
+}
+
+var skillOwnerPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,63}$`)
+
+func normalizeSkillOwner(owner string) string {
+	owner = strings.TrimSpace(owner)
+	owner = strings.TrimLeft(owner, "@")
+	return strings.ToLower(owner)
+}
+
+func validateSkillOwner(owner string) error {
+	if owner == "" {
+		return nil
+	}
+	if !skillOwnerPattern.MatchString(owner) {
+		return fmt.Errorf("invalid owner_handle %q", owner)
+	}
+	return nil
+}
+
+func installSkillFromRegistry(
+	ctx context.Context,
+	registry skills.SkillRegistry,
+	slug, version, ownerHandle, targetDir string,
+) (*skills.InstallResult, error) {
+	if ownerAware, ok := registry.(skills.OwnerAwareRegistry); ok && ownerHandle != "" {
+		return ownerAware.DownloadAndInstallForOwner(ctx, slug, version, ownerHandle, targetDir)
+	}
+	return registry.DownloadAndInstall(ctx, slug, version, targetDir)
+}
+
+func deriveSkillInstallStatus(
+	result skills.SearchResult,
+	security *skills.SkillSecurity,
+) (string, string) {
+	if security != nil && security.Decision == "fail" {
+		return "blocked", "This skill is blocked by the registry's security moderation."
+	}
+	if result.InstallKind == "skills-sh" {
+		return "unsupported", "This skill comes from skills.sh and is not supported yet."
+	}
+	switch strings.ToLower(result.Installability) {
+	case "", "installable":
+		return "installable", ""
+	case "blocked", "malware", "quarantined", "hidden", "removed":
+		return "blocked", "This skill is not available for download from the registry."
+	default:
+		return "unsupported", "This skill cannot be installed from its current source."
+	}
+}
+
+// enrichSkillSearchSecurity attaches ClawHub audit verdicts to the current
+// result page. Failures only remove the badge; they never fail the search.
+func enrichSkillSearchSecurity(
+	ctx context.Context,
+	registryMgr *skills.RegistryManager,
+	results []skills.SearchResult,
+	items []skillSearchResultItem,
+) {
+	type lookup struct {
+		index    int
+		registry skills.OwnerAwareRegistry
+		slug     string
+		owner    string
+	}
+
+	lookups := make([]lookup, 0, len(items))
+	for i := range results {
+		if i >= len(items) || results[i].InstallKind == "skills-sh" {
+			continue
+		}
+		registry := registryMgr.GetRegistry(results[i].RegistryName)
+		ownerAware, ok := registry.(skills.OwnerAwareRegistry)
+		if !ok {
+			continue
+		}
+		lookups = append(lookups, lookup{
+			index:    i,
+			registry: ownerAware,
+			slug:     results[i].Slug,
+			owner:    results[i].OwnerHandle,
+		})
+	}
+	if len(lookups) == 0 {
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, 8*time.Second)
+	defer cancel()
+
+	sem := make(chan struct{}, 6)
+	var wg sync.WaitGroup
+	for _, item := range lookups {
+		wg.Add(1)
+		go func(item lookup) {
+			defer wg.Done()
+			select {
+			case sem <- struct{}{}:
+				defer func() { <-sem }()
+			case <-ctx.Done():
+				return
+			}
+
+			security, err := item.registry.GetSecuritySummary(ctx, item.slug, item.owner)
+			if err != nil || security == nil {
+				return
+			}
+			status, reason := deriveSkillInstallStatus(results[item.index], security)
+			items[item.index].Security = &skillSecurityItem{
+				Decision:  security.Decision,
+				Status:    security.Status,
+				RiskLevel: security.RiskLevel,
+				Summary:   security.Summary,
+				AuditURL:  security.AuditURL,
+			}
+			items[item.index].InstallStatus = status
+			items[item.index].InstallReason = reason
+		}(item)
+	}
+	wg.Wait()
+}
+
+func writeSkillJSONError(
+	w http.ResponseWriter,
+	status int,
+	code, message string,
+	extra map[string]any,
+) {
+	payload := map[string]any{"code": code, "error": message}
+	for key, value := range extra {
+		payload[key] = value
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(payload)
 }
 
 func normalizeImportedSkillName(filename string, content []byte) (string, error) {

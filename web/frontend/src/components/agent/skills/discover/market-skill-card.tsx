@@ -1,5 +1,7 @@
 import {
+  IconBan,
   IconCheck,
+  IconDownload,
   IconFileInfo,
   IconLoader2,
   IconPlus,
@@ -24,6 +26,13 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 
+import { SecurityBadge } from "./security-badge"
+
+const compactNumber = new Intl.NumberFormat(undefined, {
+  notation: "compact",
+  maximumFractionDigits: 1,
+})
+
 export function MarketSkillCard({
   result,
   canInstall,
@@ -41,16 +50,30 @@ export function MarketSkillCard({
 }) {
   const { t } = useTranslation()
 
+  const installStatus = result.install_status ?? "installable"
+  const unsupported = installStatus === "unsupported"
+  const blocked = installStatus === "blocked"
   const installDisabledReason = (() => {
     if (installPending)
       return t("pages.agent.skills.marketplace_installDisabled.installing")
     if (result.installed)
       return t("pages.agent.skills.marketplace_installDisabled.installed")
+    if (blocked)
+      return (
+        result.install_reason ||
+        t("pages.agent.skills.marketplace_install_blocked")
+      )
+    if (unsupported)
+      return (
+        result.install_reason ||
+        t("pages.agent.skills.marketplace_install_unsupported")
+      )
     if (!canInstall)
       return t("pages.agent.skills.marketplace_installDisabled.cannotInstall")
     return t("pages.agent.skills.marketplace_install_action")
   })()
-  const installDisabled = !canInstall || result.installed || installPending
+  const installDisabled =
+    !canInstall || result.installed || installPending || blocked || unsupported
 
   return (
     <Card
@@ -75,6 +98,12 @@ export function MarketSkillCard({
                   {t("pages.agent.skills.marketplace_installed")}
                 </span>
               ) : null}
+              <SecurityBadge security={result.security} />
+              {result.owner_handle ? (
+                <span className="text-muted-foreground font-mono text-[10px]">
+                  @{result.owner_handle}
+                </span>
+              ) : null}
             </div>
             <div className="text-muted-foreground font-mono text-xs opacity-80">
               {result.slug}
@@ -82,6 +111,15 @@ export function MarketSkillCard({
                 <span className="text-muted-foreground/60">
                   {" "}
                   · v{result.version}
+                </span>
+              ) : null}
+              {result.downloads ? (
+                <span className="text-muted-foreground/60 inline-flex items-center gap-1">
+                  {" "}
+                  · <IconDownload className="size-3" />
+                  {t("pages.agent.skills.marketplace_downloads", {
+                    count: compactNumber.format(result.downloads),
+                  })}
                 </span>
               ) : null}
             </div>
@@ -119,12 +157,20 @@ export function MarketSkillCard({
                       <IconLoader2 className="size-4 animate-spin" />
                     ) : result.installed ? (
                       <IconCheck className="size-4" />
+                    ) : blocked || unsupported ? (
+                      <IconBan className="size-4" />
                     ) : (
                       <IconPlus className="size-4" />
                     )}
                     {result.installed
                       ? t("pages.agent.skills.marketplace_installed")
-                      : t("pages.agent.skills.marketplace_install_action")}
+                      : blocked
+                        ? t("pages.agent.skills.marketplace_install_blocked")
+                        : unsupported
+                          ? t(
+                              "pages.agent.skills.marketplace_install_unsupported",
+                            )
+                          : t("pages.agent.skills.marketplace_install_action")}
                   </Button>
                 </span>
               </TooltipTrigger>

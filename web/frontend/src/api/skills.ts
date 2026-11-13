@@ -16,6 +16,21 @@ export interface SkillDetailResponse extends SkillSupportItem {
   content: string
 }
 
+export interface SkillSecuritySummary {
+  decision: "pass" | "warn" | "fail" | "unknown" | string
+  status: string
+  risk_level?: string
+  summary?: string
+  audit_url?: string
+}
+
+export interface SkillOwnerMatch {
+  owner_handle: string
+  slug: string
+  ref?: string
+  url?: string
+}
+
 export interface SkillRegistrySearchResult {
   score: number
   slug: string
@@ -26,7 +41,17 @@ export interface SkillRegistrySearchResult {
   url?: string
   installed: boolean
   installed_name?: string
+  owner_handle?: string
+  install_kind?: string
+  install_reference?: string
+  canonical_url?: string
+  downloads?: number
+  install_status?: "installable" | "unsupported" | "blocked" | string
+  install_reason?: string
+  security?: SkillSecuritySummary | null
 }
+
+export type SkillSearchSort = "relevance" | "downloads"
 
 interface SkillsResponse {
   skills: SkillSupportItem[]
@@ -38,6 +63,7 @@ export interface SkillSearchResponse {
   offset: number
   next_offset?: number
   has_more: boolean
+  sort?: SkillSearchSort
 }
 
 type SkillActionResponse = Partial<SkillSupportItem> & {
@@ -49,6 +75,27 @@ export interface InstallSkillRequest {
   registry: string
   version?: string
   force?: boolean
+  owner_handle?: string
+  install_kind?: string
+}
+
+export class SkillApiError extends Error {
+  status: number
+  code?: string
+  matches?: SkillOwnerMatch[]
+
+  constructor(
+    message: string,
+    status: number,
+    code?: string,
+    matches?: SkillOwnerMatch[],
+  ) {
+    super(message)
+    this.name = "SkillApiError"
+    this.status = status
+    this.code = code
+    this.matches = matches
+  }
 }
 
 export interface InstallSkillResponse {
@@ -64,7 +111,7 @@ export interface InstallSkillResponse {
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await launcherFetch(path, options)
   if (!res.ok) {
-    throw new Error(await extractErrorMessage(res))
+    throw await readSkillApiError(res)
   }
   return res.json() as Promise<T>
 }
@@ -81,11 +128,13 @@ export async function searchSkills(
   query: string,
   limit = 20,
   offset = 0,
+  sort: SkillSearchSort = "relevance",
 ): Promise<SkillSearchResponse> {
   const params = new URLSearchParams({
     q: query,
     limit: String(limit),
     offset: String(offset),
+    sort,
   })
   return request<SkillSearchResponse>(`/api/skills/search?${params.toString()}`)
 }
@@ -109,7 +158,7 @@ export async function importSkill(file: File): Promise<SkillActionResponse> {
     body: formData,
   })
   if (!res.ok) {
-    throw new Error(await extractErrorMessage(res))
+    throw await readSkillApiError(res)
   }
   return res.json() as Promise<SkillActionResponse>
 }
@@ -123,28 +172,41 @@ export async function deleteSkill(name: string): Promise<SkillActionResponse> {
   )
 }
 
-async function extractErrorMessage(res: Response): Promise<string> {
+async function readSkillApiError(res: Response): Promise<SkillApiError> {
   try {
     const raw = await res.text()
     if (raw.trim() === "") {
-      return `API error: ${res.status} ${res.statusText}`
+      return new SkillApiError(
+        `API error: ${res.status} ${res.statusText}`,
+        res.status,
+      )
     }
     try {
       const body = JSON.parse(raw) as {
         error?: string
         errors?: string[]
+        code?: string
+        matches?: SkillOwnerMatch[]
       }
+      let message = `API error: ${res.status} ${res.statusText}`
       if (Array.isArray(body.errors) && body.errors.length > 0) {
-        return body.errors.join("; ")
+        message = body.errors.join("; ")
+      } else if (typeof body.error === "string" && body.error.trim() !== "") {
+        message = body.error
       }
-      if (typeof body.error === "string" && body.error.trim() !== "") {
-        return body.error
-      }
+      return new SkillApiError(
+        message,
+        res.status,
+        typeof body.code === "string" ? body.code : undefined,
+        Array.isArray(body.matches) ? body.matches : undefined,
+      )
     } catch {
-      return raw.trim()
+      return new SkillApiError(raw.trim(), res.status)
     }
   } catch {
-    // ignore invalid body
+    return new SkillApiError(
+      `API error: ${res.status} ${res.statusText}`,
+      res.status,
+    )
   }
-  return `API error: ${res.status} ${res.statusText}`
 }

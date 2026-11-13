@@ -85,7 +85,7 @@ export function ResultsPanel({
                 <div className="grid gap-4 lg:grid-cols-2">
                   {marketResults.map((result) => (
                     <MarketSkillCard
-                      key={`${result.registry_name}:${result.slug}`}
+                      key={`${result.registry_name}:${result.owner_handle ?? ""}:${result.slug}`}
                       result={result}
                       canInstall={canInstallFromMarketplace}
                       installPending={isInstallPending(result)}

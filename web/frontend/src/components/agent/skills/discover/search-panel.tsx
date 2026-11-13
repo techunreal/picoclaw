@@ -1,25 +1,37 @@
 import { IconLoader2 } from "@tabler/icons-react"
 import { useTranslation } from "react-i18next"
 
+import type { SkillSearchSort } from "@/api/skills"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 
 import type { UnavailableToolMessage } from "./tool-support"
 
 export function SearchPanel({
   marketQuery,
+  marketSort,
   canSearchMarketplace,
   isMarketSearchInitialLoading,
   unavailableToolMessages,
   onMarketQueryChange,
   onSearchSubmit,
+  onMarketSortChange,
 }: {
   marketQuery: string
+  marketSort: SkillSearchSort
   canSearchMarketplace: boolean
   isMarketSearchInitialLoading: boolean
   unavailableToolMessages: UnavailableToolMessage[]
   onMarketQueryChange: (value: string) => void
   onSearchSubmit: () => void
+  onMarketSortChange: (value: SkillSearchSort) => void
 }) {
   const { t } = useTranslation()
 
@@ -72,6 +84,30 @@ export function SearchPanel({
           </Button>
         </div>
       </form>
+
+      <div className="flex items-center gap-2">
+        <span className="text-muted-foreground text-xs font-medium">
+          {t("pages.agent.skills.market_sort_label")}
+        </span>
+        <Select
+          value={marketSort}
+          onValueChange={(value) =>
+            onMarketSortChange(value as SkillSearchSort)
+          }
+        >
+          <SelectTrigger className="h-8 w-[180px] text-xs">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent align="center">
+            <SelectItem value="relevance">
+              {t("pages.agent.skills.market_sort.relevance")}
+            </SelectItem>
+            <SelectItem value="downloads">
+              {t("pages.agent.skills.market_sort.downloads")}
+            </SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
 
       {unavailableToolMessages.length ? (
         <div className="mx-auto flex w-full max-w-3xl flex-col gap-3 pt-2">

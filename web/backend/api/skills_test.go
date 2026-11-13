@@ -12,12 +12,14 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 
 	"github.com/sipeed/picoclaw/pkg/config"
+	"github.com/sipeed/picoclaw/pkg/skills"
 )
 
 func setClawHubBaseURL(cfg *config.Config, baseURL string) {
@@ -701,6 +703,328 @@ func TestHandleSearchSkills(t *testing.T) {
 	}
 	if resp.Results[1].Installed {
 		t.Fatalf("second result should not be installed, got %#v", resp.Results[1])
+	}
+}
+
+func TestHandleSearchSkillsPublisherMetadataSecurityAndSort(t *testing.T) {
+	configPath, cleanup := setupOAuthTestEnv(t)
+	defer cleanup()
+
+	cfg, err := config.LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+	cfg.Agents.Defaults.Workspace = filepath.Join(t.TempDir(), "workspace")
+
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/search":
+			json.NewEncoder(w).Encode(map[string]any{
+				"results": []map[string]any{
+					{
+						"score":        0.99,
+						"slug":         "secweather",
+						"displayName":  "Weather",
+						"summary":      "Forecasts",
+						"ownerHandle":  "steipete",
+						"canonicalUrl": "/steipete/skills/secweather",
+						"downloads":    10,
+						"install": map[string]any{
+							"kind":      "clawhub",
+							"reference": "steipete/secweather",
+						},
+						"trust": map[string]any{"installability": "installable"},
+					},
+					{
+						"score":        0.80,
+						"slug":         "popular",
+						"displayName":  "Popular",
+						"summary":      "Popular skill",
+						"ownerHandle":  "acme",
+						"canonicalUrl": "/acme/skills/popular",
+						"downloads":    1000,
+						"install":      map[string]any{"kind": "clawhub"},
+					},
+					{
+						"score":       0.70,
+						"slug":        "sshskill",
+						"displayName": "SSH Skill",
+						"summary":     "skills.sh skill",
+						"ownerHandle": "vercel-labs",
+						"install":     map[string]any{"kind": "skills-sh"},
+					},
+				},
+			})
+		case "/api/v1/skills/secweather/scan":
+			if got := r.URL.Query().Get("ownerHandle"); got != "steipete" {
+				t.Fatalf("ownerHandle = %q, want steipete", got)
+			}
+			json.NewEncoder(w).Encode(map[string]any{
+				"version": map[string]any{"version": "1.0.0"},
+				"security": map[string]any{
+					"status": "clean",
+					"scanners": map[string]any{
+						"skillspector": map[string]any{"severity": "LOW"},
+						"llm":          map[string]any{"summary": "Safe."},
+					},
+				},
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	setClawHubBaseURL(cfg, server.URL)
+	if err := config.SaveConfig(configPath, cfg); err != nil {
+		t.Fatalf("SaveConfig() error = %v", err)
+	}
+
+	h := NewHandler(configPath)
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(
+		http.MethodGet,
+		"/api/skills/search?q=weather&limit=10&sort=downloads",
+		nil,
+	)
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var resp skillSearchResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+	if resp.Sort != "downloads" {
+		t.Fatalf("sort = %q, want downloads", resp.Sort)
+	}
+	if len(resp.Results) != 3 {
+		t.Fatalf("results = %d, want 3", len(resp.Results))
+	}
+	if resp.Results[0].Slug != "popular" {
+		t.Fatalf("first result = %q, want popular (downloads sort)", resp.Results[0].Slug)
+	}
+
+	bySlug := map[string]skillSearchResultItem{}
+	for _, item := range resp.Results {
+		bySlug[item.Slug] = item
+	}
+
+	weather := bySlug["secweather"]
+	if weather.OwnerHandle != "steipete" || weather.InstallKind != "clawhub" {
+		t.Fatalf("unexpected publisher metadata: %#v", weather)
+	}
+	if weather.CanonicalURL != server.URL+"/steipete/skills/secweather" {
+		t.Fatalf("canonical URL = %q", weather.CanonicalURL)
+	}
+	if weather.URL != server.URL+"/steipete/skills/secweather" {
+		t.Fatalf("URL = %q", weather.URL)
+	}
+	if weather.Downloads != 10 || weather.InstallStatus != "installable" {
+		t.Fatalf("unexpected install metadata: %#v", weather)
+	}
+	if weather.Security == nil || weather.Security.Decision != "pass" ||
+		weather.Security.RiskLevel != "LOW" {
+		t.Fatalf("unexpected security: %#v", weather.Security)
+	}
+	if !strings.Contains(weather.Security.AuditURL, "/steipete/skills/secweather/security-audit") {
+		t.Fatalf("audit URL = %q", weather.Security.AuditURL)
+	}
+
+	skillsSh := bySlug["sshskill"]
+	if skillsSh.InstallStatus != "unsupported" || skillsSh.InstallReason == "" {
+		t.Fatalf("skills.sh result should be unsupported: %#v", skillsSh)
+	}
+}
+
+func TestHandleSearchSkillsRejectsInvalidSort(t *testing.T) {
+	configPath, cleanup := setupOAuthTestEnv(t)
+	defer cleanup()
+
+	h := NewHandler(configPath)
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/skills/search?q=github&sort=stars", nil)
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400, body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestHandleInstallSkillWithOwnerHandle(t *testing.T) {
+	configPath, cleanup := setupOAuthTestEnv(t)
+	defer cleanup()
+
+	cfg, err := config.LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+	workspace := filepath.Join(t.TempDir(), "workspace")
+	cfg.Agents.Defaults.Workspace = workspace
+
+	zipData := buildSkillZip(t, map[string]string{
+		"SKILL.md": "---\nname: weather\ndescription: Weather\n---\n# Weather\n",
+	})
+
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/skills/weather":
+			if got := r.URL.Query().Get("ownerHandle"); got != "steipete" {
+				t.Fatalf("metadata ownerHandle = %q", got)
+			}
+			json.NewEncoder(w).Encode(map[string]any{
+				"skill":         map[string]any{"slug": "weather", "summary": "Weather"},
+				"latestVersion": map[string]any{"version": "1.0.0"},
+				"owner":         map[string]any{"handle": "steipete"},
+			})
+		case "/api/v1/download":
+			if got := r.URL.Query().Get("ownerHandle"); got != "steipete" {
+				t.Fatalf("download ownerHandle = %q", got)
+			}
+			w.Header().Set("Content-Type", "application/zip")
+			w.Write(zipData)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	setClawHubBaseURL(cfg, server.URL)
+	if err := config.SaveConfig(configPath, cfg); err != nil {
+		t.Fatalf("SaveConfig() error = %v", err)
+	}
+
+	h := NewHandler(configPath)
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	body := strings.NewReader(
+		`{"slug":"weather","registry":"clawhub","owner_handle":"@Steipete","install_kind":"clawhub"}`,
+	)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/skills/install", body)
+	req.Header.Set("Content-Type", "application/json")
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	metaPath := filepath.Join(workspace, "skills", "weather", ".skill-origin.json")
+	data, err := os.ReadFile(metaPath)
+	if err != nil {
+		t.Fatalf("ReadFile(%s) error = %v", metaPath, err)
+	}
+	var meta installedSkillOriginMeta
+	if err := json.Unmarshal(data, &meta); err != nil {
+		t.Fatalf("Unmarshal(meta) error = %v", err)
+	}
+	if meta.OwnerHandle != "steipete" {
+		t.Fatalf("owner_handle = %q, want steipete", meta.OwnerHandle)
+	}
+	if !strings.Contains(meta.RegistryURL, "/steipete/skills/weather") {
+		t.Fatalf("registry URL = %q", meta.RegistryURL)
+	}
+}
+
+func TestHandleInstallSkillAmbiguousSlug(t *testing.T) {
+	configPath, cleanup := setupOAuthTestEnv(t)
+	defer cleanup()
+
+	cfg, err := config.LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+	cfg.Agents.Defaults.Workspace = filepath.Join(t.TempDir(), "workspace")
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/skills/weather":
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusConflict)
+			json.NewEncoder(w).Encode(map[string]any{
+				"code": "AMBIGUOUS_SKILL_SLUG",
+				"slug": "weather",
+				"matches": []map[string]any{
+					{"ownerHandle": "steipete", "slug": "weather", "ref": "@steipete/weather"},
+					{"ownerHandle": "acme", "slug": "weather", "ref": "@acme/weather"},
+				},
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	setClawHubBaseURL(cfg, server.URL)
+	if err := config.SaveConfig(configPath, cfg); err != nil {
+		t.Fatalf("SaveConfig() error = %v", err)
+	}
+
+	h := NewHandler(configPath)
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/api/skills/install",
+		strings.NewReader(`{"slug":"weather","registry":"clawhub"}`),
+	)
+	req.Header.Set("Content-Type", "application/json")
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want 409, body=%s", rec.Code, rec.Body.String())
+	}
+	var payload struct {
+		Code    string                   `json:"code"`
+		Matches []skills.SkillOwnerMatch `json:"matches"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+	if payload.Code != "ambiguous_slug" || len(payload.Matches) != 2 {
+		t.Fatalf("unexpected payload: %#v", payload)
+	}
+	if payload.Matches[0].OwnerHandle != "steipete" {
+		t.Fatalf("first match = %#v", payload.Matches[0])
+	}
+}
+
+func TestHandleInstallSkillRejectsSkillsSh(t *testing.T) {
+	configPath, cleanup := setupOAuthTestEnv(t)
+	defer cleanup()
+
+	h := NewHandler(configPath)
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/api/skills/install",
+		strings.NewReader(`{"slug":"react-email","registry":"clawhub","install_kind":"skills-sh"}`),
+	)
+	req.Header.Set("Content-Type", "application/json")
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d, want 422, body=%s", rec.Code, rec.Body.String())
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+	if payload["code"] != "unsupported_source" {
+		t.Fatalf("code = %v", payload["code"])
 	}
 }
 

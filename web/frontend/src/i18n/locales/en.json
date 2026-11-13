@@ -735,6 +735,24 @@
         "marketplace_results_title": "{{count}} results for “{{query}}”",
         "marketplace_results_hint": "Registry results install into the current workspace.",
         "marketplace_install_action": "Install",
+        "marketplace_install_blocked": "Blocked",
+        "marketplace_install_unsupported": "Not supported",
+        "marketplace_downloads": "{{count}} downloads",
+        "market_sort_label": "Sort by",
+        "market_sort": {
+          "relevance": "Relevance",
+          "downloads": "Most downloaded"
+        },
+        "security": {
+          "clean": "Clean",
+          "review": "Review",
+          "blocked": "Blocked",
+          "unscanned": "Not scanned",
+          "audit_link": "Open security audit"
+        },
+        "publisher_required_title": "Choose a publisher",
+        "publisher_required_description": "Multiple publishers use the slug \"{{slug}}\". Pick the publisher you want to install from.",
+        "publisher_required_cancel": "Cancel",
         "marketplace_installed": "Installed",
         "marketplace_view_installed": "View Local",
         "marketplace_installed_hint": "Already available in this workspace as “{{name}}”.",

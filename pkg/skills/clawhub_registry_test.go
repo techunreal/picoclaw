@@ -321,6 +321,226 @@ func TestClawHubRegistrySearchNullableFields(t *testing.T) {
 
 // --- helpers ---
 
+func TestClawHubRegistrySearchPublisherMetadata(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		slug := "weather"
+		name := "Weather"
+		summary := "Get forecasts"
+		owner := "steipete"
+		canonical := "/steipete/skills/weather"
+		downloads := int64(173791)
+
+		json.NewEncoder(w).Encode(clawhubSearchResponse{
+			Results: []clawhubSearchResult{{
+				Score:        6120,
+				Slug:         &slug,
+				DisplayName:  &name,
+				Summary:      &summary,
+				OwnerHandle:  &owner,
+				CanonicalURL: &canonical,
+				Downloads:    &downloads,
+				Install: &struct {
+					Kind      string `json:"kind"`
+					Reference string `json:"reference"`
+					SourceURL string `json:"sourceUrl"`
+				}{Kind: "clawhub", Reference: "steipete/weather"},
+				Trust: &struct {
+					Installability string `json:"installability"`
+				}{Installability: "installable"},
+			}},
+		})
+	}))
+	defer srv.Close()
+
+	reg := newTestRegistry(srv.URL, "")
+	results, err := reg.Search(context.Background(), "weather", 5)
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+
+	result := results[0]
+	assert.Equal(t, "steipete", result.OwnerHandle)
+	assert.Equal(t, "clawhub", result.InstallKind)
+	assert.Equal(t, "steipete/weather", result.InstallReference)
+	assert.Equal(t, srv.URL+"/steipete/skills/weather", result.CanonicalURL)
+	assert.Equal(t, int64(173791), result.Downloads)
+	assert.Equal(t, "installable", result.Installability)
+}
+
+func TestClawHubRegistryGetSkillMetaNewShapeAndOwnerQuery(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "/api/v1/skills/weather", r.URL.Path)
+		assert.Equal(t, "steipete", r.URL.Query().Get("ownerHandle"))
+
+		json.NewEncoder(w).Encode(map[string]any{
+			"skill": map[string]any{
+				"slug":        "weather",
+				"displayName": "Weather",
+				"summary":     "Get forecasts",
+			},
+			"latestVersion": map[string]any{"version": "1.0.0"},
+			"owner":         map[string]any{"handle": "steipete"},
+		})
+	}))
+	defer srv.Close()
+
+	reg := newTestRegistry(srv.URL, "")
+	meta, err := reg.GetSkillMetaForOwner(context.Background(), "weather", "@Steipete")
+	require.NoError(t, err)
+	assert.Equal(t, "weather", meta.Slug)
+	assert.Equal(t, "Weather", meta.DisplayName)
+	assert.Equal(t, "1.0.0", meta.LatestVersion)
+	assert.Equal(t, "steipete", meta.OwnerHandle)
+	assert.Equal(t, srv.URL+"/steipete/skills/weather", meta.CanonicalURL)
+}
+
+func TestClawHubRegistryGetSkillMetaAmbiguous(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusConflict)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"code": "AMBIGUOUS_SKILL_SLUG",
+			"slug": "weather",
+			"matches": []map[string]any{
+				{"ownerHandle": "steipete", "slug": "weather", "ref": "@steipete/weather"},
+				{"ownerHandle": "sdk-team", "slug": "weather", "ref": "@sdk-team/weather"},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	reg := newTestRegistry(srv.URL, "")
+	_, err := reg.GetSkillMeta(context.Background(), "weather")
+	require.Error(t, err)
+
+	var ambiguous *AmbiguousSkillSlugError
+	require.ErrorAs(t, err, &ambiguous)
+	require.Len(t, ambiguous.Matches, 2)
+	assert.Equal(t, "steipete", ambiguous.Matches[0].OwnerHandle)
+}
+
+func TestClawHubRegistryDownloadWithOwnerHandle(t *testing.T) {
+	zipData := createTestZip(t, map[string]string{
+		"SKILL.md": "---\nname: weather\ndescription: Weather\n---\n# Weather",
+	})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/skills/weather":
+			json.NewEncoder(w).Encode(map[string]any{
+				"skill":         map[string]any{"slug": "weather", "summary": "Weather"},
+				"latestVersion": map[string]any{"version": "1.0.0"},
+				"owner":         map[string]any{"handle": "steipete"},
+			})
+		case "/api/v1/download":
+			assert.Equal(t, "weather", r.URL.Query().Get("slug"))
+			assert.Equal(t, "steipete", r.URL.Query().Get("ownerHandle"))
+			w.Header().Set("Content-Type", "application/zip")
+			w.Write(zipData)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	reg := newTestRegistry(srv.URL, "")
+	targetDir := t.TempDir()
+	_, err := reg.DownloadAndInstallForOwner(
+		context.Background(), "weather", "", "steipete", targetDir,
+	)
+	require.NoError(t, err)
+	_, statErr := os.Stat(filepath.Join(targetDir, "SKILL.md"))
+	require.NoError(t, statErr)
+}
+
+func TestClawHubRegistryInstallsGitHubHandoffArchive(t *testing.T) {
+	zipData := createTestZip(t, map[string]string{
+		"SKILL.md": "---\nname: handoff\ndescription: Handoff skill\n---\n# Handoff",
+	})
+	var serverURL string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/skills/handoff":
+			json.NewEncoder(w).Encode(map[string]any{
+				"skill":         map[string]any{"slug": "handoff", "summary": "Handoff"},
+				"latestVersion": map[string]any{"version": "1.0.0"},
+				"owner":         map[string]any{"handle": "acme"},
+			})
+		case "/api/v1/download":
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]any{
+				"repo":       "acme/skills",
+				"commit":     "abc123",
+				"path":       "skills/handoff",
+				"archiveUrl": serverURL + "/archive.zip",
+			})
+		case "/archive.zip":
+			w.Header().Set("Content-Type", "application/zip")
+			w.Write(zipData)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	serverURL = srv.URL
+
+	reg := newTestRegistry(srv.URL, "")
+	targetDir := t.TempDir()
+	_, err := reg.DownloadAndInstallForOwner(
+		context.Background(), "handoff", "", "acme", targetDir,
+	)
+	require.NoError(t, err)
+	data, readErr := os.ReadFile(filepath.Join(targetDir, "SKILL.md"))
+	require.NoError(t, readErr)
+	assert.Contains(t, string(data), "Handoff skill")
+}
+
+func TestClawHubRegistrySecuritySummary(t *testing.T) {
+	resetClawHubSecurityCache()
+	defer resetClawHubSecurityCache()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "/api/v1/skills/weather/scan", r.URL.Path)
+		assert.Equal(t, "latest", r.URL.Query().Get("tag"))
+		assert.Equal(t, "steipete", r.URL.Query().Get("ownerHandle"))
+		json.NewEncoder(w).Encode(map[string]any{
+			"skill":   map[string]any{"slug": "weather"},
+			"version": map[string]any{"version": "1.0.0"},
+			"security": map[string]any{
+				"status":        "clean",
+				"hasScanResult": true,
+				"scanners": map[string]any{
+					"skillspector": map[string]any{"status": "clean", "severity": "LOW"},
+					"llm":          map[string]any{"status": "clean", "summary": "Looks safe."},
+				},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	reg := newTestRegistry(srv.URL, "")
+	security, err := reg.GetSecuritySummary(context.Background(), "weather", "steipete")
+	require.NoError(t, err)
+	require.NotNil(t, security)
+	assert.Equal(t, "pass", security.Decision)
+	assert.Equal(t, "clean", security.Status)
+	assert.Equal(t, "LOW", security.RiskLevel)
+	assert.Equal(t, "Looks safe.", security.Summary)
+	assert.Contains(t, security.AuditURL, "/steipete/skills/weather/security-audit")
+}
+
+func TestClawHubRegistrySkillURLForOwner(t *testing.T) {
+	reg := newTestRegistry("https://clawhub.example", "")
+	assert.Equal(
+		t,
+		"https://clawhub.example/steipete/skills/weather",
+		reg.SkillURLForOwner("weather", "@Steipete", ""),
+	)
+	assert.Equal(
+		t,
+		"https://clawhub.example/skills/weather",
+		reg.SkillURL("weather", ""),
+	)
+}
+
 func createTestZip(t *testing.T, files map[string]string) []byte {
 	t.Helper()
 	var buf bytes.Buffer
