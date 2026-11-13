@@ -935,6 +935,9 @@ func TestRuntime_RunColdPathOnce_DraftSaveFailureRollsBackAppliedSkill(t *testin
 	if runtime.GOOS == "windows" {
 		t.Skip("directory permission behavior differs on Windows")
 	}
+	if os.Getuid() == 0 {
+		t.Skip("running as root cannot simulate a permission failure")
+	}
 
 	root := t.TempDir()
 	paths := evolution.NewPaths(root, "")

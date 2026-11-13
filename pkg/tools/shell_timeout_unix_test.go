@@ -18,7 +18,22 @@ func processExists(pid int) bool {
 		return false
 	}
 	err := syscall.Kill(pid, 0)
-	return err == nil || err == syscall.EPERM
+	if err != nil && err != syscall.EPERM {
+		return false
+	}
+
+	// A killed child can remain as a zombie until its reaper runs. Signal 0
+	// still succeeds for zombies, but they are no longer executing.
+	if data, readErr := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat"); readErr == nil {
+		stat := string(data)
+		if idx := strings.LastIndex(stat, ")"); idx >= 0 {
+			fields := strings.Fields(stat[idx+1:])
+			if len(fields) > 0 && fields[0] == "Z" {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 func TestShellTool_TimeoutKillsChildProcess(t *testing.T) {
