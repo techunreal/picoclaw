@@ -332,6 +332,43 @@ func TestSetHistory_DropsTransientAssistantThought(t *testing.T) {
 	}
 }
 
+func TestSessionMemoryPreferencePersists(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	enabled, found, err := store.GetSessionMemoryEnabled(ctx, "session-1")
+	if err != nil {
+		t.Fatalf("GetSessionMemoryEnabled() error = %v", err)
+	}
+	if !enabled || found {
+		t.Fatalf("default preference = (%v,%v), want (true,false)", enabled, found)
+	}
+
+	disabled := false
+	if err := store.SetSessionMemoryEnabled(ctx, "session-1", &disabled); err != nil {
+		t.Fatalf("SetSessionMemoryEnabled() error = %v", err)
+	}
+	enabled, found, err = store.GetSessionMemoryEnabled(ctx, "session-1")
+	if err != nil {
+		t.Fatalf("GetSessionMemoryEnabled() error = %v", err)
+	}
+	if enabled || !found {
+		t.Fatalf("stored preference = (%v,%v), want (false,true)", enabled, found)
+	}
+
+	// Clearing returns to the global default.
+	if err := store.SetSessionMemoryEnabled(ctx, "session-1", nil); err != nil {
+		t.Fatalf("clear preference error = %v", err)
+	}
+	enabled, found, err = store.GetSessionMemoryEnabled(ctx, "session-1")
+	if err != nil {
+		t.Fatalf("GetSessionMemoryEnabled() error = %v", err)
+	}
+	if !enabled || found {
+		t.Fatalf("cleared preference = (%v,%v), want (true,false)", enabled, found)
+	}
+}
+
 func TestSessionMetaScopeAndAliasesPersist(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()

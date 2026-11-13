@@ -236,6 +236,22 @@ func TestJSONLBackend_ResolveAliasAndPersistMetadata(t *testing.T) {
 	}
 }
 
+func TestJSONLBackend_SessionMemoryPreference(t *testing.T) {
+	b := newBackend(t)
+
+	if enabled, found := b.GetSessionMemoryEnabled("session-1"); !enabled || found {
+		t.Fatalf("default = (%v,%v), want (true,false)", enabled, found)
+	}
+
+	disabled := false
+	if err := b.SetSessionMemoryEnabled("session-1", &disabled); err != nil {
+		t.Fatalf("SetSessionMemoryEnabled() error = %v", err)
+	}
+	if enabled, found := b.GetSessionMemoryEnabled("session-1"); enabled || !found {
+		t.Fatalf("stored = (%v,%v), want (false,true)", enabled, found)
+	}
+}
+
 func TestJSONLBackend_EnsureSessionMetadata_PromotesLegacyAliasHistory(t *testing.T) {
 	b := newBackend(t)
 

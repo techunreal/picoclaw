@@ -16,6 +16,7 @@ import {
   type ChatInputDisabledReason,
 } from "@/components/chat/chat-composer"
 import { ChatEmptyState } from "@/components/chat/chat-empty-state"
+import { ChatMemoryToggle } from "@/components/chat/chat-memory-toggle"
 import { ModelSelector } from "@/components/chat/model-selector"
 import { SessionHistoryMenu } from "@/components/chat/session-history-menu"
 import { TypingIndicator } from "@/components/chat/typing-indicator"
@@ -355,6 +356,8 @@ export function ChatPage() {
             </SelectContent>
           </Select>
         </div>
+
+        <ChatMemoryToggle sessionId={activeSessionId} />
 
         <Button
           variant="secondary"

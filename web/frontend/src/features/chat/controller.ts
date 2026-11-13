@@ -5,6 +5,10 @@ import {
   loadSessionMessages,
   mergeHistoryMessages,
 } from "@/features/chat/history"
+import {
+  isSessionMemoryEnabled,
+  setSessionMemoryPreference,
+} from "@/features/chat/memory-preference"
 import { type PicoMessage, handlePicoMessage } from "@/features/chat/protocol"
 import {
   clearStoredSessionId,
@@ -139,7 +143,8 @@ export async function connectChat() {
 
     const wsScheme = window.location.protocol === "https:" ? "wss:" : "ws:"
     const wsUrl = `${wsScheme}//${window.location.host}/pico/ws`
-    const url = `${wsUrl}?session_id=${encodeURIComponent(sessionId)}`
+    const memory = isSessionMemoryEnabled(sessionId) ? "on" : "off"
+    const url = `${wsUrl}?session_id=${encodeURIComponent(sessionId)}&memory=${memory}`
     const socket = new WebSocket(url)
 
     if (generation !== connectionGeneration) {
@@ -424,6 +429,18 @@ export async function newChatSession() {
   if (store.get(gatewayAtom).status === "running") {
     shouldMaintainConnection = true
     await connectChat()
+  }
+}
+
+export function isActiveSessionMemoryEnabled(): boolean {
+  return isSessionMemoryEnabled(activeSessionIdRef)
+}
+
+export function setActiveSessionMemoryEnabled(enabled: boolean) {
+  setSessionMemoryPreference(activeSessionIdRef, enabled)
+  if (wsRef && store.get(gatewayAtom).status === "running") {
+    disconnectChatInternal({ clearDesiredConnection: false })
+    void connectChat()
   }
 }
 

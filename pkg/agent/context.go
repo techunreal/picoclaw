@@ -250,6 +250,7 @@ func (cb *ContextBuilder) BuildSystemPromptParts() []PromptPart {
 type systemPromptBuildOptions struct {
 	IncludeSkillCatalog bool
 	IncludeToolUseRule  bool
+	SuppressMemory      bool
 	AllowedSkills       []string
 	AllowedTools        []string
 }
@@ -326,7 +327,7 @@ func (cb *ContextBuilder) buildSystemPromptParts(opts systemPromptBuildOptions) 
 	}
 
 	// Memory context (global master switch, default enabled)
-	if MemoryEnabled() && cb.memory != nil {
+	if !opts.SuppressMemory && MemoryEnabled() && cb.memory != nil {
 		memoryContext := cb.memory.GetMemoryContext()
 		if memoryContext != "" {
 			add(PromptPart{
@@ -417,7 +418,8 @@ func (cb *ContextBuilder) buildSystemPromptForRequest(
 	useDefaultCache := !req.SuppressSkillContext &&
 		!req.SuppressToolUseRule &&
 		len(req.AllowedSkills) == 0 &&
-		len(req.AllowedTools) == 0
+		len(req.AllowedTools) == 0 &&
+		(req.MemoryEnabled == nil || *req.MemoryEnabled)
 	if useDefaultCache {
 		staticPrompt := cb.BuildSystemPromptWithCache()
 		return staticPrompt, []providers.ContentBlock{
@@ -434,6 +436,7 @@ func (cb *ContextBuilder) buildSystemPromptForRequest(
 	parts := cb.buildSystemPromptParts(systemPromptBuildOptions{
 		IncludeSkillCatalog: !req.SuppressSkillContext,
 		IncludeToolUseRule:  !req.SuppressToolUseRule,
+		SuppressMemory:      req.MemoryEnabled != nil && !*req.MemoryEnabled,
 		AllowedSkills:       req.AllowedSkills,
 		AllowedTools:        req.AllowedTools,
 	})

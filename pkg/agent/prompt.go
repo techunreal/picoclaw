@@ -124,6 +124,9 @@ type PromptBuildRequest struct {
 	AllowedSkills               []string
 	AllowedTools                []string
 	ToolUseFallback             bool
+	// MemoryEnabled is optional per-session override. nil follows the global
+	// memory master switch.
+	MemoryEnabled *bool
 }
 
 type PromptContributor interface {

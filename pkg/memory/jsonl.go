@@ -41,14 +41,15 @@ const (
 // Scope is stored as raw JSON so pkg/memory can stay decoupled from the
 // higher-level session package while still preserving structured scope data.
 type SessionMeta struct {
-	Key       string          `json:"key"`
-	Summary   string          `json:"summary"`
-	Skip      int             `json:"skip"`
-	Count     int             `json:"count"`
-	CreatedAt time.Time       `json:"created_at"`
-	UpdatedAt time.Time       `json:"updated_at"`
-	Scope     json.RawMessage `json:"scope,omitempty"`
-	Aliases   []string        `json:"aliases,omitempty"`
+	Key           string          `json:"key"`
+	Summary       string          `json:"summary"`
+	Skip          int             `json:"skip"`
+	Count         int             `json:"count"`
+	CreatedAt     time.Time       `json:"created_at"`
+	UpdatedAt     time.Time       `json:"updated_at"`
+	Scope         json.RawMessage `json:"scope,omitempty"`
+	Aliases       []string        `json:"aliases,omitempty"`
+	MemoryEnabled *bool           `json:"memory_enabled,omitempty"`
 }
 
 // JSONLStore implements Store using append-only JSONL files.
@@ -198,6 +199,42 @@ func (s *JSONLStore) GetSessionMeta(_ context.Context, sessionKey string) (Sessi
 		meta.Aliases = append([]string(nil), meta.Aliases...)
 	}
 	return meta, nil
+}
+
+// GetSessionMemoryEnabled returns the per-session memory preference.
+// found is false when the session never set an explicit preference.
+func (s *JSONLStore) GetSessionMemoryEnabled(
+	_ context.Context, sessionKey string,
+) (enabled bool, found bool, err error) {
+	l := s.sessionLock(sessionKey)
+	l.Lock()
+	defer l.Unlock()
+
+	meta, err := s.readMeta(sessionKey)
+	if err != nil {
+		return true, false, err
+	}
+	if meta.MemoryEnabled == nil {
+		return true, false, nil
+	}
+	return *meta.MemoryEnabled, true, nil
+}
+
+// SetSessionMemoryEnabled stores (or clears, when enabled is nil) the
+// per-session memory preference without touching history timestamps.
+func (s *JSONLStore) SetSessionMemoryEnabled(
+	_ context.Context, sessionKey string, enabled *bool,
+) error {
+	l := s.sessionLock(sessionKey)
+	l.Lock()
+	defer l.Unlock()
+
+	meta, err := s.readMeta(sessionKey)
+	if err != nil {
+		return err
+	}
+	meta.MemoryEnabled = enabled
+	return s.writeMeta(sessionKey, meta)
 }
 
 // UpsertSessionMeta stores structured session metadata while preserving

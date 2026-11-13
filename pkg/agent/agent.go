@@ -595,6 +595,13 @@ func (al *AgentLoop) runAgentLoop(
 		opts.Dispatch.SessionScope,
 		opts.Dispatch.SessionAliases,
 	)
+	if opts.Dispatch.InboundContext != nil {
+		applyInboundMemoryPreference(
+			agent.Sessions,
+			opts.Dispatch.SessionKey,
+			opts.Dispatch.InboundContext.Raw,
+		)
+	}
 
 	turnScope := al.newTurnEventScope(
 		agent.ID,

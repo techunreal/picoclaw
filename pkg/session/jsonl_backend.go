@@ -27,6 +27,17 @@ type aliasPromotingStore interface {
 	PromoteAliasHistory(ctx context.Context, sessionKey string, scope json.RawMessage, aliases []string) (bool, error)
 }
 
+type memoryPreferenceStore interface {
+	GetSessionMemoryEnabled(ctx context.Context, sessionKey string) (bool, bool, error)
+	SetSessionMemoryEnabled(ctx context.Context, sessionKey string, enabled *bool) error
+}
+
+// SessionMemoryPreferenceStore exposes per-session memory opt-out metadata.
+type SessionMemoryPreferenceStore interface {
+	GetSessionMemoryEnabled(sessionKey string) (enabled bool, found bool)
+	SetSessionMemoryEnabled(sessionKey string, enabled *bool) error
+}
+
 // MetadataAwareSessionStore exposes structured session metadata operations.
 type MetadataAwareSessionStore interface {
 	EnsureSessionMetadata(sessionKey string, scope *SessionScope, aliases []string)
@@ -116,6 +127,35 @@ func (b *JSONLBackend) GetSessionScope(sessionKey string) *SessionScope {
 		return nil
 	}
 	return CloneScope(&scope)
+}
+
+// GetSessionMemoryEnabled returns the per-session memory preference.
+func (b *JSONLBackend) GetSessionMemoryEnabled(sessionKey string) (bool, bool) {
+	store, ok := b.store.(memoryPreferenceStore)
+	if !ok {
+		return true, false
+	}
+	sessionKey = b.resolveSessionKey(sessionKey)
+	enabled, found, err := store.GetSessionMemoryEnabled(context.Background(), sessionKey)
+	if err != nil {
+		log.Printf("session: get memory preference: %v", err)
+		return true, false
+	}
+	return enabled, found
+}
+
+// SetSessionMemoryEnabled persists the per-session memory preference.
+func (b *JSONLBackend) SetSessionMemoryEnabled(sessionKey string, enabled *bool) error {
+	store, ok := b.store.(memoryPreferenceStore)
+	if !ok {
+		return nil
+	}
+	sessionKey = strings.TrimSpace(sessionKey)
+	if sessionKey == "" {
+		return nil
+	}
+	sessionKey = b.resolveSessionKey(sessionKey)
+	return store.SetSessionMemoryEnabled(context.Background(), sessionKey, enabled)
 }
 
 func (b *JSONLBackend) AddMessage(sessionKey, role, content string) {

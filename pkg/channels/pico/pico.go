@@ -31,9 +31,11 @@ type picoConn struct {
 	id        string
 	conn      *websocket.Conn
 	sessionID string
-	writeMu   sync.Mutex
-	closed    atomic.Bool
-	cancel    context.CancelFunc // cancels per-connection goroutines (e.g. pingLoop)
+	// memoryEnabled is "", "true", or "false", from the WebSocket query.
+	memoryEnabled string
+	writeMu       sync.Mutex
+	closed        atomic.Bool
+	cancel        context.CancelFunc // cancels per-connection goroutines (e.g. pingLoop)
 }
 
 var allowedInlineImageMIMETypes = map[string]struct{}{
@@ -1035,6 +1037,13 @@ func (c *PicoChannel) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	switch strings.ToLower(strings.TrimSpace(r.URL.Query().Get("memory"))) {
+	case "on", "true":
+		pc.memoryEnabled = "true"
+	case "off", "false":
+		pc.memoryEnabled = "false"
+	}
+
 	logger.InfoCF("pico", "WebSocket client connected", map[string]any{
 		"conn_id":    pc.id,
 		"session_id": sessionID,
@@ -1224,6 +1233,9 @@ func (c *PicoChannel) handleMessageSend(pc *picoConn, msg PicoMessage) {
 		"platform":   "pico",
 		"session_id": sessionID,
 		"conn_id":    pc.id,
+	}
+	if pc.memoryEnabled != "" {
+		metadata["memory_enabled"] = pc.memoryEnabled
 	}
 
 	logger.DebugCF("pico", "Received message", map[string]any{

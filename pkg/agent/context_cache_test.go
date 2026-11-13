@@ -365,6 +365,39 @@ func TestMemoryMasterSwitchInvalidatesCache(t *testing.T) {
 	}
 }
 
+// TestMemoryDisabledForSessionPrompt verifies the per-session opt-out path.
+func TestMemoryDisabledForSessionPrompt(t *testing.T) {
+	defer SetMemoryEnabled(true)
+	SetMemoryEnabled(true)
+
+	tmpDir := setupWorkspace(t, map[string]string{
+		"memory/MEMORY.md": "# Memory\nsession-secret-token",
+	})
+	defer os.RemoveAll(tmpDir)
+
+	cb := NewContextBuilder(tmpDir)
+	disabled := false
+	messages := cb.BuildMessagesFromPrompt(PromptBuildRequest{
+		CurrentMessage: "hello",
+		MemoryEnabled:  &disabled,
+	})
+	if len(messages) == 0 {
+		t.Fatal("expected messages")
+	}
+	if strings.Contains(messages[0].Content, "session-secret-token") {
+		t.Fatal("session memory opt-out must exclude workspace memory")
+	}
+
+	enabled := true
+	messages = cb.BuildMessagesFromPrompt(PromptBuildRequest{
+		CurrentMessage: "hello",
+		MemoryEnabled:  &enabled,
+	})
+	if !strings.Contains(messages[0].Content, "session-secret-token") {
+		t.Fatal("explicitly enabled session should include workspace memory")
+	}
+}
+
 // TestNewFileCreationInvalidatesCache verifies that creating a source file that
 // did not exist when the cache was built triggers a cache rebuild.
 // This catches the "from nothing to something" edge case that the old

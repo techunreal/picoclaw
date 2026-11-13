@@ -6,7 +6,27 @@ import (
 
 	"github.com/sipeed/picoclaw/pkg/config"
 	"github.com/sipeed/picoclaw/pkg/providers"
+	"github.com/sipeed/picoclaw/pkg/session"
 )
+
+func applySessionMemoryPreference(
+	req *PromptBuildRequest,
+	sessions session.SessionStore,
+	sessionKey string,
+) {
+	if req == nil || sessions == nil || strings.TrimSpace(sessionKey) == "" {
+		return
+	}
+	store, ok := sessions.(session.SessionMemoryPreferenceStore)
+	if !ok {
+		return
+	}
+	enabled, found := store.GetSessionMemoryEnabled(sessionKey)
+	if !found {
+		return
+	}
+	req.MemoryEnabled = &enabled
+}
 
 func promptBuildRequestForTurn(
 	ts *turnState,
@@ -50,7 +70,30 @@ func promptBuildRequestForTurn(
 	if ts.profile.Enabled && ts.profile.ToolsMode == config.TurnProfileModeCustom {
 		req.AllowedTools = append([]string(nil), ts.profile.AllowedTools...)
 	}
+	if ts.agent != nil {
+		applySessionMemoryPreference(&req, ts.agent.Sessions, ts.sessionKey)
+	}
 	return req
+}
+
+func applyInboundMemoryPreference(
+	sessions session.SessionStore,
+	sessionKey string,
+	raw map[string]string,
+) {
+	if sessions == nil || strings.TrimSpace(sessionKey) == "" {
+		return
+	}
+	value := strings.ToLower(strings.TrimSpace(raw["memory_enabled"]))
+	if value != "true" && value != "false" {
+		return
+	}
+	store, ok := sessions.(session.SessionMemoryPreferenceStore)
+	if !ok {
+		return
+	}
+	enabled := value == "true"
+	_ = store.SetSessionMemoryEnabled(sessionKey, &enabled)
 }
 
 func turnProfileNativeSearchCallable(
@@ -112,6 +155,13 @@ func promptBuildRequestForProcessOptions(
 	}
 	if profile.Enabled && profile.ToolsMode == config.TurnProfileModeCustom {
 		req.AllowedTools = append([]string(nil), profile.AllowedTools...)
+	}
+	if agent != nil {
+		sessionKey := opts.Dispatch.SessionKey
+		if strings.TrimSpace(sessionKey) == "" {
+			sessionKey = opts.SessionKey
+		}
+		applySessionMemoryPreference(&req, agent.Sessions, sessionKey)
 	}
 	return req
 }
