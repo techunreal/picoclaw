@@ -30,6 +30,9 @@ type Handler struct {
 	weixinFlows map[string]*weixinFlow
 	wecomMu     sync.Mutex
 	wecomFlows  map[string]*wecomFlow
+	// Serializes agent file writes so revision checks and backups cannot
+	// interleave between concurrent editors.
+	agentFilesMu sync.Mutex
 }
 
 // NewHandler creates an instance of the API handler.
@@ -100,6 +103,9 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	// Skills and tools support/actions
 	h.registerSkillRoutes(mux)
 	h.registerToolRoutes(mux)
+
+	// Agent memory/definition files
+	h.registerAgentFileRoutes(mux)
 
 	// OS startup / launch-at-login
 	h.registerStartupRoutes(mux)
