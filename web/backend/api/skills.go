@@ -440,6 +440,16 @@ func (h *Handler) handleInstallSkill(w http.ResponseWriter, r *http.Request) {
 	}
 	dirName, err := registry.ResolveInstallDirName(req.Slug)
 	if err != nil {
+		if registry.Name() == "github" {
+			writeSkillJSONError(
+				w,
+				http.StatusBadRequest,
+				"invalid_github_url",
+				"Enter a github.com repository URL or owner/repo/path.",
+				nil,
+			)
+			return
+		}
 		http.Error(w, fmt.Sprintf("invalid slug %q: error: %s", req.Slug, err.Error()), http.StatusBadRequest)
 		return
 	}
@@ -494,7 +504,7 @@ func (h *Handler) handleInstallSkill(w http.ResponseWriter, r *http.Request) {
 			)
 			return
 		}
-		http.Error(w, fmt.Sprintf("Failed to install skill: %v", err), http.StatusBadGateway)
+		writeSkillInstallFailure(w, registry.Name(), err)
 		return
 	}
 	if result.IsMalwareBlocked {
@@ -1115,6 +1125,83 @@ func writeSkillJSONError(
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(payload)
+}
+
+// writeSkillInstallFailure translates registry errors into actionable HTTP
+// responses. GitHub-specific errors are install-by-URL paths, so they get
+// messages that explain how to fix the address.
+func writeSkillInstallFailure(w http.ResponseWriter, registryName string, err error) {
+	message := err.Error()
+
+	if registryName == "github" {
+		lower := strings.ToLower(message)
+		switch {
+		case strings.Contains(lower, "skill.md not found"):
+			writeSkillJSONError(
+				w,
+				http.StatusUnprocessableEntity,
+				"skill_not_found",
+				"No SKILL.md was found at that GitHub location. Paste the URL of the folder that contains SKILL.md.",
+				nil,
+			)
+			return
+		case strings.Contains(lower, "http 404"):
+			writeSkillJSONError(
+				w,
+				http.StatusUnprocessableEntity,
+				"skill_not_found",
+				"GitHub returned 404. Check that the repository and path are public and contain SKILL.md.",
+				nil,
+			)
+			return
+		case strings.Contains(lower, "rate limit"):
+			writeSkillJSONError(
+				w,
+				http.StatusTooManyRequests,
+				"github_rate_limited",
+				"GitHub rate limit reached. Try again later.",
+				nil,
+			)
+			return
+		case strings.Contains(lower, "http 401"):
+			writeSkillJSONError(
+				w,
+				http.StatusForbidden,
+				"github_auth_required",
+				"GitHub rejected the request. A valid token may be required for this repository.",
+				nil,
+			)
+			return
+		case strings.Contains(lower, "http 403"):
+			writeSkillJSONError(
+				w,
+				http.StatusForbidden,
+				"github_access_denied",
+				"GitHub denied access to this repository.",
+				nil,
+			)
+			return
+		case strings.Contains(lower, "invalid github"),
+			strings.Contains(lower, "invalid format"),
+			strings.Contains(lower, "invalid slug"):
+			writeSkillJSONError(
+				w,
+				http.StatusBadRequest,
+				"invalid_github_url",
+				"Enter a github.com repository URL or owner/repo/path.",
+				nil,
+			)
+			return
+		}
+	}
+
+	writeSkillJSONError(
+		w,
+		http.StatusBadGateway,
+		"install_failed",
+		fmt.Sprintf("Failed to install skill: %v", err),
+		nil,
+	)
 }
 
 func normalizeImportedSkillName(filename string, content []byte) (string, error) {

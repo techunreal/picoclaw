@@ -1106,7 +1106,7 @@ func TestHandleInstallSkillRejectsSkillsSh(t *testing.T) {
 	}
 }
 
-func TestHandleSearchSkillsUsesGitHubResultVersionInURL(t *testing.T) {
+func TestHandleSearchSkillsSkipsGitHubRegistry(t *testing.T) {
 	configPath, cleanup := setupOAuthTestEnv(t)
 	defer cleanup()
 
@@ -1117,12 +1117,14 @@ func TestHandleSearchSkillsUsesGitHubResultVersionInURL(t *testing.T) {
 	workspace := filepath.Join(t.TempDir(), "workspace")
 	cfg.Agents.Defaults.Workspace = workspace
 
+	githubSearchCalls := 0
 	var server *httptest.Server
 	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/v3/search/code" {
 			http.NotFound(w, r)
 			return
 		}
+		githubSearchCalls++
 		json.NewEncoder(w).Encode(map[string]any{
 			"items": []map[string]any{
 				{
@@ -1164,11 +1166,11 @@ func TestHandleSearchSkillsUsesGitHubResultVersionInURL(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("Unmarshal() error = %v", err)
 	}
-	if len(resp.Results) != 1 {
-		t.Fatalf("results count = %d, want 1", len(resp.Results))
+	if len(resp.Results) != 0 {
+		t.Fatalf("results count = %d, want 0 (GitHub is install-only)", len(resp.Results))
 	}
-	if resp.Results[0].URL != server.URL+"/foo/bar/tree/master/skills/pr-review" {
-		t.Fatalf("result URL = %q", resp.Results[0].URL)
+	if githubSearchCalls != 0 {
+		t.Fatalf("GitHub code search was called %d times, want 0", githubSearchCalls)
 	}
 }
 
@@ -1605,6 +1607,184 @@ func TestHandleInstallSkillForcePreservesExistingSkillOnFailure(t *testing.T) {
 	}
 }
 
+func TestHandleInstallSkillFromGitHubTreeURL(t *testing.T) {
+	configPath, cleanup := setupOAuthTestEnv(t)
+	defer cleanup()
+
+	cfg, err := config.LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+	workspace := filepath.Join(t.TempDir(), "workspace")
+	cfg.Agents.Defaults.Workspace = workspace
+
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v3/repos/foo/bar":
+			json.NewEncoder(w).Encode(map[string]any{"default_branch": "master"})
+		case "/api/v3/repos/foo/bar/contents/.agents/skills/pr-review":
+			assert.Equal(t, "ref=master", r.URL.RawQuery)
+			json.NewEncoder(w).Encode([]map[string]any{{
+				"type":         "file",
+				"name":         "SKILL.md",
+				"download_url": server.URL + "/raw/foo/bar/master/.agents/skills/pr-review/SKILL.md",
+			}})
+		case "/raw/foo/bar/master/.agents/skills/pr-review/SKILL.md":
+			_, _ = w.Write([]byte("---\nname: pr-review\ndescription: PR review skill\n---\n# PR Review\n"))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	githubRegistry, ok := cfg.Tools.Skills.Registries.Get("github")
+	if !ok {
+		t.Fatalf("github registry missing from default config")
+	}
+	githubRegistry.BaseURL = server.URL
+	cfg.Tools.Skills.Registries.Set("github", githubRegistry)
+	if err := config.SaveConfig(configPath, cfg); err != nil {
+		t.Fatalf("SaveConfig() error = %v", err)
+	}
+
+	h := NewHandler(configPath)
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	url := server.URL + "/foo/bar/tree/master/.agents/skills/pr-review"
+	body, _ := json.Marshal(installSkillRequest{Slug: url, Registry: "github"})
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/skills/install", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	if _, err := os.Stat(filepath.Join(workspace, "skills", "pr-review", "SKILL.md")); err != nil {
+		t.Fatalf("installed SKILL.md missing: %v", err)
+	}
+}
+
+func TestHandleInstallSkillRejectsInvalidGitHubURL(t *testing.T) {
+	configPath, cleanup := setupOAuthTestEnv(t)
+	defer cleanup()
+
+	h := NewHandler(configPath)
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	body, _ := json.Marshal(installSkillRequest{
+		Slug:     "https://example.com/foo/bar",
+		Registry: "github",
+	})
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/skills/install", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	var payload map[string]any
+	_ = json.Unmarshal(rec.Body.Bytes(), &payload)
+	if payload["code"] != "invalid_github_url" {
+		t.Fatalf("code = %v", payload["code"])
+	}
+}
+
+func TestHandleInstallSkillGitHubMissingSkillMD(t *testing.T) {
+	configPath, cleanup := setupOAuthTestEnv(t)
+	defer cleanup()
+
+	cfg, err := config.LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+	cfg.Agents.Defaults.Workspace = filepath.Join(t.TempDir(), "workspace")
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v3/repos/foo/bar":
+			json.NewEncoder(w).Encode(map[string]any{"default_branch": "main"})
+		case "/api/v3/repos/foo/bar/contents":
+			json.NewEncoder(w).Encode([]map[string]any{})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	githubRegistry, _ := cfg.Tools.Skills.Registries.Get("github")
+	githubRegistry.BaseURL = server.URL
+	cfg.Tools.Skills.Registries.Set("github", githubRegistry)
+	if err := config.SaveConfig(configPath, cfg); err != nil {
+		t.Fatalf("SaveConfig() error = %v", err)
+	}
+
+	h := NewHandler(configPath)
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	body, _ := json.Marshal(installSkillRequest{Slug: "foo/bar", Registry: "github"})
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/skills/install", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	var payload map[string]any
+	_ = json.Unmarshal(rec.Body.Bytes(), &payload)
+	if payload["code"] != "skill_not_found" {
+		t.Fatalf("code = %v", payload["code"])
+	}
+}
+
+func TestHandleInstallSkillGitHubAccessDenied(t *testing.T) {
+	configPath, cleanup := setupOAuthTestEnv(t)
+	defer cleanup()
+
+	cfg, err := config.LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+	cfg.Agents.Defaults.Workspace = filepath.Join(t.TempDir(), "workspace")
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, `{"message":"Bad credentials"}`, http.StatusUnauthorized)
+	}))
+	defer server.Close()
+
+	githubRegistry, _ := cfg.Tools.Skills.Registries.Get("github")
+	githubRegistry.BaseURL = server.URL
+	cfg.Tools.Skills.Registries.Set("github", githubRegistry)
+	if err := config.SaveConfig(configPath, cfg); err != nil {
+		t.Fatalf("SaveConfig() error = %v", err)
+	}
+
+	h := NewHandler(configPath)
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	body, _ := json.Marshal(installSkillRequest{Slug: "foo/bar", Registry: "github"})
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/skills/install", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	var payload map[string]any
+	_ = json.Unmarshal(rec.Body.Bytes(), &payload)
+	if payload["code"] != "github_auth_required" {
+		t.Fatalf("code = %v", payload["code"])
+	}
+}
+
 func TestHandleInstallSkillDefaultsRegistryToGitHub(t *testing.T) {
 	configPath, cleanup := setupOAuthTestEnv(t)
 	defer cleanup()
@@ -1753,22 +1933,28 @@ func TestHandleInstallSkillTracksGitHubURLInstallsAsInstalled(t *testing.T) {
 	}
 
 	searchRec := httptest.NewRecorder()
-	searchReq := httptest.NewRequest(http.MethodGet, "/api/skills/search?q=pr+review&limit=5", nil)
+	searchReq := httptest.NewRequest(http.MethodGet, "/api/skills", nil)
 	mux.ServeHTTP(searchRec, searchReq)
 
 	if searchRec.Code != http.StatusOK {
-		t.Fatalf("search status = %d, want %d, body=%s", searchRec.Code, http.StatusOK, searchRec.Body.String())
+		t.Fatalf("skills status = %d, want %d, body=%s", searchRec.Code, http.StatusOK, searchRec.Body.String())
 	}
 
-	var searchResp skillSearchResponse
-	if err := json.Unmarshal(searchRec.Body.Bytes(), &searchResp); err != nil {
-		t.Fatalf("Unmarshal(search response) error = %v", err)
+	var listResp skillSupportResponse
+	if err := json.Unmarshal(searchRec.Body.Bytes(), &listResp); err != nil {
+		t.Fatalf("Unmarshal(skills response) error = %v", err)
 	}
-	if len(searchResp.Results) != 1 {
-		t.Fatalf("search results count = %d, want 1", len(searchResp.Results))
+	found := false
+	for _, item := range listResp.Skills {
+		if item.Name == "pr-review" {
+			found = true
+			if item.Source != "workspace" {
+				t.Fatalf("installed skill source = %q, want workspace", item.Source)
+			}
+		}
 	}
-	if !searchResp.Results[0].Installed || searchResp.Results[0].InstalledName != "pr-review" {
-		t.Fatalf("search result should be treated as installed after URL install, got %#v", searchResp.Results[0])
+	if !found {
+		t.Fatalf("installed GitHub skill should appear in the workspace skill list: %#v", listResp.Skills)
 	}
 }
 

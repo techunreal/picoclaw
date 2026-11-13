@@ -137,6 +137,12 @@ type CatalogRegistry interface {
 	PopularSkills(ctx context.Context, limit int, cursor string) ([]SearchResult, string, error)
 }
 
+// SearchExcludedRegistry is implemented by registries that are install-only.
+// The registry manager skips them when fanning out search queries.
+type SearchExcludedRegistry interface {
+	ExcludeFromSearch() bool
+}
+
 // InstallTargetNormalizer is implemented by registries that can canonicalize
 // user-provided install targets into a stable slug for origin metadata.
 type InstallTargetNormalizer interface {
@@ -279,6 +285,9 @@ func (rm *RegistryManager) SearchAll(ctx context.Context, query string, limit in
 
 	var wg sync.WaitGroup
 	for _, reg := range regs {
+		if excluded, ok := reg.(SearchExcludedRegistry); ok && excluded.ExcludeFromSearch() {
+			continue
+		}
 		wg.Add(1)
 		go func(r SkillRegistry) {
 			defer wg.Done()

@@ -41,6 +41,41 @@ func (m *mockRegistry) DownloadAndInstall(_ context.Context, _, _, _ string) (*I
 	return m.installResult, m.installErr
 }
 
+type searchExcludedMockRegistry struct {
+	mockRegistry
+	searchCalls int
+}
+
+func (m *searchExcludedMockRegistry) Search(
+	ctx context.Context, query string, limit int,
+) ([]SearchResult, error) {
+	m.searchCalls++
+	return m.mockRegistry.Search(ctx, query, limit)
+}
+
+func (m *searchExcludedMockRegistry) ExcludeFromSearch() bool { return true }
+
+func TestRegistryManagerSkipsSearchExcludedRegistries(t *testing.T) {
+	excluded := &searchExcludedMockRegistry{
+		mockRegistry: mockRegistry{
+			name:          "github",
+			searchResults: []SearchResult{{Slug: "should-not-appear", RegistryName: "github"}},
+		},
+	}
+	mgr := NewRegistryManager()
+	mgr.AddRegistry(excluded)
+	mgr.AddRegistry(&mockRegistry{
+		name:          "clawhub",
+		searchResults: []SearchResult{{Slug: "visible", Score: 1, RegistryName: "clawhub"}},
+	})
+
+	results, err := mgr.SearchAll(context.Background(), "query", 10)
+	assert.NoError(t, err)
+	assert.Len(t, results, 1)
+	assert.Equal(t, "visible", results[0].Slug)
+	assert.Zero(t, excluded.searchCalls, "install-only registries must not be searched")
+}
+
 func TestRegistryManagerSearchAllSingle(t *testing.T) {
 	mgr := NewRegistryManager()
 	mgr.AddRegistry(&mockRegistry{

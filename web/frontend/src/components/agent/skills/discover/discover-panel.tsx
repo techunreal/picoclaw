@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
 
+import { GithubSkillInstall } from "./github-skill-install"
 import { ResultsPanel } from "./results-panel"
 import { SearchPanel } from "./search-panel"
 import { useSkillsDiscover } from "./use-skills-discover"
@@ -40,6 +41,8 @@ export function DiscoverPanel({ onViewInstalled }: DiscoverPanelProps) {
             onSearchSubmit={discover.handleSearchSubmit}
             onMarketSortChange={discover.handleSortChange}
           />
+
+          <GithubSkillInstall canInstall={discover.canInstallFromMarketplace} />
 
           <ResultsPanel
             canSearchMarketplace={discover.canSearchMarketplace}

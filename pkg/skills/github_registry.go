@@ -69,6 +69,12 @@ func (r *GitHubRegistry) Name() string {
 	return "github"
 }
 
+// ExcludeFromSearch keeps GitHub as an install-only registry. Direct URL
+// installs still work; GitHub code search is not part of skill discovery.
+func (r *GitHubRegistry) ExcludeFromSearch() bool {
+	return true
+}
+
 func (r *GitHubRegistry) ResolveInstallDirName(target string) (string, error) {
 	return githubInstallDirNameWithBaseURL(target, r.webBase)
 }
