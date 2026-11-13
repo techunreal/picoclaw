@@ -173,6 +173,7 @@ func NewAgentInstance(
 		).
 		WithSplitOnMarker(cfg.Agents.Defaults.SplitOnMarker)
 	SetMemoryEnabled(defaults.Memory.IsEnabled())
+	SetMemoryAutoWrite(defaults.Memory.IsAutoWriteEnabled())
 
 	agentID := routing.DefaultAgentID
 	agentName := ""

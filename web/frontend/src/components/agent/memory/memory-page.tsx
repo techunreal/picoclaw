@@ -16,6 +16,7 @@ import { FileEditor } from "./file-editor"
 import { FileList } from "./file-list"
 import { agentFileLabel } from "./format"
 import { HistorySheet } from "./history-sheet"
+import { MemoryAutoWriteSwitch } from "./memory-auto-write-switch"
 import { MemoryMasterSwitch } from "./memory-master-switch"
 import { useMemoryPage } from "./use-memory-page"
 
@@ -61,6 +62,7 @@ export function MemoryPage() {
   return (
     <div className="flex h-full flex-col">
       <PageHeader title={t("navigation.memory")}>
+        <MemoryAutoWriteSwitch />
         <MemoryMasterSwitch />
       </PageHeader>
 

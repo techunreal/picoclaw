@@ -214,7 +214,11 @@ func (al *AgentLoop) processMessage(ctx context.Context, msg bus.InboundMessage)
 			})
 	}
 
-	return al.runAgentLoop(ctx, agent, opts)
+	response, err := al.runAgentLoop(ctx, agent, opts)
+	if err == nil {
+		al.maybeAutoWriteMemory(agent, opts, response)
+	}
+	return response, err
 }
 
 func (al *AgentLoop) resolveMessageRoute(msg bus.InboundMessage) (routing.ResolvedRoute, *AgentInstance, error) {

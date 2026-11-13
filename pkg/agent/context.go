@@ -26,6 +26,10 @@ import (
 // memory into prompts. It defaults to enabled and can be flipped at runtime.
 var memoryPromptEnabled atomic.Bool
 
+// memoryAutoWriteEnabled is the global switch for appending completed turns
+// to today's daily note. Defaults to disabled.
+var memoryAutoWriteEnabled atomic.Bool
+
 func init() {
 	memoryPromptEnabled.Store(true)
 }
@@ -38,6 +42,16 @@ func SetMemoryEnabled(enabled bool) {
 // MemoryEnabled reports whether memory context is currently injected.
 func MemoryEnabled() bool {
 	return memoryPromptEnabled.Load()
+}
+
+// SetMemoryAutoWrite toggles automatic daily-note writes at runtime.
+func SetMemoryAutoWrite(enabled bool) {
+	memoryAutoWriteEnabled.Store(enabled)
+}
+
+// MemoryAutoWriteEnabled reports whether automatic daily-note writes are on.
+func MemoryAutoWriteEnabled() bool {
+	return memoryAutoWriteEnabled.Load()
 }
 
 type ContextBuilder struct {

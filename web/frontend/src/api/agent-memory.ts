@@ -4,6 +4,10 @@ export interface MemorySettings {
   enabled: boolean
   runtime: boolean
   default: boolean
+  auto_write: boolean
+  auto_write_runtime: boolean
+  auto_write_default: boolean
+  last_write_at?: number
 }
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
@@ -32,5 +36,15 @@ export function setMemoryEnabled(enabled: boolean): Promise<MemorySettings> {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ enabled }),
+  })
+}
+
+export function setMemoryAutoWrite(
+  autoWrite: boolean,
+): Promise<MemorySettings> {
+  return request<MemorySettings>("/api/agent/memory", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ auto_write: autoWrite }),
   })
 }

@@ -424,6 +424,9 @@ type ToolFeedbackConfig struct {
 // A missing "enabled" field means enabled, so existing configs keep working.
 type MemoryConfig struct {
 	Enabled *bool `json:"enabled,omitempty"`
+	// AutoWrite appends a short summary of each completed turn to today's
+	// daily note. A missing field means disabled.
+	AutoWrite *bool `json:"auto_write,omitempty"`
 }
 
 // IsEnabled reports whether memory context should be included. Default: true.
@@ -431,9 +434,20 @@ func (m MemoryConfig) IsEnabled() bool {
 	return m.Enabled == nil || *m.Enabled
 }
 
+// IsAutoWriteEnabled reports whether completed turns are appended to the
+// daily note automatically. Default: false.
+func (m MemoryConfig) IsAutoWriteEnabled() bool {
+	return m.AutoWrite != nil && *m.AutoWrite
+}
+
 // SetEnabled stores an explicit enable/disable decision.
 func (m *MemoryConfig) SetEnabled(enabled bool) {
 	m.Enabled = &enabled
+}
+
+// SetAutoWrite stores an explicit auto-write decision.
+func (m *MemoryConfig) SetAutoWrite(enabled bool) {
+	m.AutoWrite = &enabled
 }
 
 type AgentDefaults struct {
