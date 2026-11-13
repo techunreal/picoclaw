@@ -792,10 +792,26 @@
         "detail_tabs": {
           "preview": "Preview",
           "raw": "Raw",
-          "meta": "Metadata"
+          "meta": "Metadata",
+          "edit": "Edit"
+        },
+        "editor": {
+          "save": "Save",
+          "saving": "Saving...",
+          "revert": "Revert",
+          "unsaved": "Unsaved changes",
+          "saved": "All changes saved",
+          "save_success": "Skill saved.",
+          "save_error": "Failed to save the skill.",
+          "name_mismatch": "Frontmatter name \"{{name}}\" does not match the folder name \"{{directory}}\". Loading uses the folder; the displayed name comes from frontmatter.",
+          "conflict_title": "This skill changed on disk",
+          "conflict_description": "SKILL.md was changed after you opened it. Reload the latest content or save your version anyway.",
+          "conflict_reload": "Reload",
+          "conflict_overwrite": "Save anyway"
         },
         "metadata": {
           "name": "Name",
+          "directory": "Folder",
           "description": "Description",
           "registry": "Registry",
           "url": "URL",

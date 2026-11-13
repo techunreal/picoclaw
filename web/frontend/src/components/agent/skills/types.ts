@@ -2,7 +2,7 @@ import type { SkillSupportItem } from "@/api/skills"
 
 export type SkillSortOption = "name-asc" | "name-desc" | "source"
 export type SkillLayoutMode = "grouped" | "grid"
-export type SkillDetailView = "preview" | "raw" | "meta"
+export type SkillDetailView = "preview" | "raw" | "meta" | "edit"
 export type SkillPageTab = "installed" | "discover"
 
 export interface SkillGroupSection {

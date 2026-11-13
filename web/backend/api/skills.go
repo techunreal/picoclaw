@@ -3,6 +3,8 @@ package api
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -17,6 +19,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/sipeed/picoclaw/pkg/config"
 	"github.com/sipeed/picoclaw/pkg/fileutil"
@@ -39,6 +42,7 @@ type skillSupportItem struct {
 	Description      string `json:"description"`
 	OriginKind       string `json:"origin_kind"`
 	Editable         bool   `json:"editable"`
+	NameMismatch     bool   `json:"name_mismatch,omitempty"`
 	OwnerHandle      string `json:"owner_handle,omitempty"`
 	RegistryName     string `json:"registry_name,omitempty"`
 	RegistryURL      string `json:"registry_url,omitempty"`
@@ -48,7 +52,23 @@ type skillSupportItem struct {
 
 type skillDetailResponse struct {
 	skillSupportItem
-	Content string `json:"content"`
+	Content    string `json:"content"`
+	RawContent string `json:"raw_content"`
+	Revision   string `json:"revision"`
+	Size       int64  `json:"size"`
+}
+
+type skillWriteRequest struct {
+	Content  string `json:"content"`
+	Revision string `json:"revision"`
+	Force    bool   `json:"force,omitempty"`
+}
+
+type skillWriteResponse struct {
+	Status   string `json:"status"`
+	ID       string `json:"id"`
+	Revision string `json:"revision"`
+	Size     int64  `json:"size"`
 }
 
 type skillSearchResultItem struct {
@@ -141,6 +161,7 @@ func (h *Handler) registerSkillRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/skills/search", h.handleSearchSkills)
 	mux.HandleFunc("GET /api/skills/popular", h.handlePopularSkills)
 	mux.HandleFunc("GET /api/skills/by-id/{id}", h.handleGetSkillByID)
+	mux.HandleFunc("PUT /api/skills/by-id/{id}", h.handleSaveSkillByID)
 	mux.HandleFunc("POST /api/skills/install", h.handleInstallSkill)
 	mux.HandleFunc("POST /api/skills/import", h.handleImportSkill)
 	mux.HandleFunc("DELETE /api/skills/{name}", h.handleDeleteSkill)
@@ -184,17 +205,14 @@ func (h *Handler) handleGetSkill(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		content, err := loadSkillContent(skillItem.Path)
+		detail, err := buildSkillDetailResponse(skillItem)
 		if err != nil {
 			http.Error(w, "Skill content not found", http.StatusNotFound)
 			return
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(skillDetailResponse{
-			skillSupportItem: skillItem,
-			Content:          content,
-		})
+		json.NewEncoder(w).Encode(detail)
 		return
 	}
 
@@ -250,16 +268,181 @@ func (h *Handler) handleGetSkillByID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	content, err := loadSkillContent(item.Path)
+	content, err := buildSkillDetailResponse(*item)
 	if err != nil {
 		http.Error(w, "Skill content not found", http.StatusNotFound)
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(skillDetailResponse{
-		skillSupportItem: *item,
-		Content:          content,
+	json.NewEncoder(w).Encode(content)
+}
+
+const (
+	maxSkillFileSize = 2 << 20
+	skillBackupLimit = 20
+)
+
+func skillRevision(data []byte) string {
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
+}
+
+func buildSkillDetailResponse(item skillSupportItem) (skillDetailResponse, error) {
+	raw, err := os.ReadFile(item.Path)
+	if err != nil {
+		return skillDetailResponse{}, err
+	}
+	return skillDetailResponse{
+		skillSupportItem: item,
+		Content:          skillFrontmatterStripper.ReplaceAllString(string(raw), ""),
+		RawContent:       string(raw),
+		Revision:         skillRevision(raw),
+		Size:             int64(len(raw)),
+	}, nil
+}
+
+func skillBackupDir(id string) string {
+	safeID := strings.NewReplacer(":", "-", "/", "-", "\\", "-").Replace(id)
+	return filepath.Join(config.GetHome(), "backups", "skills", safeID)
+}
+
+func backupSkillContent(id string, content []byte) error {
+	revision := skillRevision(content)
+	dir := skillBackupDir(id)
+
+	entries, err := os.ReadDir(dir)
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	suffix := "-" + revision + ".md"
+	for _, entry := range entries {
+		if strings.HasSuffix(entry.Name(), suffix) {
+			return nil
+		}
+	}
+
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	name := fmt.Sprintf("%020d-%s.md", time.Now().UnixNano(), revision)
+	if err := fileutil.WriteFileAtomic(filepath.Join(dir, name), content, 0o600); err != nil {
+		return err
+	}
+
+	entries, err = os.ReadDir(dir)
+	if err != nil {
+		return err
+	}
+	names := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".md") {
+			names = append(names, entry.Name())
+		}
+	}
+	sort.Strings(names)
+	for len(names) > skillBackupLimit {
+		_ = os.Remove(filepath.Join(dir, names[0]))
+		names = names[1:]
+	}
+	return nil
+}
+
+func (h *Handler) handleSaveSkillByID(w http.ResponseWriter, r *http.Request) {
+	cfg, err := config.LoadConfig(h.configPath)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to load config: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	item, err := findSkillByID(cfg, r.PathValue("id"))
+	if err != nil {
+		writeSkillJSONError(w, http.StatusBadRequest, "invalid_skill_id", "Invalid skill id.", nil)
+		return
+	}
+	if item == nil {
+		writeSkillJSONError(w, http.StatusNotFound, "not_found", "Skill not found.", nil)
+		return
+	}
+	if item.Source != "workspace" || !item.Editable {
+		writeSkillJSONError(w, http.StatusForbidden, "read_only", "Only workspace skills can be edited.", nil)
+		return
+	}
+
+	decoder := json.NewDecoder(io.LimitReader(r.Body, int64(8*maxSkillFileSize)))
+	decoder.DisallowUnknownFields()
+	var req skillWriteRequest
+	if err := decoder.Decode(&req); err != nil {
+		writeSkillJSONError(w, http.StatusBadRequest, "invalid_request", "Invalid request body.", nil)
+		return
+	}
+
+	content := []byte(req.Content)
+	if len(content) > maxSkillFileSize {
+		writeSkillJSONError(w, http.StatusRequestEntityTooLarge, "too_large", "Skill file exceeds the 2 MB limit.", nil)
+		return
+	}
+	if !utf8.Valid(content) || bytes.IndexByte(content, 0) >= 0 {
+		writeSkillJSONError(w, http.StatusUnsupportedMediaType, "not_text", "Skill file must be UTF-8 text.", nil)
+		return
+	}
+
+	workspaceSkillsRoot := filepath.Join(cfg.WorkspacePath(), "skills")
+	relPath, relErr := filepath.Rel(workspaceSkillsRoot, item.Path)
+	if relErr != nil || relPath == ".." ||
+		strings.HasPrefix(relPath, ".."+string(os.PathSeparator)) ||
+		filepath.IsAbs(relPath) {
+		writeSkillJSONError(w, http.StatusBadRequest, "invalid_skill_id", "Invalid skill path.", nil)
+		return
+	}
+
+	workspaceSkillWriteMu.Lock()
+	defer workspaceSkillWriteMu.Unlock()
+
+	current, readErr := os.ReadFile(item.Path)
+	if readErr != nil {
+		writeSkillJSONError(w, http.StatusNotFound, "not_found", "Skill content not found.", nil)
+		return
+	}
+	currentRevision := skillRevision(current)
+	if !req.Force {
+		if req.Revision == "" {
+			writeSkillJSONError(w, http.StatusBadRequest, "revision_required", "Revision is required to update an existing skill.", nil)
+			return
+		}
+		if currentRevision != req.Revision {
+			writeSkillJSONError(w, http.StatusConflict, "revision_conflict",
+				"The skill was changed by someone else.",
+				map[string]any{"revision": currentRevision})
+			return
+		}
+	}
+
+	perm := os.FileMode(0o644)
+	if info, statErr := os.Stat(item.Path); statErr == nil {
+		if mode := info.Mode().Perm(); mode != 0 {
+			perm = mode
+		}
+	}
+	if err := ensureNoSymlinkComponents(workspaceSkillsRoot, filepath.ToSlash(relPath)); err != nil {
+		writeSkillJSONError(w, http.StatusBadRequest, "invalid_skill_id", "Skill path is not allowed.", nil)
+		return
+	}
+	if err := backupSkillContent(item.ID, current); err != nil {
+		writeSkillJSONError(w, http.StatusInternalServerError, "backup_failed", "Failed to back up the skill.", nil)
+		return
+	}
+	if err := fileutil.WriteFileAtomic(item.Path, content, perm); err != nil {
+		writeSkillJSONError(w, http.StatusInternalServerError, "save_failed", "Failed to save the skill.", nil)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(skillWriteResponse{
+		Status:   "saved",
+		ID:       item.ID,
+		Revision: skillRevision(content),
+		Size:     int64(len(content)),
 	})
 }
 
@@ -987,14 +1170,15 @@ func reserveTempDirPath(parent, pattern string) (string, error) {
 func enrichSkillInfo(cfg *config.Config, skill skills.SkillInfo) (skillSupportItem, error) {
 	directory := filepath.Base(filepath.Dir(skill.Path))
 	item := skillSupportItem{
-		ID:          skill.Source + ":" + directory,
-		Name:        skill.Name,
-		Path:        skill.Path,
-		Directory:   directory,
-		Source:      skill.Source,
-		Description: skill.Description,
-		OriginKind:  "builtin",
-		Editable:    skill.Source == "workspace",
+		ID:           skill.Source + ":" + directory,
+		Name:         skill.Name,
+		Path:         skill.Path,
+		Directory:    directory,
+		Source:       skill.Source,
+		Description:  skill.Description,
+		OriginKind:   "builtin",
+		Editable:     skill.Source == "workspace",
+		NameMismatch: skill.Name != directory,
 	}
 
 	switch skill.Source {

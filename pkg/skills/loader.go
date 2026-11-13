@@ -16,6 +16,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/sipeed/picoclaw/pkg/logger"
+	"github.com/sipeed/picoclaw/pkg/utils"
 )
 
 var namePattern = regexp.MustCompile(`^[a-zA-Z0-9]+(-[a-zA-Z0-9]+)*$`)
@@ -33,6 +34,7 @@ type SkillMetadata struct {
 type SkillInfo struct {
 	Name        string `json:"name"`
 	Path        string `json:"path"`
+	Directory   string `json:"directory"`
 	Source      string `json:"source"`
 	Description string `json:"description"`
 }
@@ -119,9 +121,10 @@ func (sl *SkillsLoader) ListSkills() []SkillInfo {
 				continue
 			}
 			info := SkillInfo{
-				Name:   d.Name(),
-				Path:   skillFile,
-				Source: source,
+				Name:      d.Name(),
+				Path:      skillFile,
+				Directory: d.Name(),
+				Source:    source,
 			}
 			metadata := sl.getSkillMetadata(skillFile)
 			if metadata != nil {
@@ -149,7 +152,14 @@ func (sl *SkillsLoader) ListSkills() []SkillInfo {
 }
 
 func (sl *SkillsLoader) LoadSkill(name string) (string, bool) {
-	if err := ValidateSkillName(name); err != nil {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return "", false
+	}
+	// Accept a skill directory name. Keep path traversal protection, but do
+	// not apply the stricter frontmatter-name pattern here: directory names
+	// are the stable identity even when frontmatter differs.
+	if err := utils.ValidateSkillIdentifier(name); err != nil {
 		return "", false
 	}
 
@@ -173,6 +183,21 @@ func (sl *SkillsLoader) LoadSkill(name string) (string, bool) {
 	if sl.builtinSkills != "" {
 		skillFile := filepath.Join(sl.builtinSkills, name, "SKILL.md")
 		if content, err := os.ReadFile(skillFile); err == nil {
+			return sl.stripFrontmatter(string(content)), true
+		}
+	}
+
+	// 4. Fallback: callers may pass the frontmatter name. Resolve it to the
+	// skill directory so loading stays consistent with ListSkills.
+	if err := ValidateSkillName(name); err == nil {
+		for _, skill := range sl.ListSkills() {
+			if skill.Name != name {
+				continue
+			}
+			content, err := os.ReadFile(skill.Path)
+			if err != nil {
+				continue
+			}
 			return sl.stripFrontmatter(string(content)), true
 		}
 	}

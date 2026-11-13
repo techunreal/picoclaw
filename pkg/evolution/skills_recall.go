@@ -55,7 +55,7 @@ func (r *SkillsRecaller) RecallSimilarSkills(rule LearningRecord) ([]skills.Skil
 			continue
 		}
 
-		if body, ok := r.loader.LoadSkill(skill.Name); ok {
+		if body, ok := r.loader.LoadSkill(skill.Directory); ok {
 			score += scoreSkillBody(rule, body)
 		}
 

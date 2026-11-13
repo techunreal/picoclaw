@@ -706,6 +706,126 @@ func TestHandleSearchSkills(t *testing.T) {
 	}
 }
 
+func TestHandleSaveSkillByID(t *testing.T) {
+	configPath, cleanup := setupOAuthTestEnv(t)
+	defer cleanup()
+
+	cfg, err := config.LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+	workspace := filepath.Join(t.TempDir(), "workspace")
+	cfg.Agents.Defaults.Workspace = workspace
+	if err := config.SaveConfig(configPath, cfg); err != nil {
+		t.Fatalf("SaveConfig() error = %v", err)
+	}
+
+	skillDir := filepath.Join(workspace, "skills", "editor_dir")
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	original := "---\nname: editor-skill\ndescription: Editor test\n---\n# Original\n"
+	skillPath := filepath.Join(skillDir, "SKILL.md")
+	if err := os.WriteFile(skillPath, []byte(original), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	h := NewHandler(configPath)
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	// Detail includes raw content and flags the frontmatter/folder mismatch.
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/skills/by-id/workspace:editor_dir", nil)
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("detail status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	var detail skillDetailResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &detail); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+	if !detail.NameMismatch || detail.RawContent != original || detail.Revision == "" {
+		t.Fatalf("unexpected detail: %#v", detail)
+	}
+	rev1 := detail.Revision
+
+	// Save with the current revision.
+	updated := "---\nname: editor-skill\ndescription: Editor test\n---\n# Updated\n"
+	body, _ := json.Marshal(skillWriteRequest{Content: updated, Revision: rev1})
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPut, "/api/skills/by-id/workspace:editor_dir", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("save status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	saved, err := os.ReadFile(skillPath)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	if string(saved) != updated {
+		t.Fatalf("saved content = %q", string(saved))
+	}
+
+	// Stale revision conflicts.
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPut, "/api/skills/by-id/workspace:editor_dir", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("stale save status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	var conflict map[string]any
+	_ = json.Unmarshal(rec.Body.Bytes(), &conflict)
+	if conflict["code"] != "revision_conflict" {
+		t.Fatalf("conflict code = %v", conflict["code"])
+	}
+
+	// Force overwrites despite the stale revision.
+	forced, _ := json.Marshal(skillWriteRequest{
+		Content:  "---\nname: editor-skill\ndescription: Editor test\n---\n# Forced\n",
+		Revision: rev1,
+		Force:    true,
+	})
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPut, "/api/skills/by-id/workspace:editor_dir", bytes.NewReader(forced))
+	req.Header.Set("Content-Type", "application/json")
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("force save status = %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	backups, err := os.ReadDir(skillBackupDir("workspace:editor_dir"))
+	if err != nil {
+		t.Fatalf("backup dir error = %v", err)
+	}
+	if len(backups) < 2 {
+		t.Fatalf("expected at least 2 backups, got %d", len(backups))
+	}
+
+	// Global skills are read-only.
+	globalDir := filepath.Join(globalConfigDir(), "skills", "global_editor")
+	if err := os.MkdirAll(globalDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(global) error = %v", err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(globalDir, "SKILL.md"),
+		[]byte("---\nname: global-editor\ndescription: Global\n---\n# Global\n"),
+		0o644,
+	); err != nil {
+		t.Fatalf("WriteFile(global) error = %v", err)
+	}
+	body, _ = json.Marshal(skillWriteRequest{Content: "changed", Revision: ""})
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPut, "/api/skills/by-id/global:global_editor", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("global save status = %d, want 403", rec.Code)
+	}
+}
+
 func TestHandleGetSkillByIDDisambiguatesSameName(t *testing.T) {
 	configPath, cleanup := setupOAuthTestEnv(t)
 	defer cleanup()

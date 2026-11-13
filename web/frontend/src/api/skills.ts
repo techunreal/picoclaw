@@ -9,6 +9,7 @@ export interface SkillSupportItem {
   description: string
   origin_kind: "builtin" | "third_party" | "manual" | string
   editable: boolean
+  name_mismatch?: boolean
   owner_handle?: string
   registry_name?: string
   registry_url?: string
@@ -18,6 +19,16 @@ export interface SkillSupportItem {
 
 export interface SkillDetailResponse extends SkillSupportItem {
   content: string
+  raw_content: string
+  revision: string
+  size: number
+}
+
+export interface SkillWriteResponse {
+  status: string
+  id: string
+  revision: string
+  size: number
 }
 
 export interface SkillSecuritySummary {
@@ -133,6 +144,20 @@ export async function getSkill(name: string): Promise<SkillDetailResponse> {
 export async function getSkillById(id: string): Promise<SkillDetailResponse> {
   return request<SkillDetailResponse>(
     `/api/skills/by-id/${encodeURIComponent(id)}`,
+  )
+}
+
+export async function saveSkillContent(
+  id: string,
+  input: { content: string; revision: string; force?: boolean },
+): Promise<SkillWriteResponse> {
+  return request<SkillWriteResponse>(
+    `/api/skills/by-id/${encodeURIComponent(id)}`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    },
   )
 }
 

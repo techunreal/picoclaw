@@ -9,6 +9,39 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestLoadSkillUsesDirectoryAndFrontmatterFallback(t *testing.T) {
+	root := t.TempDir()
+	workspace := filepath.Join(root, "workspace")
+	skillDir := filepath.Join(workspace, "skills", "my_skill")
+	require.NoError(t, os.MkdirAll(skillDir, 0o755))
+	require.NoError(t, os.WriteFile(
+		filepath.Join(skillDir, "SKILL.md"),
+		[]byte("---\nname: my-skill\ndescription: Test skill\n---\nbody text\n"),
+		0o644,
+	))
+
+	loader := NewSkillsLoader(workspace, "", "")
+	items := loader.ListSkills()
+	require.Len(t, items, 1)
+	assert.Equal(t, "my-skill", items[0].Name)
+	assert.Equal(t, "my_skill", items[0].Directory)
+
+	// Directory name (including underscore) loads directly.
+	content, ok := loader.LoadSkill("my_skill")
+	require.True(t, ok)
+	assert.Contains(t, content, "body text")
+
+	// Frontmatter name resolves to the same directory.
+	content, ok = loader.LoadSkill("my-skill")
+	require.True(t, ok)
+	assert.Contains(t, content, "body text")
+
+	// Path traversal remains rejected.
+	if _, ok := loader.LoadSkill("../my_skill"); ok {
+		t.Fatal("path traversal should be rejected")
+	}
+}
+
 func TestSkillsInfoValidate(t *testing.T) {
 	testcases := []struct {
 		name        string
