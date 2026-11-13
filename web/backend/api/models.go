@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -28,6 +29,8 @@ func (h *Handler) registerModelRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/models", h.handleAddModel)
 	mux.HandleFunc("POST /api/models/default", h.handleSetDefaultModel)
 	mux.HandleFunc("PUT /api/models/default-chain", h.handleUpdateDefaultChain)
+	mux.HandleFunc("PUT /api/models/by-name/{name...}", h.handleUpdateModelByName)
+	mux.HandleFunc("DELETE /api/models/by-name/{name...}", h.handleDeleteModelByName)
 	mux.HandleFunc("PUT /api/models/{index}", h.handleUpdateModel)
 	mux.HandleFunc("DELETE /api/models/{index}", h.handleDeleteModel)
 	mux.HandleFunc("POST /api/models/{index}/test", h.handleTestModel)
@@ -750,6 +753,62 @@ func (h *Handler) handleAddModel(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// errModelNotFound is returned by resolveModelIndexByName when no model in the
+// current configuration carries the requested name.
+var errModelNotFound = errors.New("model not found")
+
+// ambiguousModelNameError reports that several models share one name, so a
+// name-based update or delete cannot pick a target safely.
+type ambiguousModelNameError struct {
+	name  string
+	count int
+}
+
+func (e *ambiguousModelNameError) Error() string {
+	return fmt.Sprintf("model name %q is ambiguous: %d models share it", e.name, e.count)
+}
+
+// resolveModelIndexByName finds the single model index whose model_name
+// matches name. Names with slashes are supported because callers use a
+// wildcard path segment.
+func resolveModelIndexByName(cfg *config.Config, name string) (int, error) {
+	name = strings.TrimSpace(name)
+	if cfg != nil {
+		matched := -1
+		for i, model := range cfg.ModelList {
+			if model == nil || strings.TrimSpace(model.ModelName) != name {
+				continue
+			}
+			if matched >= 0 {
+				count := 0
+				for _, other := range cfg.ModelList {
+					if other != nil && strings.TrimSpace(other.ModelName) == name {
+						count++
+					}
+				}
+				return -1, &ambiguousModelNameError{name: name, count: count}
+			}
+			matched = i
+		}
+		if matched >= 0 {
+			return matched, nil
+		}
+	}
+	return -1, fmt.Errorf("%w: %q", errModelNotFound, name)
+}
+
+func writeModelResolutionError(w http.ResponseWriter, err error) {
+	var ambiguous *ambiguousModelNameError
+	switch {
+	case errors.As(err, &ambiguous):
+		http.Error(w, err.Error(), http.StatusConflict)
+	case errors.Is(err, errModelNotFound):
+		http.Error(w, err.Error(), http.StatusNotFound)
+	default:
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
+
 // handleUpdateModel replaces a model configuration entry at the given index.
 // If the request body omits api_key (or sends an empty string), the existing
 // stored key is preserved so callers can update only api_base / proxy without
@@ -762,7 +821,30 @@ func (h *Handler) handleUpdateModel(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid index", http.StatusBadRequest)
 		return
 	}
+	h.updateModel(w, r, func(*config.Config) (int, error) { return idx, nil })
+}
 
+// handleUpdateModelByName replaces the model resolved by its model_name. This
+// keeps updates stable when another client adds or removes models between the
+// list request and the save, which would otherwise shift list indices.
+//
+//	PUT /api/models/by-name/{name}
+func (h *Handler) handleUpdateModelByName(w http.ResponseWriter, r *http.Request) {
+	name := strings.TrimSpace(r.PathValue("name"))
+	if name == "" {
+		http.Error(w, "model name is required", http.StatusBadRequest)
+		return
+	}
+	h.updateModel(w, r, func(cfg *config.Config) (int, error) {
+		return resolveModelIndexByName(cfg, name)
+	})
+}
+
+func (h *Handler) updateModel(
+	w http.ResponseWriter,
+	r *http.Request,
+	resolveIndex func(cfg *config.Config) (int, error),
+) {
 	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
 	if err != nil {
 		http.Error(w, "Failed to read request body", http.StatusBadRequest)
@@ -797,6 +879,11 @@ func (h *Handler) handleUpdateModel(w http.ResponseWriter, r *http.Request) {
 	}
 	normalizeStoredModelProviders(cfg)
 
+	idx, err := resolveIndex(cfg)
+	if err != nil {
+		writeModelResolutionError(w, err)
+		return
+	}
 	if idx < 0 || idx >= len(cfg.ModelList) {
 		http.Error(w, fmt.Sprintf("Index %d out of range (0-%d)", idx, len(cfg.ModelList)-1), http.StatusNotFound)
 		return
@@ -930,7 +1017,30 @@ func (h *Handler) handleDeleteModel(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid index", http.StatusBadRequest)
 		return
 	}
+	h.deleteModel(w, r, func(*config.Config) (int, error) { return idx, nil })
+}
 
+// handleDeleteModelByName removes the model resolved by its model_name. Like
+// the matching update endpoint, it avoids deleting an unrelated model when
+// list indices shifted after the client loaded the model list.
+//
+//	DELETE /api/models/by-name/{name}
+func (h *Handler) handleDeleteModelByName(w http.ResponseWriter, r *http.Request) {
+	name := strings.TrimSpace(r.PathValue("name"))
+	if name == "" {
+		http.Error(w, "model name is required", http.StatusBadRequest)
+		return
+	}
+	h.deleteModel(w, r, func(cfg *config.Config) (int, error) {
+		return resolveModelIndexByName(cfg, name)
+	})
+}
+
+func (h *Handler) deleteModel(
+	w http.ResponseWriter,
+	r *http.Request,
+	resolveIndex func(cfg *config.Config) (int, error),
+) {
 	h.configMu.Lock()
 	defer h.configMu.Unlock()
 
@@ -940,6 +1050,12 @@ func (h *Handler) handleDeleteModel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	normalizeStoredModelNames(cfg)
+
+	idx, err := resolveIndex(cfg)
+	if err != nil {
+		writeModelResolutionError(w, err)
+		return
+	}
 
 	if idx < 0 || idx >= len(cfg.ModelList) {
 		http.Error(w, fmt.Sprintf("Index %d out of range (0-%d)", idx, len(cfg.ModelList)-1), http.StatusNotFound)

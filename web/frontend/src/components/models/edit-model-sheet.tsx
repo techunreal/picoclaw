@@ -12,7 +12,7 @@ import {
   type ModelReferenceRename,
   getCatalogs,
   setDefaultModel,
-  updateModel,
+  updateModelByName,
 } from "@/api/models"
 import { ConfigChangeNotice } from "@/components/config-change-notice"
 import { maskedSecretPlaceholder } from "@/components/secret-placeholder"
@@ -373,7 +373,7 @@ export function EditModelSheet({
         model.streaming?.enabled === true || form.streamingEnabled
           ? { enabled: form.streamingEnabled }
           : undefined
-      const response = await updateModel(model.index, {
+      const response = await updateModelByName(model.model_name, {
         model_name: model.model_name,
         provider: provider,
         model: modelId,

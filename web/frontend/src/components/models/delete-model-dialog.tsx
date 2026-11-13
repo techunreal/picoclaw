@@ -2,7 +2,7 @@ import { IconLoader2 } from "@tabler/icons-react"
 import { useState } from "react"
 import { useTranslation } from "react-i18next"
 
-import { type ModelInfo, deleteModel } from "@/api/models"
+import { type ModelInfo, deleteModelByName } from "@/api/models"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -43,7 +43,7 @@ export function DeleteModelDialog({
     setDeleting(true)
     onMutationStarted()
     try {
-      await deleteModel(model.index)
+      await deleteModelByName(model.model_name)
       onDeleted()
     } catch {
       // ignore, user can retry from list

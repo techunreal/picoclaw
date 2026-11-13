@@ -128,6 +128,33 @@ export async function deleteModel(index: number): Promise<ModelActionResponse> {
   })
 }
 
+// Name-based endpoints keep edits and deletes stable even if another client
+// adds or removes models (which shifts list indices) before the request lands.
+export async function updateModelByName(
+  modelName: string,
+  model: Partial<ModelInfo>,
+): Promise<ModelActionResponse> {
+  return request<ModelActionResponse>(
+    `/api/models/by-name/${encodeURIComponent(modelName)}`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(model),
+    },
+  )
+}
+
+export async function deleteModelByName(
+  modelName: string,
+): Promise<ModelActionResponse> {
+  return request<ModelActionResponse>(
+    `/api/models/by-name/${encodeURIComponent(modelName)}`,
+    {
+      method: "DELETE",
+    },
+  )
+}
+
 export async function setDefaultModel(
   modelName: string,
 ): Promise<ModelActionResponse> {
