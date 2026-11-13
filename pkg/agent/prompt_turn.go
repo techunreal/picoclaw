@@ -96,6 +96,26 @@ func applyInboundMemoryPreference(
 	_ = store.SetSessionMemoryEnabled(sessionKey, &enabled)
 }
 
+func applyInboundIncognito(
+	sessions session.SessionStore,
+	sessionKey string,
+	raw map[string]string,
+) {
+	if sessions == nil || strings.TrimSpace(sessionKey) == "" {
+		return
+	}
+	switch strings.ToLower(strings.TrimSpace(raw["incognito"])) {
+	case "1", "true", "yes", "on":
+	default:
+		return
+	}
+	store, ok := sessions.(session.EphemeralSessionStore)
+	if !ok {
+		return
+	}
+	store.SetSessionEphemeral(sessionKey, true)
+}
+
 func turnProfileNativeSearchCallable(
 	cfg *config.Config,
 	profile config.EffectiveTurnProfile,

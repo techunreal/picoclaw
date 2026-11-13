@@ -1,6 +1,20 @@
 const LAST_SESSION_STORAGE_KEY = "picoclaw:last-session-id"
 const UNIX_MS_THRESHOLD = 1e12
 
+// Incognito sessions live in memory only: their IDs are never written to
+// localStorage and disappear when the page is reloaded.
+const incognitoSessionIds = new Set<string>()
+
+export function markIncognitoSession(sessionId: string) {
+  if (sessionId) {
+    incognitoSessionIds.add(sessionId)
+  }
+}
+
+export function isIncognitoSession(sessionId: string): boolean {
+  return incognitoSessionIds.has(sessionId)
+}
+
 function readStorageValue() {
   return (
     globalThis.localStorage?.getItem(LAST_SESSION_STORAGE_KEY)?.trim() || ""

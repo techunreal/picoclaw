@@ -7,6 +7,40 @@ import (
 	"github.com/sipeed/picoclaw/pkg/session"
 )
 
+func TestInboundIncognitoSessionStaysInMemory(t *testing.T) {
+	dir := t.TempDir()
+	store, err := memory.NewJSONLStore(dir)
+	if err != nil {
+		t.Fatalf("NewJSONLStore() error = %v", err)
+	}
+	backend := session.NewJSONLBackend(store)
+
+	applyInboundIncognito(backend, "ghost", map[string]string{"incognito": "true"})
+	backend.EnsureSessionMetadata("ghost", nil, nil)
+	backend.AddMessage("ghost", "user", "secret")
+
+	history := backend.GetHistory("ghost")
+	if len(history) != 1 || history[0].Content != "secret" {
+		t.Fatalf("incognito history = %+v, want one message", history)
+	}
+	if enabled, found := backend.GetSessionMemoryEnabled("ghost"); enabled || !found {
+		t.Fatalf("incognito memory preference = (%v,%v), want (false,true)", enabled, found)
+	}
+
+	store2, err := memory.NewJSONLStore(dir)
+	if err != nil {
+		t.Fatalf("NewJSONLStore() error = %v", err)
+	}
+	defer store2.Close()
+	fresh := session.NewJSONLBackend(store2)
+	if history := fresh.GetHistory("ghost"); len(history) != 0 {
+		t.Fatalf("incognito history leaked to disk: %+v", history)
+	}
+	if scope := fresh.GetSessionScope("ghost"); scope != nil {
+		t.Fatalf("incognito scope leaked to disk: %+v", scope)
+	}
+}
+
 func TestSessionMemoryPreferenceFlowsToPrompt(t *testing.T) {
 	store, err := memory.NewJSONLStore(t.TempDir())
 	if err != nil {

@@ -9,7 +9,9 @@ import {
   shouldShowAssistantMessage,
 } from "@/features/chat/detail-visibility"
 import {
+  clearStoredSessionId,
   getInitialActiveSessionId,
+  isIncognitoSession,
   writeStoredSessionId,
 } from "@/features/chat/state"
 
@@ -111,7 +113,12 @@ export function updateChatStore(
     const next = { ...prev, ...nextPatch }
 
     if (next.activeSessionId !== prev.activeSessionId) {
-      writeStoredSessionId(next.activeSessionId)
+      // Incognito sessions must not survive a reload, so drop the stored ID.
+      if (isIncognitoSession(next.activeSessionId)) {
+        clearStoredSessionId()
+      } else {
+        writeStoredSessionId(next.activeSessionId)
+      }
     }
 
     return next

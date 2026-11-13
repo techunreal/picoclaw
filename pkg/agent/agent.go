@@ -589,6 +589,13 @@ func (al *AgentLoop) runAgentLoop(
 		}
 	}
 
+	if opts.Dispatch.InboundContext != nil {
+		applyInboundIncognito(
+			agent.Sessions,
+			opts.Dispatch.SessionKey,
+			opts.Dispatch.InboundContext.Raw,
+		)
+	}
 	ensureSessionMetadata(
 		agent.Sessions,
 		opts.Dispatch.SessionKey,

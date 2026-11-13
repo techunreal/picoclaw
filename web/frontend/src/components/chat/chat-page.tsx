@@ -1,4 +1,4 @@
-import { IconPlus } from "@tabler/icons-react"
+import { IconGhost, IconPlus } from "@tabler/icons-react"
 import { useAtom } from "jotai"
 import {
   type ChangeEvent,
@@ -36,6 +36,7 @@ import {
   getTransferredFiles,
   hasFileTransfer,
 } from "@/features/chat/image-input"
+import { isIncognitoSession } from "@/features/chat/state"
 import { useChatModels } from "@/hooks/use-chat-models"
 import { useGateway } from "@/hooks/use-gateway"
 import { usePicoChat } from "@/hooks/use-pico-chat"
@@ -137,7 +138,9 @@ export function ChatPage() {
     sendMessage,
     switchSession,
     newChat,
+    newIncognitoChat,
   } = usePicoChat()
+  const isIncognito = isIncognitoSession(activeSessionId)
 
   const { state: gwState } = useGateway()
   const isGatewayRunning = gwState === "running"
@@ -359,6 +362,16 @@ export function ChatPage() {
 
         <ChatMemoryToggle sessionId={activeSessionId} />
 
+        {isIncognito && (
+          <span
+            className="border-border/60 text-muted-foreground hidden items-center gap-1 rounded-full border px-2 py-0.5 text-xs sm:inline-flex"
+            title={t("chat.incognitoHint")}
+          >
+            <IconGhost className="size-3.5" />
+            {t("chat.incognitoBadge")}
+          </span>
+        )}
+
         <Button
           variant="secondary"
           size="sm"
@@ -367,6 +380,18 @@ export function ChatPage() {
         >
           <IconPlus className="size-4" />
           <span className="hidden sm:inline">{t("chat.newChat")}</span>
+        </Button>
+
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={newIncognitoChat}
+          title={t("chat.newIncognitoChat")}
+          aria-label={t("chat.newIncognitoChat")}
+          className="h-9 gap-2"
+        >
+          <IconGhost className="size-4" />
+          <span className="hidden sm:inline">{t("chat.incognitoBadge")}</span>
         </Button>
 
         <SessionHistoryMenu

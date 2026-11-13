@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"log"
 	"strings"
+	"sync"
 
 	"github.com/sipeed/picoclaw/pkg/memory"
 	"github.com/sipeed/picoclaw/pkg/providers"
@@ -15,6 +16,14 @@ import (
 // contract of SessionManager that the agent loop relies on.
 type JSONLBackend struct {
 	store memory.Store
+
+	ephemeralMu sync.Mutex
+	ephemeral   map[string]*ephemeralSession
+}
+
+// EphemeralSessionStore marks sessions that must stay in memory only.
+type EphemeralSessionStore interface {
+	SetSessionEphemeral(sessionKey string, ephemeral bool)
 }
 
 type metaAwareStore interface {
@@ -51,6 +60,10 @@ func NewJSONLBackend(store memory.Store) *JSONLBackend {
 }
 
 func (b *JSONLBackend) resolveSessionKey(sessionKey string) string {
+	sessionKey = strings.TrimSpace(sessionKey)
+	if b.isEphemeralKey(sessionKey) {
+		return sessionKey
+	}
 	metaStore, ok := b.store.(metaAwareStore)
 	if !ok {
 		return sessionKey
@@ -83,6 +96,9 @@ func (b *JSONLBackend) EnsureSessionMetadata(sessionKey string, scope *SessionSc
 	if sessionKey == "" {
 		return
 	}
+	if b.ephemeralEnsureMetadata(sessionKey, scope, aliases) {
+		return
+	}
 
 	var rawScope json.RawMessage
 	if scope != nil {
@@ -113,6 +129,9 @@ func (b *JSONLBackend) GetSessionScope(sessionKey string) *SessionScope {
 		return nil
 	}
 	sessionKey = b.resolveSessionKey(sessionKey)
+	if scope, ok := b.ephemeralScope(sessionKey); ok {
+		return scope
+	}
 	meta, err := metaStore.GetSessionMeta(context.Background(), sessionKey)
 	if err != nil {
 		log.Printf("session: get session metadata: %v", err)
@@ -136,6 +155,9 @@ func (b *JSONLBackend) GetSessionMemoryEnabled(sessionKey string) (bool, bool) {
 		return true, false
 	}
 	sessionKey = b.resolveSessionKey(sessionKey)
+	if enabled, found, ok := b.ephemeralMemoryEnabled(sessionKey); ok {
+		return enabled, found
+	}
 	enabled, found, err := store.GetSessionMemoryEnabled(context.Background(), sessionKey)
 	if err != nil {
 		log.Printf("session: get memory preference: %v", err)
@@ -155,11 +177,17 @@ func (b *JSONLBackend) SetSessionMemoryEnabled(sessionKey string, enabled *bool)
 		return nil
 	}
 	sessionKey = b.resolveSessionKey(sessionKey)
+	if b.ephemeralSetMemoryEnabled(sessionKey, enabled) {
+		return nil
+	}
 	return store.SetSessionMemoryEnabled(context.Background(), sessionKey, enabled)
 }
 
 func (b *JSONLBackend) AddMessage(sessionKey, role, content string) {
 	sessionKey = b.resolveSessionKey(sessionKey)
+	if b.ephemeralAddMessage(sessionKey, role, content) {
+		return
+	}
 	if err := b.store.AddMessage(context.Background(), sessionKey, role, content); err != nil {
 		log.Printf("session: add message: %v", err)
 	}
@@ -167,6 +195,9 @@ func (b *JSONLBackend) AddMessage(sessionKey, role, content string) {
 
 func (b *JSONLBackend) AddFullMessage(sessionKey string, msg providers.Message) {
 	sessionKey = b.resolveSessionKey(sessionKey)
+	if b.ephemeralAddFullMessage(sessionKey, msg) {
+		return
+	}
 	if err := b.store.AddFullMessage(context.Background(), sessionKey, msg); err != nil {
 		log.Printf("session: add full message: %v", err)
 	}
@@ -174,6 +205,9 @@ func (b *JSONLBackend) AddFullMessage(sessionKey string, msg providers.Message) 
 
 func (b *JSONLBackend) GetHistory(key string) []providers.Message {
 	key = b.resolveSessionKey(key)
+	if msgs, ok := b.ephemeralHistory(key); ok {
+		return msgs
+	}
 	msgs, err := b.store.GetHistory(context.Background(), key)
 	if err != nil {
 		log.Printf("session: get history: %v", err)
@@ -184,6 +218,9 @@ func (b *JSONLBackend) GetHistory(key string) []providers.Message {
 
 func (b *JSONLBackend) GetSummary(key string) string {
 	key = b.resolveSessionKey(key)
+	if summary, ok := b.ephemeralSummary(key); ok {
+		return summary
+	}
 	summary, err := b.store.GetSummary(context.Background(), key)
 	if err != nil {
 		log.Printf("session: get summary: %v", err)
@@ -194,6 +231,9 @@ func (b *JSONLBackend) GetSummary(key string) string {
 
 func (b *JSONLBackend) SetSummary(key, summary string) {
 	key = b.resolveSessionKey(key)
+	if b.ephemeralSetSummary(key, summary) {
+		return
+	}
 	if err := b.store.SetSummary(context.Background(), key, summary); err != nil {
 		log.Printf("session: set summary: %v", err)
 	}
@@ -201,6 +241,9 @@ func (b *JSONLBackend) SetSummary(key, summary string) {
 
 func (b *JSONLBackend) SetHistory(key string, history []providers.Message) {
 	key = b.resolveSessionKey(key)
+	if b.ephemeralSetHistory(key, history) {
+		return
+	}
 	if err := b.store.SetHistory(context.Background(), key, history); err != nil {
 		log.Printf("session: set history: %v", err)
 	}
@@ -208,6 +251,9 @@ func (b *JSONLBackend) SetHistory(key string, history []providers.Message) {
 
 func (b *JSONLBackend) TruncateHistory(key string, keepLast int) {
 	key = b.resolveSessionKey(key)
+	if b.ephemeralTruncate(key, keepLast) {
+		return
+	}
 	if err := b.store.TruncateHistory(context.Background(), key, keepLast); err != nil {
 		log.Printf("session: truncate history: %v", err)
 	}
@@ -218,11 +264,15 @@ func (b *JSONLBackend) TruncateHistory(key string, keepLast int) {
 // space from logically truncated messages (no-op when there are none).
 func (b *JSONLBackend) Save(key string) error {
 	key = b.resolveSessionKey(key)
+	if b.isEphemeralKey(key) {
+		return nil
+	}
 	return b.store.Compact(context.Background(), key)
 }
 
 // Close releases resources held by the underlying store.
 func (b *JSONLBackend) Close() error {
+	b.ephemeralClear()
 	return b.store.Close()
 }
 

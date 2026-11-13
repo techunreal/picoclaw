@@ -33,9 +33,12 @@ type picoConn struct {
 	sessionID string
 	// memoryEnabled is "", "true", or "false", from the WebSocket query.
 	memoryEnabled string
-	writeMu       sync.Mutex
-	closed        atomic.Bool
-	cancel        context.CancelFunc // cancels per-connection goroutines (e.g. pingLoop)
+	// incognito marks the session as memory-only: history is never persisted
+	// and does not show up in the session list.
+	incognito bool
+	writeMu   sync.Mutex
+	closed    atomic.Bool
+	cancel    context.CancelFunc // cancels per-connection goroutines (e.g. pingLoop)
 }
 
 var allowedInlineImageMIMETypes = map[string]struct{}{
@@ -1043,10 +1046,17 @@ func (c *PicoChannel) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	case "off", "false":
 		pc.memoryEnabled = "false"
 	}
+	switch strings.ToLower(strings.TrimSpace(r.URL.Query().Get("incognito"))) {
+	case "1", "on", "true", "yes":
+		pc.incognito = true
+		// Incognito sessions never use memory, regardless of the global switch.
+		pc.memoryEnabled = "false"
+	}
 
 	logger.InfoCF("pico", "WebSocket client connected", map[string]any{
 		"conn_id":    pc.id,
 		"session_id": sessionID,
+		"incognito":  pc.incognito,
 	})
 
 	go c.readLoop(pc)
@@ -1236,6 +1246,9 @@ func (c *PicoChannel) handleMessageSend(pc *picoConn, msg PicoMessage) {
 	}
 	if pc.memoryEnabled != "" {
 		metadata["memory_enabled"] = pc.memoryEnabled
+	}
+	if pc.incognito {
+		metadata["incognito"] = "true"
 	}
 
 	logger.DebugCF("pico", "Received message", map[string]any{

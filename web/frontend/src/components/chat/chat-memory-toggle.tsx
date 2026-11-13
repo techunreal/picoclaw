@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next"
 import { Switch } from "@/components/ui/switch"
 import { setActiveSessionMemoryEnabled } from "@/features/chat/controller"
 import { isSessionMemoryEnabled } from "@/features/chat/memory-preference"
+import { isIncognitoSession } from "@/features/chat/state"
 
 interface ChatMemoryToggleProps {
   sessionId: string
@@ -11,15 +12,21 @@ interface ChatMemoryToggleProps {
 
 export function ChatMemoryToggle({ sessionId }: ChatMemoryToggleProps) {
   const { t } = useTranslation()
-  const [enabled, setEnabled] = useState(() =>
-    isSessionMemoryEnabled(sessionId),
+  const incognito = isIncognitoSession(sessionId)
+  const [enabled, setEnabled] = useState(
+    () => !incognito && isSessionMemoryEnabled(sessionId),
   )
 
   useEffect(() => {
-    setEnabled(isSessionMemoryEnabled(sessionId))
+    setEnabled(
+      !isIncognitoSession(sessionId) && isSessionMemoryEnabled(sessionId),
+    )
   }, [sessionId])
 
   const handleChange = (checked: boolean) => {
+    if (incognito) {
+      return
+    }
     setEnabled(checked)
     setActiveSessionMemoryEnabled(checked)
   }
@@ -29,6 +36,7 @@ export function ChatMemoryToggle({ sessionId }: ChatMemoryToggleProps) {
       <Switch
         size="sm"
         checked={enabled}
+        disabled={incognito}
         onCheckedChange={handleChange}
         aria-label={t("chat.memoryLabel")}
       />

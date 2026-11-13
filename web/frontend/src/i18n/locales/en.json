@@ -53,6 +53,9 @@
       "noDefaultModel": "Unable to chat: No default model is selected. Set a default model on the Models page."
     },
     "newChat": "New Chat",
+    "newIncognitoChat": "New incognito chat",
+    "incognitoBadge": "Incognito",
+    "incognitoHint": "This chat is not saved and never uses memory. It disappears when you reload the page.",
     "memoryLabel": "Memory in this chat",
     "memoryOn": "Memory on",
     "memoryOff": "Memory off",

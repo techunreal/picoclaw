@@ -13,6 +13,8 @@ import { type PicoMessage, handlePicoMessage } from "@/features/chat/protocol"
 import {
   clearStoredSessionId,
   generateSessionId,
+  isIncognitoSession,
+  markIncognitoSession,
   readStoredSessionId,
 } from "@/features/chat/state"
 import { invalidateSocket, isCurrentSocket } from "@/features/chat/websocket"
@@ -143,8 +145,11 @@ export async function connectChat() {
 
     const wsScheme = window.location.protocol === "https:" ? "wss:" : "ws:"
     const wsUrl = `${wsScheme}//${window.location.host}/pico/ws`
-    const memory = isSessionMemoryEnabled(sessionId) ? "on" : "off"
-    const url = `${wsUrl}?session_id=${encodeURIComponent(sessionId)}&memory=${memory}`
+    const incognito = isIncognitoSession(sessionId)
+    const memory =
+      incognito || !isSessionMemoryEnabled(sessionId) ? "off" : "on"
+    const incognitoParam = incognito ? "&incognito=1" : ""
+    const url = `${wsUrl}?session_id=${encodeURIComponent(sessionId)}&memory=${memory}${incognitoParam}`
     const socket = new WebSocket(url)
 
     if (generation !== connectionGeneration) {
@@ -413,7 +418,10 @@ export async function switchChatSession(sessionId: string) {
 }
 
 export async function newChatSession() {
-  if (getChatState().messages.length === 0) {
+  if (
+    getChatState().messages.length === 0 &&
+    !isIncognitoSession(activeSessionIdRef)
+  ) {
     return
   }
 
@@ -432,11 +440,35 @@ export async function newChatSession() {
   }
 }
 
+export async function newIncognitoChatSession() {
+  disconnectChatInternal({ clearDesiredConnection: false })
+  const sessionId = generateSessionId()
+  markIncognitoSession(sessionId)
+  setActiveSessionId(sessionId)
+  updateChatStore({
+    messages: [],
+    isTyping: false,
+    hasHydratedActiveSession: true,
+    contextUsage: undefined,
+  })
+
+  if (store.get(gatewayAtom).status === "running") {
+    shouldMaintainConnection = true
+    await connectChat()
+  }
+}
+
 export function isActiveSessionMemoryEnabled(): boolean {
+  if (isIncognitoSession(activeSessionIdRef)) {
+    return false
+  }
   return isSessionMemoryEnabled(activeSessionIdRef)
 }
 
 export function setActiveSessionMemoryEnabled(enabled: boolean) {
+  if (isIncognitoSession(activeSessionIdRef)) {
+    return
+  }
   setSessionMemoryPreference(activeSessionIdRef, enabled)
   if (wsRef && store.get(gatewayAtom).status === "running") {
     disconnectChatInternal({ clearDesiredConnection: false })

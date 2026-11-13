@@ -3,6 +3,7 @@ import { useAtomValue } from "jotai"
 
 import {
   newChatSession,
+  newIncognitoChatSession,
   sendChatMessage,
   switchChatSession,
 } from "@/features/chat/controller"
@@ -67,5 +68,6 @@ export function usePicoChat() {
     sendMessage: sendChatMessage,
     switchSession: switchChatSession,
     newChat: newChatSession,
+    newIncognitoChat: newIncognitoChatSession,
   }
 }

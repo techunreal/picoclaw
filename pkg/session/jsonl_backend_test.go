@@ -252,6 +252,64 @@ func TestJSONLBackend_SessionMemoryPreference(t *testing.T) {
 	}
 }
 
+func TestJSONLBackend_EphemeralSessionStaysInMemory(t *testing.T) {
+	dir := t.TempDir()
+	store, err := memory.NewJSONLStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := session.NewJSONLBackend(store)
+
+	b.SetSessionEphemeral("ghost", true)
+	b.AddMessage("ghost", "user", "secret")
+	b.AddMessage("ghost", "assistant", "answer")
+	b.SetSummary("ghost", "ephemeral summary")
+
+	if got := len(b.GetHistory("ghost")); got != 2 {
+		t.Fatalf("ephemeral history length = %d, want 2", got)
+	}
+	if got := b.GetSummary("ghost"); got != "ephemeral summary" {
+		t.Fatalf("ephemeral summary = %q", got)
+	}
+	// Incognito sessions default to memory disabled.
+	if enabled, found := b.GetSessionMemoryEnabled("ghost"); enabled || !found {
+		t.Fatalf("ephemeral memory preference = (%v,%v), want (false,true)", enabled, found)
+	}
+	for _, key := range b.ListSessions() {
+		if key == "ghost" {
+			t.Fatalf("ephemeral session must not be listed")
+		}
+	}
+	if err := b.Save("ghost"); err != nil {
+		t.Fatalf("Save(ephemeral) error = %v", err)
+	}
+
+	// A fresh backend over the same directory must not see any trace.
+	store2, err := memory.NewJSONLStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store2.Close()
+	b2 := session.NewJSONLBackend(store2)
+	if got := len(b2.GetHistory("ghost")); got != 0 {
+		t.Fatalf("persisted ephemeral history length = %d, want 0", got)
+	}
+	if got := b2.GetSummary("ghost"); got != "" {
+		t.Fatalf("persisted ephemeral summary = %q, want empty", got)
+	}
+	if enabled, found := b2.GetSessionMemoryEnabled("ghost"); !enabled || found {
+		t.Fatalf("persisted ephemeral preference = (%v,%v), want (true,false)", enabled, found)
+	}
+
+	// Leaving ephemeral mode restores normal persistence.
+	b.SetSessionEphemeral("ghost", false)
+	b.AddMessage("ghost", "user", "after")
+	history := b.GetHistory("ghost")
+	if len(history) != 1 || history[0].Content != "after" {
+		t.Fatalf("post-ephemeral history = %+v, want single 'after' message", history)
+	}
+}
+
 func TestJSONLBackend_EnsureSessionMetadata_PromotesLegacyAliasHistory(t *testing.T) {
 	b := newBackend(t)
 
