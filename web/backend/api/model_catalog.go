@@ -12,6 +12,7 @@ import (
 
 	"github.com/sipeed/picoclaw/pkg/config"
 	"github.com/sipeed/picoclaw/pkg/fileutil"
+	"github.com/sipeed/picoclaw/pkg/logger"
 	"github.com/sipeed/picoclaw/pkg/providers"
 )
 
@@ -30,6 +31,12 @@ type CatalogEntry struct {
 	APIKeyMask string         `json:"api_key_mask"`
 	Models     []CatalogModel `json:"models"`
 	FetchedAt  string         `json:"fetched_at"`
+	// HasStoredKey, StoredKeyMask and StoredKeyModel are computed when listing
+	// catalogs. They tell the UI whether a model added from this entry can
+	// reuse an already configured credential, and are never persisted.
+	HasStoredKey   bool   `json:"has_stored_key,omitempty"`
+	StoredKeyMask  string `json:"stored_key_mask,omitempty"`
+	StoredKeyModel string `json:"stored_key_model,omitempty"`
 }
 
 // CatalogStore holds all saved model catalogs.
@@ -127,9 +134,28 @@ func (h *Handler) handleListCatalogs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	entries := make([]*CatalogEntry, 0, len(store.Entries))
+	// Enrichment is read-only: build copies so the computed credential fields
+	// never reach the persisted catalog file.
+	var modelList []*config.ModelConfig
+	if cfg, cfgErr := config.LoadConfig(h.configPath); cfgErr == nil {
+		modelList = cfg.ModelList
+	} else {
+		logger.Warnf("failed to load config while listing catalogs: %v", cfgErr)
+	}
+
+	entries := make([]CatalogEntry, 0, len(store.Entries))
 	for _, e := range store.Entries {
-		entries = append(entries, e)
+		entry := *e
+		if key, modelName, ok := findStoredAPIKeyForEndpoint(
+			modelList,
+			entry.Provider,
+			entry.APIBase,
+		); ok {
+			entry.HasStoredKey = true
+			entry.StoredKeyMask = maskAPIKey(key)
+			entry.StoredKeyModel = modelName
+		}
+		entries = append(entries, entry)
 	}
 
 	w.Header().Set("Content-Type", "application/json")

@@ -404,7 +404,12 @@
       "deselectAll": "Deselect All",
       "addSelected": "Add {{count}} Selected",
       "addSuccess": "Added {{count}} model(s) to configuration.",
-      "needApiKey": "These models require an API key. You'll need to configure credentials after import."
+      "addSuccessReusedKey": "Added {{count}} model(s) using the saved API key.",
+      "needApiKey": "These models require an API key. You'll need to configure credentials after import.",
+      "apiKeyLabel": "API key (optional)",
+      "apiKeyPlaceholder": "Enter API key",
+      "reuseKeyHint": "Leave empty to reuse the saved key from {{model}} ({{mask}}).",
+      "missingKeyHint": "No saved key found for this endpoint. Enter an API key, otherwise models will be added unconfigured."
     },
     "test": {
       "title": "Test Model Connectivity",

@@ -58,6 +58,7 @@ export function CatalogDialog({
   const [selected, setSelected] = useState<Map<string, Set<string>>>(new Map())
   const [adding, setAdding] = useState(false)
   const [filter, setFilter] = useState("")
+  const [apiKeys, setApiKeys] = useState<Record<string, string>>({})
 
   const loadCatalogs = useCallback(async () => {
     setLoading(true)
@@ -77,6 +78,7 @@ export function CatalogDialog({
       setExpandedId(null)
       setSelected(new Map())
       setFilter("")
+      setApiKeys({})
     }
   }, [open, loadCatalogs])
 
@@ -141,17 +143,27 @@ export function CatalogDialog({
     setAdding(true)
     try {
       const modelsToAdd = entry.models.filter((m) => catalogSelected.has(m.id))
+      const enteredKey = (apiKeys[entry.id] || "").trim()
+      let reusedKey = false
       for (const model of modelsToAdd) {
-        await addModel({
+        const res = await addModel({
           model_name: model.id,
           provider: entry.provider || undefined,
           model: model.id,
           api_base: entry.api_base || undefined,
+          api_key: enteredKey || undefined,
         })
+        reusedKey = reusedKey || res.api_key_reused === true
       }
+      setApiKeys((prev) => ({ ...prev, [entry.id]: "" }))
       await refreshGatewayState({ force: true })
       toast.success(
-        t("models.catalog.addSuccess", { count: modelsToAdd.length }),
+        t(
+          reusedKey
+            ? "models.catalog.addSuccessReusedKey"
+            : "models.catalog.addSuccess",
+          { count: modelsToAdd.length },
+        ),
       )
       onModelAdded()
     } catch (e) {
@@ -210,6 +222,8 @@ export function CatalogDialog({
                 providerOptions,
               )
               const providerDef = providerMap.get(providerKey)
+              const keyInputId = `catalog-key-${entry.id.replace(/[^a-zA-Z0-9_-]/g, "-")}`
+              const enteredKey = (apiKeys[entry.id] || "").trim()
 
               return (
                 <div
@@ -313,8 +327,42 @@ export function CatalogDialog({
                       {entrySelected.size > 0 && (
                         <div className="mt-2 space-y-2">
                           {providerDef?.requiresApiKey !== false && (
-                            <div className="rounded-lg border border-yellow-500/30 bg-yellow-500/10 p-2 text-xs text-yellow-700 dark:text-yellow-400">
-                              {t("models.catalog.needApiKey")}
+                            <div className="space-y-1.5">
+                              <label
+                                htmlFor={keyInputId}
+                                className="text-xs font-medium"
+                              >
+                                {t("models.catalog.apiKeyLabel")}
+                              </label>
+                              <Input
+                                id={keyInputId}
+                                type="password"
+                                autoComplete="off"
+                                className="h-8"
+                                placeholder={t(
+                                  "models.catalog.apiKeyPlaceholder",
+                                )}
+                                value={apiKeys[entry.id] || ""}
+                                onChange={(e) =>
+                                  setApiKeys((prev) => ({
+                                    ...prev,
+                                    [entry.id]: e.target.value,
+                                  }))
+                                }
+                              />
+                              {!enteredKey &&
+                                (entry.has_stored_key ? (
+                                  <p className="text-muted-foreground text-xs">
+                                    {t("models.catalog.reuseKeyHint", {
+                                      model: entry.stored_key_model,
+                                      mask: entry.stored_key_mask,
+                                    })}
+                                  </p>
+                                ) : (
+                                  <p className="rounded-lg border border-yellow-500/30 bg-yellow-500/10 p-2 text-xs text-yellow-700 dark:text-yellow-400">
+                                    {t("models.catalog.missingKeyHint")}
+                                  </p>
+                                ))}
                             </div>
                           )}
                           <div className="flex justify-end">

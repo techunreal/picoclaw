@@ -712,6 +712,22 @@ func (h *Handler) handleAddModel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	normalizeIncomingModelConfig(&mc.ModelConfig, defaultChainProvider(cfg))
+	apiKeyReused := false
+	if strings.TrimSpace(mc.APIKey) == "" {
+		if key, reusedFrom, ok := findStoredAPIKeyForEndpoint(
+			cfg.ModelList,
+			mc.Provider,
+			mc.APIBase,
+		); ok {
+			mc.ModelConfig.SetAPIKey(key)
+			apiKeyReused = true
+			logger.Debugf(
+				"reusing stored API key from model %q for new model %q",
+				reusedFrom,
+				mc.ModelConfig.ModelName,
+			)
+		}
+	}
 	if err = validateIncomingModelConfig(&mc.ModelConfig, nil); err != nil {
 		http.Error(w, fmt.Sprintf("Validation error: %v", err), http.StatusBadRequest)
 		return
@@ -728,8 +744,9 @@ func (h *Handler) handleAddModel(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{
-		"status": "ok",
-		"index":  len(cfg.ModelList) - 1,
+		"status":         "ok",
+		"index":          len(cfg.ModelList) - 1,
+		"api_key_reused": apiKeyReused,
 	})
 }
 
@@ -1213,6 +1230,47 @@ func (h *Handler) handleFetchModels(w http.ResponseWriter, r *http.Request) {
 		"models": models,
 		"total":  len(models),
 	})
+}
+
+// findStoredAPIKeyForEndpoint returns the first configured API key that belongs
+// to the same provider and effective API base. Catalog imports use it so models
+// added without an explicit key stay usable when the user already configured
+// credentials for that endpoint. The API base must match (including the
+// provider default) so a credential is never attached to a different endpoint.
+func findStoredAPIKeyForEndpoint(
+	models []*config.ModelConfig,
+	provider, apiBase string,
+) (apiKey string, modelName string, found bool) {
+	provider = providers.NormalizeProvider(provider)
+	if provider == "" {
+		return "", "", false
+	}
+	effectiveBase := strings.TrimSpace(apiBase)
+	if effectiveBase == "" {
+		effectiveBase = providers.DefaultAPIBaseForProtocol(provider)
+	}
+	effectiveBase = normalizeAPIBaseForCompare(effectiveBase)
+
+	for _, model := range models {
+		if model == nil {
+			continue
+		}
+		modelProvider, _ := providers.ExtractProtocol(model)
+		if providers.NormalizeProvider(modelProvider) != provider {
+			continue
+		}
+		modelBase := strings.TrimSpace(model.APIBase)
+		if modelBase == "" {
+			modelBase = providers.DefaultAPIBaseForProtocol(modelProvider)
+		}
+		if normalizeAPIBaseForCompare(modelBase) != effectiveBase {
+			continue
+		}
+		if key := model.APIKey(); strings.TrimSpace(key) != "" {
+			return key, model.ModelName, true
+		}
+	}
+	return "", "", false
 }
 
 func (h *Handler) lookupStoredAPIKey(index int, reqProvider, reqAPIBase string) string {

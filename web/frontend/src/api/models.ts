@@ -73,6 +73,7 @@ export interface ModelActionResponse {
   index?: number
   default_model?: string
   reference_rename?: ModelReferenceRename
+  api_key_reused?: boolean
 }
 
 export interface DefaultChain {
@@ -229,6 +230,11 @@ export interface CatalogEntry {
   api_key_mask: string
   models: CatalogModel[]
   fetched_at: string
+  // Computed by the backend: whether a model added from this catalog can reuse
+  // credentials already configured for the same provider + API base.
+  has_stored_key?: boolean
+  stored_key_mask?: string
+  stored_key_model?: string
 }
 
 interface CatalogListResponse {
