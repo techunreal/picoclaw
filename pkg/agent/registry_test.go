@@ -26,11 +26,12 @@ func (m *mockRegistryProvider) GetDefaultModel() string {
 	return "mock-model"
 }
 
-func testCfg(agents []config.AgentConfig) *config.Config {
+func testCfg(t *testing.T, agents []config.AgentConfig) *config.Config {
+	t.Helper()
 	return &config.Config{
 		Agents: config.AgentsConfig{
 			Defaults: config.AgentDefaults{
-				Workspace:         "/tmp/picoclaw-test-registry",
+				Workspace:         t.TempDir(),
 				ModelName:         "gpt-4",
 				MaxTokens:         8192,
 				MaxToolIterations: 10,
@@ -41,7 +42,7 @@ func testCfg(agents []config.AgentConfig) *config.Config {
 }
 
 func TestNewAgentRegistry_ImplicitMain(t *testing.T) {
-	cfg := testCfg(nil)
+	cfg := testCfg(t, nil)
 	registry := NewAgentRegistry(cfg, &mockRegistryProvider{})
 
 	ids := registry.ListAgentIDs()
@@ -59,7 +60,7 @@ func TestNewAgentRegistry_ImplicitMain(t *testing.T) {
 }
 
 func TestNewAgentRegistry_ExplicitAgents(t *testing.T) {
-	cfg := testCfg([]config.AgentConfig{
+	cfg := testCfg(t, []config.AgentConfig{
 		{ID: "sales", Default: true, Name: "Sales Bot"},
 		{ID: "support", Name: "Support Bot"},
 	})
@@ -85,7 +86,7 @@ func TestNewAgentRegistry_ExplicitAgents(t *testing.T) {
 }
 
 func TestAgentRegistry_GetAgent_Normalize(t *testing.T) {
-	cfg := testCfg([]config.AgentConfig{
+	cfg := testCfg(t, []config.AgentConfig{
 		{ID: "my-agent", Default: true},
 	})
 	registry := NewAgentRegistry(cfg, &mockRegistryProvider{})
@@ -100,7 +101,7 @@ func TestAgentRegistry_GetAgent_Normalize(t *testing.T) {
 }
 
 func TestAgentRegistry_GetDefaultAgent(t *testing.T) {
-	cfg := testCfg([]config.AgentConfig{
+	cfg := testCfg(t, []config.AgentConfig{
 		{ID: "alpha"},
 		{ID: "beta", Default: true},
 	})
@@ -114,7 +115,7 @@ func TestAgentRegistry_GetDefaultAgent(t *testing.T) {
 }
 
 func TestAgentRegistry_CanSpawnSubagent(t *testing.T) {
-	cfg := testCfg([]config.AgentConfig{
+	cfg := testCfg(t, []config.AgentConfig{
 		{
 			ID:      "parent",
 			Default: true,
@@ -143,7 +144,7 @@ func TestAgentRegistry_CanSpawnSubagent(t *testing.T) {
 }
 
 func TestAgentRegistry_CanSpawnSubagent_Wildcard(t *testing.T) {
-	cfg := testCfg([]config.AgentConfig{
+	cfg := testCfg(t, []config.AgentConfig{
 		{
 			ID:      "admin",
 			Default: true,
@@ -165,7 +166,7 @@ func TestAgentRegistry_CanSpawnSubagent_Wildcard(t *testing.T) {
 
 func TestAgentInstance_Model(t *testing.T) {
 	model := &config.AgentModelConfig{Primary: "claude-opus"}
-	cfg := testCfg([]config.AgentConfig{
+	cfg := testCfg(t, []config.AgentConfig{
 		{ID: "custom", Default: true, Model: model},
 	})
 	registry := NewAgentRegistry(cfg, &mockRegistryProvider{})
@@ -177,7 +178,7 @@ func TestAgentInstance_Model(t *testing.T) {
 }
 
 func TestAgentInstance_FallbackInheritance(t *testing.T) {
-	cfg := testCfg([]config.AgentConfig{
+	cfg := testCfg(t, []config.AgentConfig{
 		{ID: "inherit", Default: true},
 	})
 	cfg.Agents.Defaults.ModelFallbacks = []string{"openai/gpt-4o-mini", "anthropic/haiku"}
@@ -194,7 +195,7 @@ func TestAgentInstance_FallbackExplicitEmpty(t *testing.T) {
 		Primary:   "gpt-4",
 		Fallbacks: []string{}, // explicitly empty = disable
 	}
-	cfg := testCfg([]config.AgentConfig{
+	cfg := testCfg(t, []config.AgentConfig{
 		{ID: "no-fallback", Default: true, Model: model},
 	})
 	cfg.Agents.Defaults.ModelFallbacks = []string{"should-not-inherit"}
@@ -228,7 +229,7 @@ Research agent.
 	})
 	defer cleanupWorkspace(t, researchWorkspace)
 
-	cfg := testCfg([]config.AgentConfig{
+	cfg := testCfg(t, []config.AgentConfig{
 		{ID: "main", Default: true, Workspace: mainWorkspace},
 		{
 			ID:        "research",
@@ -285,7 +286,7 @@ Research agent.
 	})
 	defer cleanupWorkspace(t, researchWorkspace)
 
-	cfg := testCfg([]config.AgentConfig{
+	cfg := testCfg(t, []config.AgentConfig{
 		{ID: "main", Default: true, Workspace: mainWorkspace},
 		{
 			ID:        "research",

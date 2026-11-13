@@ -381,7 +381,10 @@ func TestConfigureFromEnv(t *testing.T) {
 		t.Skip("HOME not set")
 	}
 
-	tmpFile := "/tmp/picoclaw_test_log_" + fmt.Sprintf("%d", time.Now().UnixNano())
+	tmpFile := filepath.Join(
+		t.TempDir(),
+		fmt.Sprintf("picoclaw_test_log_%d", time.Now().UnixNano()),
+	)
 	defer os.Remove(tmpFile)
 
 	os.Setenv("PICOCLAW_LOG_FILE", tmpFile)
