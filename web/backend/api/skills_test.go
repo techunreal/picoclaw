@@ -706,6 +706,109 @@ func TestHandleSearchSkills(t *testing.T) {
 	}
 }
 
+func TestHandleSkillByIDValidation(t *testing.T) {
+	configPath, cleanup := setupOAuthTestEnv(t)
+	defer cleanup()
+
+	cfg, err := config.LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+	cfg.Agents.Defaults.Workspace = filepath.Join(t.TempDir(), "workspace")
+	if err := config.SaveConfig(configPath, cfg); err != nil {
+		t.Fatalf("SaveConfig() error = %v", err)
+	}
+
+	h := NewHandler(configPath)
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	cases := []struct {
+		method string
+		path   string
+		want   int
+	}{
+		{http.MethodGet, "/api/skills/by-id/workspace:..", http.StatusBadRequest},
+		{http.MethodGet, "/api/skills/by-id/notasource:foo", http.StatusBadRequest},
+		{http.MethodGet, "/api/skills/by-id/workspace:missing", http.StatusNotFound},
+		{http.MethodDelete, "/api/skills/by-id/workspace:..", http.StatusBadRequest},
+	}
+	for _, testCase := range cases {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(testCase.method, testCase.path, nil)
+		mux.ServeHTTP(rec, req)
+		if rec.Code != testCase.want {
+			t.Errorf("%s %s status = %d, want %d body=%s",
+				testCase.method, testCase.path, rec.Code, testCase.want, rec.Body.String())
+		}
+	}
+}
+
+func TestHandleSaveSkillValidation(t *testing.T) {
+	configPath, cleanup := setupOAuthTestEnv(t)
+	defer cleanup()
+
+	cfg, err := config.LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+	workspace := filepath.Join(t.TempDir(), "workspace")
+	cfg.Agents.Defaults.Workspace = workspace
+	if err := config.SaveConfig(configPath, cfg); err != nil {
+		t.Fatalf("SaveConfig() error = %v", err)
+	}
+
+	skillDir := filepath.Join(workspace, "skills", "validated")
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(skillDir, "SKILL.md"),
+		[]byte("---\nname: validated\ndescription: Validate\n---\n# Valid\n"),
+		0o644,
+	); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	h := NewHandler(configPath)
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	put := func(body []byte) *httptest.ResponseRecorder {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPut, "/api/skills/by-id/workspace:validated", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		mux.ServeHTTP(rec, req)
+		return rec
+	}
+
+	// Missing revision.
+	body, _ := json.Marshal(skillWriteRequest{Content: "changed"})
+	if rec := put(body); rec.Code != http.StatusBadRequest {
+		t.Fatalf("missing revision status = %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	// Binary content.
+	body, _ = json.Marshal(skillWriteRequest{Content: "bad\x00content", Revision: "x"})
+	if rec := put(body); rec.Code != http.StatusUnsupportedMediaType {
+		t.Fatalf("binary status = %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	// Oversized content.
+	body, _ = json.Marshal(skillWriteRequest{
+		Content:  strings.Repeat("a", maxSkillFileSize+1),
+		Revision: "x",
+	})
+	if rec := put(body); rec.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("oversized status = %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	// Invalid JSON.
+	if rec := put([]byte("{")); rec.Code != http.StatusBadRequest {
+		t.Fatalf("invalid JSON status = %d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestHandleSaveSkillByID(t *testing.T) {
 	configPath, cleanup := setupOAuthTestEnv(t)
 	defer cleanup()

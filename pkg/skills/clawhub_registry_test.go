@@ -536,6 +536,56 @@ func TestClawHubRegistryInstallsGitHubHandoffArchive(t *testing.T) {
 	assert.Contains(t, string(data), "Handoff skill")
 }
 
+func TestClawHubRegistryInstallsGitHubHandoffRepoPath(t *testing.T) {
+	originalFactory := newClawHubHandoffInstaller
+	defer func() { newClawHubHandoffInstaller = originalFactory }()
+
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/skills/handoffrepo":
+			json.NewEncoder(w).Encode(map[string]any{
+				"skill":         map[string]any{"slug": "handoffrepo", "summary": "Handoff"},
+				"latestVersion": map[string]any{"version": "1.0.0"},
+				"owner":         map[string]any{"handle": "acme"},
+			})
+		case "/api/v1/download":
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]any{
+				"repo":   "foo/bar",
+				"commit": "abc123",
+				"path":   "skills/demo",
+			})
+		case "/api/v3/repos/foo/bar/contents/skills/demo":
+			assert.Equal(t, "ref=abc123", r.URL.RawQuery)
+			json.NewEncoder(w).Encode([]map[string]any{{
+				"type":         "file",
+				"name":         "SKILL.md",
+				"download_url": server.URL + "/raw/foo/bar/abc123/skills/demo/SKILL.md",
+			}})
+		case "/raw/foo/bar/abc123/skills/demo/SKILL.md":
+			_, _ = w.Write([]byte("---\nname: handoffrepo\ndescription: Handoff repo\n---\n# Repo handoff\n"))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	newClawHubHandoffInstaller = func() (*SkillInstaller, error) {
+		return NewSkillInstallerWithBaseURL("", server.URL, "", "")
+	}
+
+	reg := newTestRegistry(server.URL, "")
+	targetDir := t.TempDir()
+	_, err := reg.DownloadAndInstallForOwner(
+		context.Background(), "handoffrepo", "", "acme", targetDir,
+	)
+	require.NoError(t, err)
+	data, readErr := os.ReadFile(filepath.Join(targetDir, "SKILL.md"))
+	require.NoError(t, readErr)
+	assert.Contains(t, string(data), "Repo handoff")
+}
+
 func TestClawHubRegistrySecuritySummary(t *testing.T) {
 	resetClawHubSecurityCache()
 	defer resetClawHubSecurityCache()

@@ -612,7 +612,7 @@ func (c *ClawHubRegistry) installFromHandoff(
 		installTarget = strings.TrimRight(repo, "/") + "/" + strings.Trim(subPath, "/")
 	}
 
-	installer, err := NewSkillInstallerWithBaseURL("", "", "", "")
+	installer, err := newClawHubHandoffInstaller()
 	if err != nil {
 		return fmt.Errorf("failed to create GitHub installer: %w", err)
 	}
@@ -620,6 +620,11 @@ func (c *ClawHubRegistry) installFromHandoff(
 		return fmt.Errorf("failed to install GitHub handoff: %w", err)
 	}
 	return nil
+}
+
+// newClawHubHandoffInstaller is a test seam for GitHub-backed handoff installs.
+var newClawHubHandoffInstaller = func() (*SkillInstaller, error) {
+	return NewSkillInstallerWithBaseURL("", "", "", "")
 }
 
 func handoffString(raw map[string]any, keys ...string) string {
