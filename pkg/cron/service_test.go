@@ -365,3 +365,72 @@ func TestCronService_ConcurrentAccess(t *testing.T) {
 
 	wg.Wait()
 }
+
+func TestCheckJobsDoesNotBlockOnSlowJob(t *testing.T) {
+	storePath := filepath.Join(t.TempDir(), "cron", "jobs.json")
+	if err := os.MkdirAll(filepath.Dir(storePath), 0o755); err != nil {
+		t.Fatalf("MkdirAll failed: %v", err)
+	}
+
+	started := make(chan struct{}, 2)
+	release := make(chan struct{})
+	var jobsDone sync.WaitGroup
+	jobsDone.Add(2)
+
+	cs := NewCronService(storePath, func(job *CronJob) (string, error) {
+		started <- struct{}{}
+		<-release
+		jobsDone.Done()
+		return "ok", nil
+	})
+
+	now := time.Now().UnixMilli()
+	cs.mu.Lock()
+	cs.running = true
+	cs.store.Jobs = []CronJob{
+		{
+			ID:       "slow-a",
+			Name:     "slow-a",
+			Enabled:  true,
+			Schedule: CronSchedule{Kind: "every", EveryMS: int64Ptr(60000)},
+			State:    CronJobState{NextRunAtMS: &now},
+		},
+		{
+			ID:       "slow-b",
+			Name:     "slow-b",
+			Enabled:  true,
+			Schedule: CronSchedule{Kind: "every", EveryMS: int64Ptr(60000)},
+			State:    CronJobState{NextRunAtMS: &now},
+		},
+	}
+	cs.mu.Unlock()
+
+	start := time.Now()
+	cs.checkJobs()
+	if elapsed := time.Since(start); elapsed > 200*time.Millisecond {
+		t.Fatalf("checkJobs() blocked for %v on slow jobs", elapsed)
+	}
+
+	for i := 0; i < 2; i++ {
+		select {
+		case <-started:
+		case <-time.After(2 * time.Second):
+			t.Fatal("due job did not start")
+		}
+	}
+
+	close(release)
+
+	finished := make(chan struct{})
+	go func() {
+		jobsDone.Wait()
+		close(finished)
+	}()
+	select {
+	case <-finished:
+	case <-time.After(3 * time.Second):
+		t.Fatal("slow jobs did not finish")
+	}
+
+	cs.Stop()
+}

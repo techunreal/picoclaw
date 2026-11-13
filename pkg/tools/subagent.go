@@ -3,11 +3,19 @@ package tools
 import (
 	"context"
 	"fmt"
+	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/sipeed/picoclaw/pkg/providers"
+)
+
+const (
+	// maxRetainedSubagentTasks bounds the in-memory task history. Running
+	// tasks are never pruned; completed/failed/canceled tasks are retained
+	// until the cap is exceeded.
+	maxRetainedSubagentTasks = 100
 )
 
 // SubTurnSpawner is an interface for spawning sub-turns.
@@ -155,6 +163,7 @@ func (sm *SubagentManager) Spawn(
 		Created:       time.Now().UnixMilli(),
 	}
 	sm.tasks[taskID] = subagentTask
+	sm.pruneTasksLocked()
 
 	// Start task in background with context cancellation support
 	go sm.runTask(ctx, subagentTask, callback)
@@ -165,13 +174,38 @@ func (sm *SubagentManager) Spawn(
 	return fmt.Sprintf("Spawned subagent for task: %s", task), nil
 }
 
+func (sm *SubagentManager) pruneTasksLocked() {
+	if len(sm.tasks) <= maxRetainedSubagentTasks {
+		return
+	}
+
+	type finishedTask struct {
+		id      string
+		created int64
+	}
+	finished := make([]finishedTask, 0, len(sm.tasks))
+	for id, task := range sm.tasks {
+		if task == nil || task.Status == "running" {
+			continue
+		}
+		finished = append(finished, finishedTask{id: id, created: task.Created})
+	}
+
+	sort.Slice(finished, func(i, j int) bool {
+		return finished[i].created < finished[j].created
+	})
+
+	toRemove := len(sm.tasks) - maxRetainedSubagentTasks
+	for i := 0; i < toRemove && i < len(finished); i++ {
+		delete(sm.tasks, finished[i].id)
+	}
+}
+
 func (sm *SubagentManager) runTask(
 	ctx context.Context,
 	task *SubagentTask,
 	callback AsyncCallback,
 ) {
-	task.Status = "running"
-	task.Created = time.Now().UnixMilli()
 	// TODO(eventbus): once subagents are modeled as child turns inside
 	// pkg/agent, emit SubTurnEnd and SubTurnResultDelivered from the parent
 	// AgentLoop instead of this legacy manager.
@@ -270,6 +304,14 @@ After completing the task, provide a clear summary of what was done.`
 		}
 	}()
 
+	if result == nil {
+		result = &ToolResult{
+			ForLLM:  "Subagent completed without a result",
+			ForUser: "",
+			Silent:  false,
+		}
+	}
+
 	if err != nil {
 		task.Status = "failed"
 		task.Result = fmt.Sprintf("Error: %v", err)
@@ -290,13 +332,19 @@ After completing the task, provide a clear summary of what was done.`
 		task.Status = "completed"
 		task.Result = result.ForLLM
 	}
+
+	sm.pruneTasksLocked()
 }
 
 func (sm *SubagentManager) GetTask(taskID string) (*SubagentTask, bool) {
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
 	task, ok := sm.tasks[taskID]
-	return task, ok
+	if !ok {
+		return nil, false
+	}
+	copy := *task
+	return &copy, true
 }
 
 // GetTaskCopy returns a copy of the task with the given ID, taken under the
@@ -317,7 +365,8 @@ func (sm *SubagentManager) ListTasks() []*SubagentTask {
 
 	tasks := make([]*SubagentTask, 0, len(sm.tasks))
 	for _, task := range sm.tasks {
-		tasks = append(tasks, task)
+		copy := *task
+		tasks = append(tasks, &copy)
 	}
 	return tasks
 }

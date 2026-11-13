@@ -57,6 +57,11 @@ type CronStore struct {
 
 type JobHandler func(job *CronJob) (string, error)
 
+const (
+	maxConcurrentCronJobs = 4
+	cronShutdownTimeout   = 5 * time.Second
+)
+
 type CronService struct {
 	storePath string
 	store     *CronStore
@@ -66,6 +71,8 @@ type CronService struct {
 	stopChan  chan struct{}
 	wakeChan  chan struct{}
 	gronx     *gronx.Gronx
+	jobWG     sync.WaitGroup
+	jobSem    chan struct{}
 }
 
 func NewCronService(storePath string, onJob JobHandler) *CronService {
@@ -74,6 +81,7 @@ func NewCronService(storePath string, onJob JobHandler) *CronService {
 		onJob:     onJob,
 		gronx:     gronx.New(),
 		wakeChan:  make(chan struct{}),
+		jobSem:    make(chan struct{}, maxConcurrentCronJobs),
 	}
 	// Initialize and load store on creation
 	cs.loadStore()
@@ -101,6 +109,9 @@ func (cs *CronService) Start() error {
 	if cs.wakeChan == nil {
 		cs.wakeChan = make(chan struct{})
 	}
+	if cs.jobSem == nil {
+		cs.jobSem = make(chan struct{}, maxConcurrentCronJobs)
+	}
 	cs.running = true
 	go cs.runLoop(cs.stopChan)
 
@@ -109,9 +120,8 @@ func (cs *CronService) Start() error {
 
 func (cs *CronService) Stop() {
 	cs.mu.Lock()
-	defer cs.mu.Unlock()
-
 	if !cs.running {
+		cs.mu.Unlock()
 		return
 	}
 
@@ -119,6 +129,21 @@ func (cs *CronService) Stop() {
 	if cs.stopChan != nil {
 		close(cs.stopChan)
 		cs.stopChan = nil
+	}
+	cs.mu.Unlock()
+
+	// Wait for running jobs outside the lock: job completion needs the lock
+	// to update state. Bound the wait so a hung handler cannot block shutdown
+	// forever.
+	done := make(chan struct{})
+	go func() {
+		cs.jobWG.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(cronShutdownTimeout):
+		log.Printf("[cron] timed out waiting for running jobs to stop")
 	}
 }
 
@@ -203,12 +228,30 @@ func (cs *CronService) checkJobs() {
 		log.Printf("[cron] failed to save store: %v", err)
 	}
 
-	cs.mu.Unlock()
-
-	// Execute jobs outside lock.
-	for _, jobID := range dueJobIDs {
-		cs.executeJobByID(jobID)
+	if cs.jobSem == nil {
+		cs.jobSem = make(chan struct{}, maxConcurrentCronJobs)
 	}
+	stopChan := cs.stopChan
+
+	// Execute due jobs concurrently and outside the lock. A slow job must not
+	// delay the scheduler or other due jobs.
+	for _, jobID := range dueJobIDs {
+		cs.jobWG.Add(1)
+		go func(id string) {
+			defer cs.jobWG.Done()
+
+			select {
+			case cs.jobSem <- struct{}{}:
+				defer func() { <-cs.jobSem }()
+			case <-stopChan:
+				return
+			}
+
+			cs.executeJobByID(id)
+		}(jobID)
+	}
+
+	cs.mu.Unlock()
 }
 
 func (cs *CronService) executeJobByID(jobID string) {
