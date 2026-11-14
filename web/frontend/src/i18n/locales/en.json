@@ -9,6 +9,7 @@
     "memory": "Memory",
     "skills": "Skills",
     "tools": "Tools",
+    "subagents": "Subagents",
     "services": "Services",
     "channels_group": "Channels",
     "show_more_channels": "More",
@@ -164,6 +165,35 @@
         "stopping": "Stopping Gateway..."
       },
       "restartRequired": "Configuration changes require a gateway restart to take effect."
+    }
+  },
+  "subagents": {
+    "title": "Subagents",
+    "description": "Monitor child agents spawned by the main agent, inspect their results, and cancel running work.",
+    "loading": "Loading subagent runs...",
+    "loadFailed": "Failed to load subagent runs.",
+    "emptyTitle": "No subagent runs yet",
+    "emptyDescription": "When the agent spawns a subagent or delegates work, its progress appears here.",
+    "refresh": "Refresh",
+    "agent": "Agent",
+    "depth": "Depth {{depth}}",
+    "started": "Started",
+    "duration": "Duration",
+    "parent": "Parent",
+    "result": "Result",
+    "noResult": "No result was recorded.",
+    "cancel": "Cancel",
+    "cancelTitle": "Cancel this subagent?",
+    "cancelDescription": "The subagent will be stopped immediately. Partial work may be lost.",
+    "cancelConfirm": "Cancel subagent",
+    "canceled": "Subagent canceled.",
+    "cancelFailed": "Failed to cancel the subagent.",
+    "counts": "{{running}} running · {{completed}} completed · {{failed}} failed or canceled",
+    "status": {
+      "running": "Running",
+      "completed": "Completed",
+      "failed": "Failed",
+      "canceled": "Canceled"
     }
   },
   "common": {
