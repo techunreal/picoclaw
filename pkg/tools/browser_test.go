@@ -7,23 +7,40 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/sipeed/picoclaw/pkg/browser"
 )
 
 type fakeBrowserRunner struct {
-	validateErr error
-	calls       [][]string
-	output      string
-	runErr      error
+	validateErr  error
+	calls        [][]string
+	output       string
+	runErr       error
+	allowedHosts map[string]bool
 }
 
-func (f *fakeBrowserRunner) ValidateURL(raw string) error {
+func (f *fakeBrowserRunner) NavigationHost(raw string) (string, error) {
 	if f.validateErr != nil {
-		return f.validateErr
+		return "", f.validateErr
 	}
 	if !strings.HasPrefix(raw, "https://") {
-		return errors.New("invalid url")
+		return "", errors.New("invalid url")
 	}
-	return nil
+	rest := strings.TrimPrefix(raw, "https://")
+	host := strings.SplitN(rest, "/", 2)[0]
+	host = strings.SplitN(host, ":", 2)[0]
+	if host == "evil.test" {
+		return "", errors.New("invalid url")
+	}
+	return host, nil
+}
+
+func (f *fakeBrowserRunner) IsDomainAllowed(host string) bool {
+	if f.allowedHosts == nil {
+		return true
+	}
+	return f.allowedHosts[host]
 }
 
 func (f *fakeBrowserRunner) Run(ctx context.Context, session string, argv ...string) (string, error) {
@@ -131,6 +148,51 @@ func TestBrowserTool_RemoteChannels(t *testing.T) {
 	tool.allowRemote = false
 	if result := tool.Execute(localCtx, map[string]any{"action": "back"}); result.IsError {
 		t.Fatalf("local WebUI action error = %v", result.ForLLM)
+	}
+}
+
+type fakeApprovalAsker struct {
+	decision browser.ApprovalDecision
+	asked    []string
+}
+
+func (f *fakeApprovalAsker) Request(ctx context.Context, domain string, timeout time.Duration) browser.ApprovalDecision {
+	f.asked = append(f.asked, domain)
+	return f.decision
+}
+
+func TestBrowserTool_DomainApproval(t *testing.T) {
+	runner := &fakeBrowserRunner{allowedHosts: map[string]bool{}}
+	asker := &fakeApprovalAsker{decision: browser.AllowOnce}
+	tool := newTestBrowserTool(t, runner)
+	tool.approvals = asker
+	tool.allowTemp = func(host string, ttl time.Duration) {}
+	tool.allowAlways = func(host string) {}
+
+	if result := tool.Execute(context.Background(), map[string]any{
+		"action": "open",
+		"url":    "https://example.com/",
+	}); result.IsError {
+		t.Fatalf("allow-once open error = %v", result.ForLLM)
+	}
+	if len(asker.asked) != 1 || asker.asked[0] != "example.com" {
+		t.Fatalf("asked = %v, want example.com", asker.asked)
+	}
+
+	asker.decision = browser.Deny
+	if result := tool.Execute(context.Background(), map[string]any{
+		"action": "open",
+		"url":    "https://example.com/",
+	}); !result.IsError {
+		t.Fatal("denied domain should fail")
+	}
+
+	asker.decision = browser.AllowAlways
+	if result := tool.Execute(context.Background(), map[string]any{
+		"action": "open",
+		"url":    "https://example.com/",
+	}); result.IsError {
+		t.Fatalf("allow-always open error = %v", result.ForLLM)
 	}
 }
 

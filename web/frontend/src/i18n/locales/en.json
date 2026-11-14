@@ -987,6 +987,13 @@
           "found": "found",
           "not_found": "not found",
           "install_hint": "Install agent-browser (npm install -g agent-browser) or set its path above. The CLI ships separately from PicoClaw.",
+          "no_browser_title": "No system Chrome or Chromium detected",
+          "no_browser_description": "The browser feature needs a Chromium-based browser. Download a private Chrome for Testing build (large download) or install Chrome/Chromium yourself.",
+          "download_engine": "Download browser engine",
+          "downloading": "Downloading…",
+          "download_started": "Browser download started. This can take a while.",
+          "download_done": "Browser engine installed.",
+          "download_failed": "Could not start the browser download",
           "test": "Test",
           "testing": "Testing…",
           "test_ok": "agent-browser is available ({{version}})",
@@ -1353,5 +1360,13 @@
       "workspace": "Workspace",
       "globalSkills": "Global skills"
     }
+  },
+  "browserApproval": {
+    "title": "Allow this website?",
+    "description": "The agent wants to open {{domain}}. Only allow sites you trust.",
+    "deny": "Deny",
+    "once": "Allow once",
+    "always": "Always allow",
+    "error": "Could not answer the browser permission request."
   }
 }

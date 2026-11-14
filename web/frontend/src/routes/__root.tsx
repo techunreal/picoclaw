@@ -4,6 +4,7 @@ import { useEffect, useState } from "react"
 
 import { getLauncherAuthStatus } from "@/api/launcher-auth"
 import { AppLayout } from "@/components/app-layout"
+import { BrowserApprovalWatcher } from "@/components/browser/browser-approval-watcher"
 import { initializeChatStore } from "@/features/chat/controller"
 import { isLauncherAuthPathname } from "@/lib/launcher-login-path"
 
@@ -92,6 +93,7 @@ const RootLayout = () => {
       )}
       <AppLayout>
         <Outlet />
+        <BrowserApprovalWatcher />
         {import.meta.env.DEV ? <TanStackRouterDevtools /> : null}
       </AppLayout>
     </>

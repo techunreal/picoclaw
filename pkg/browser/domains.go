@@ -87,27 +87,35 @@ func HostAllowed(host string, patterns []string) bool {
 }
 
 func validateURL(raw string, patterns []string, allowAll bool) error {
+	host, err := parseNavigationURL(raw)
+	if err != nil {
+		return err
+	}
+	if allowAll || HostAllowed(host, patterns) {
+		return nil
+	}
+	return fmt.Errorf("%w: %s", ErrDomainNotAllowed, host)
+}
+
+func parseNavigationURL(raw string) (string, error) {
 	trimmed := strings.TrimSpace(raw)
 	if trimmed == "" {
-		return fmt.Errorf("url is required")
+		return "", fmt.Errorf("url is required")
 	}
 	parsed, err := url.Parse(trimmed)
 	if err != nil {
-		return fmt.Errorf("invalid url")
+		return "", fmt.Errorf("invalid url")
 	}
 	if parsed.Scheme != "http" && parsed.Scheme != "https" {
-		return fmt.Errorf("only http and https URLs are allowed")
+		return "", fmt.Errorf("only http and https URLs are allowed")
 	}
 	if parsed.User != nil {
-		return fmt.Errorf("URLs with embedded credentials are not allowed")
+		return "", fmt.Errorf("URLs with embedded credentials are not allowed")
 	}
 	if parsed.Hostname() == "" {
-		return fmt.Errorf("url has no host")
+		return "", fmt.Errorf("url has no host")
 	}
-	if allowAll || HostAllowed(parsed.Hostname(), patterns) {
-		return nil
-	}
-	return fmt.Errorf("%w: %s", ErrDomainNotAllowed, parsed.Hostname())
+	return strings.ToLower(parsed.Hostname()), nil
 }
 
 func shortHash(value string) string {

@@ -145,3 +145,22 @@ export async function testBrowserTool(): Promise<BrowserToolTestResult> {
     method: "POST",
   })
 }
+
+export interface BrowserInstallStatus {
+  running: boolean
+  done: boolean
+  error?: string
+  last_line?: string
+  started_at?: number
+  finished_at?: number
+}
+
+export async function installBrowserEngine(): Promise<BrowserInstallStatus> {
+  return request<BrowserInstallStatus>("/api/tools/browser/install", {
+    method: "POST",
+  })
+}
+
+export async function getBrowserInstallStatus(): Promise<BrowserInstallStatus> {
+  return request<BrowserInstallStatus>("/api/tools/browser/install")
+}

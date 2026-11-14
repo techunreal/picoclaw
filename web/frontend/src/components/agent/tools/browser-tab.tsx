@@ -5,7 +5,9 @@ import { toast } from "sonner"
 
 import {
   type BrowserToolConfig,
+  getBrowserInstallStatus,
   getBrowserToolConfig,
+  installBrowserEngine,
   testBrowserTool,
   updateBrowserToolConfig,
 } from "@/api/tools"
@@ -40,6 +42,41 @@ export function BrowserTab() {
     queryKey,
     queryFn: getBrowserToolConfig,
   })
+
+  const installQuery = useQuery({
+    queryKey: ["tools", "browser-install"],
+    queryFn: getBrowserInstallStatus,
+    refetchInterval: (queryState) =>
+      queryState.state.data?.running ? 2000 : false,
+  })
+
+  const installMutation = useMutation({
+    mutationFn: installBrowserEngine,
+    onSuccess: (status) => {
+      queryClient.setQueryData(["tools", "browser-install"], status)
+      toast.success(
+        t(
+          "pages.agent.tools.browser.download_started",
+          "Browser download started. This can take a while.",
+        ),
+      )
+    },
+    onError: (error) =>
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : t(
+              "pages.agent.tools.browser.download_failed",
+              "Could not start the browser download",
+            ),
+      ),
+  })
+
+  useEffect(() => {
+    if (installQuery.data?.done && !installQuery.data.error) {
+      void queryClient.invalidateQueries({ queryKey })
+    }
+  }, [installQuery.data?.done, installQuery.data?.error, queryClient])
 
   useEffect(() => {
     if (query.data) {
@@ -405,6 +442,64 @@ export function BrowserTab() {
               </p>
             )}
           </div>
+
+          {!draft.status.browser_detected && (
+            <div className="border-amber-500/30 bg-amber-500/5 rounded-2xl border p-4 text-sm">
+              <p className="font-medium">
+                {t(
+                  "pages.agent.tools.browser.no_browser_title",
+                  "No system Chrome or Chromium detected",
+                )}
+              </p>
+              <p className="text-muted-foreground mt-1 text-xs">
+                {t(
+                  "pages.agent.tools.browser.no_browser_description",
+                  "The browser feature needs a Chromium-based browser. Download a private Chrome for Testing build (large download) or install Chrome/Chromium yourself.",
+                )}
+              </p>
+              <div className="mt-3 flex flex-wrap items-center gap-3">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="secondary"
+                  className="gap-1.5"
+                  onClick={() => installMutation.mutate()}
+                  disabled={
+                    installMutation.isPending ||
+                    installQuery.data?.running === true
+                  }
+                >
+                  {t(
+                    "pages.agent.tools.browser.download_engine",
+                    "Download browser engine",
+                  )}
+                </Button>
+                {(installQuery.data?.running ||
+                  installMutation.isPending) && (
+                  <span className="text-muted-foreground text-xs">
+                    {installQuery.data?.last_line ||
+                      t(
+                        "pages.agent.tools.browser.downloading",
+                        "Downloading…",
+                      )}
+                  </span>
+                )}
+                {installQuery.data?.error && (
+                  <span className="text-destructive text-xs">
+                    {installQuery.data.error}
+                  </span>
+                )}
+                {installQuery.data?.done && !installQuery.data.error && (
+                  <span className="text-emerald-600 text-xs">
+                    {t(
+                      "pages.agent.tools.browser.download_done",
+                      "Browser engine installed.",
+                    )}
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
         </>
       )}
     </div>

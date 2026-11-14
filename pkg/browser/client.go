@@ -179,6 +179,23 @@ func (c *Client) ValidateURL(raw string) error {
 	return validateURL(raw, c.domains, c.allowAll)
 }
 
+// NavigationHost validates the URL structure and returns its host.
+func (c *Client) NavigationHost(raw string) (string, error) {
+	parsed, err := parseNavigationURL(raw)
+	if err != nil {
+		return "", err
+	}
+	return parsed, nil
+}
+
+// IsDomainAllowed reports whether the host is on the allowlist or was approved.
+func (c *Client) IsDomainAllowed(host string) bool {
+	if c.allowAll || HostAllowed(host, c.domains) {
+		return true
+	}
+	return DefaultApprovals().IsAlwaysAllowed(host)
+}
+
 // Close releases the browser session used by this chat.
 func (c *Client) Close(ctx context.Context, session string) (string, error) {
 	return c.Run(ctx, session, "close")

@@ -27,6 +27,9 @@ type allowlistProxy struct {
 	pass     string
 	domains  atomic.Pointer[[]string]
 	allowAll atomic.Bool
+
+	tempMu    sync.Mutex
+	temporary map[string]time.Time
 }
 
 var (
@@ -60,9 +63,10 @@ func startAllowlistProxy() (*allowlistProxy, error) {
 	}
 
 	proxy := &allowlistProxy{
-		listener: listener,
-		user:     user,
-		pass:     pass,
+		listener:  listener,
+		user:      user,
+		pass:      pass,
+		temporary: make(map[string]time.Time),
 	}
 	proxy.url = fmt.Sprintf("http://%s:%s@%s/", user, pass, listener.Addr().String())
 
@@ -90,11 +94,46 @@ func (p *allowlistProxy) hostAllowed(host string) bool {
 	if p.allowAll.Load() {
 		return true
 	}
+	if DefaultApprovals().IsAlwaysAllowed(host) {
+		return true
+	}
+	p.tempMu.Lock()
+	expires, ok := p.temporary[strings.ToLower(strings.TrimSpace(host))]
+	if ok && time.Now().After(expires) {
+		delete(p.temporary, strings.ToLower(strings.TrimSpace(host)))
+		ok = false
+	}
+	p.tempMu.Unlock()
+	if ok {
+		return true
+	}
 	patterns := p.domains.Load()
 	if patterns == nil {
 		return false
 	}
 	return HostAllowed(host, *patterns)
+}
+
+func (p *allowlistProxy) allowTemporarily(host string, ttl time.Duration) {
+	host = strings.ToLower(strings.TrimSpace(host))
+	if host == "" {
+		return
+	}
+	p.tempMu.Lock()
+	p.temporary[host] = time.Now().Add(ttl)
+	p.tempMu.Unlock()
+}
+
+func allowProxyHostTemporarily(host string, ttl time.Duration) {
+	if sharedProxy != nil {
+		sharedProxy.allowTemporarily(host, ttl)
+	}
+}
+
+func allowProxyHostForever(host string) {
+	if sharedProxy != nil {
+		sharedProxy.allowTemporarily(host, 100*365*24*time.Hour)
+	}
 }
 
 func (p *allowlistProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {

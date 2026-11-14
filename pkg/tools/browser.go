@@ -15,7 +15,12 @@ import (
 
 type browserRunner interface {
 	Run(ctx context.Context, session string, argv ...string) (string, error)
-	ValidateURL(raw string) error
+	NavigationHost(raw string) (string, error)
+	IsDomainAllowed(host string) bool
+}
+
+type approvalAsker interface {
+	Request(ctx context.Context, domain string, timeout time.Duration) browser.ApprovalDecision
 }
 
 // BrowserTool exposes the agent-browser CLI as a single, compact tool.
@@ -23,6 +28,9 @@ type BrowserTool struct {
 	client      browserRunner
 	workspace   string
 	allowRemote bool
+	approvals   approvalAsker
+	allowTemp   func(host string, ttl time.Duration)
+	allowAlways func(host string)
 }
 
 // NewBrowserTool creates the browser tool. It fails when the allowlist is
@@ -45,6 +53,9 @@ func NewBrowserTool(workspace string, cfg config.BrowserToolsConfig) (*BrowserTo
 		client:      client,
 		workspace:   workspace,
 		allowRemote: cfg.AllowRemote,
+		approvals:   browser.DefaultApprovals(),
+		allowTemp:   browser.AllowTemporarily,
+		allowAlways: browser.AllowHostAlways,
 	}, nil
 }
 
@@ -127,8 +138,20 @@ func (t *BrowserTool) Execute(ctx context.Context, args map[string]any) *ToolRes
 		if url == "" || len(url) > 2048 {
 			return ErrorResult("url is required for open")
 		}
-		if err := t.client.ValidateURL(url); err != nil {
+		host, err := t.client.NavigationHost(url)
+		if err != nil {
 			return ErrorResult(err.Error())
+		}
+		if !t.client.IsDomainAllowed(host) {
+			decision := t.requestApproval(ctx, host)
+			switch decision {
+			case browser.AllowOnce:
+				t.allowDomainTemporarily(host)
+			case browser.AllowAlways:
+				t.allowDomainAlways(host)
+			default:
+				return ErrorResult("The user denied access to " + host + ".")
+			}
 		}
 		return t.run(ctx, session, "Opening page", "open", url)
 
@@ -269,6 +292,30 @@ func sanitizeBrowserFilename(name string) string {
 		name = name[:120]
 	}
 	return strings.TrimSpace(name)
+}
+
+func (t *BrowserTool) requestApproval(ctx context.Context, host string) browser.ApprovalDecision {
+	asker := t.approvals
+	if asker == nil {
+		asker = browser.DefaultApprovals()
+	}
+	return asker.Request(ctx, host, 90*time.Second)
+}
+
+func (t *BrowserTool) allowDomainTemporarily(host string) {
+	if t.allowTemp != nil {
+		t.allowTemp(host, 2*time.Minute)
+		return
+	}
+	browser.AllowTemporarily(host, 2*time.Minute)
+}
+
+func (t *BrowserTool) allowDomainAlways(host string) {
+	if t.allowAlways != nil {
+		t.allowAlways(host)
+		return
+	}
+	browser.AllowHostAlways(host)
 }
 
 func validBrowserRef(ref string) bool {

@@ -517,6 +517,7 @@ func setupAndStartServices(
 		authToken,
 		cfg.Tools.IsToolEnabled("cron"),
 	)
+	registerBrowserApprovalAPI(runningServices.ChannelManager, authToken)
 
 	if err = runningServices.ChannelManager.StartAll(context.Background()); err != nil {
 		return nil, fmt.Errorf("error starting channels: %w", err)
@@ -733,6 +734,7 @@ func restartServices(
 		runningServices.authToken,
 		cfg.Tools.IsToolEnabled("cron"),
 	)
+	registerBrowserApprovalAPI(runningServices.ChannelManager, runningServices.authToken)
 	fmt.Println("  ✓ Channels restarted.")
 
 	enabledChannels := runningServices.ChannelManager.GetEnabledChannels()

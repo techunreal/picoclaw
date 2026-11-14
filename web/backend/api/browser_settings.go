@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -48,6 +49,8 @@ func (h *Handler) registerBrowserSettingsRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/tools/browser", h.handleGetBrowserConfig)
 	mux.HandleFunc("PUT /api/tools/browser", h.handleUpdateBrowserConfig)
 	mux.HandleFunc("POST /api/tools/browser/test", h.handleTestBrowser)
+	mux.HandleFunc("POST /api/tools/browser/install", h.handleInstallBrowserEngine)
+	mux.HandleFunc("GET /api/tools/browser/install", h.handleBrowserInstallStatus)
 }
 
 func (h *Handler) handleGetBrowserConfig(w http.ResponseWriter, r *http.Request) {
@@ -134,6 +137,29 @@ func (h *Handler) handleUpdateBrowserConfig(w http.ResponseWriter, r *http.Reque
 	}
 
 	writeBrowserSettingsJSON(w, http.StatusOK, buildBrowserConfigResponse(cfg, false))
+}
+
+func (h *Handler) handleInstallBrowserEngine(w http.ResponseWriter, r *http.Request) {
+	cfg, err := config.LoadConfig(h.configPath)
+	if err != nil {
+		writeBrowserSettingsError(w, http.StatusInternalServerError, "config_unreadable",
+			"Failed to load config: "+err.Error())
+		return
+	}
+	if err := browser.StartBrowserInstall(cfg.Tools.Browser.BinaryPath); err != nil {
+		if errors.Is(err, browser.ErrInstallRunning) {
+			writeBrowserSettingsError(w, http.StatusConflict, "install_running",
+				"A browser download is already running.")
+			return
+		}
+		writeBrowserSettingsError(w, http.StatusBadRequest, "install_failed", err.Error())
+		return
+	}
+	writeBrowserSettingsJSON(w, http.StatusAccepted, browser.BrowserInstallStatus())
+}
+
+func (h *Handler) handleBrowserInstallStatus(w http.ResponseWriter, r *http.Request) {
+	writeBrowserSettingsJSON(w, http.StatusOK, browser.BrowserInstallStatus())
 }
 
 func (h *Handler) handleTestBrowser(w http.ResponseWriter, r *http.Request) {
