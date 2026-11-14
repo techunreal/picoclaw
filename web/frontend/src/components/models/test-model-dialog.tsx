@@ -23,6 +23,7 @@ export interface TestInlineParams {
   model: string
   apiBase: string
   apiKey: string
+  proxy?: string
   authMethod: string
   modelIndex?: number
 }
@@ -62,6 +63,7 @@ export function TestModelDialog({
           model: inlineParams.model,
           api_base: inlineParams.apiBase || undefined,
           api_key: inlineParams.apiKey || undefined,
+          proxy: inlineParams.proxy || undefined,
           auth_method: inlineParams.authMethod || undefined,
           model_index: inlineParams.modelIndex,
         }

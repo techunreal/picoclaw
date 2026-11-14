@@ -1507,6 +1507,27 @@ func selectAPIKeys(keys []string, indexes []int) ([]string, error) {
 	return selected, nil
 }
 
+// httpClientForProxy returns an HTTP client that routes requests through the
+// configured proxy. An empty proxy keeps the default client.
+func httpClientForProxy(rawProxy string) (*http.Client, error) {
+	rawProxy = strings.TrimSpace(rawProxy)
+	if rawProxy == "" {
+		return http.DefaultClient, nil
+	}
+	proxyURL, err := url.Parse(rawProxy)
+	if err != nil || proxyURL.Host == "" {
+		return nil, fmt.Errorf("invalid proxy URL %q", rawProxy)
+	}
+	switch strings.ToLower(proxyURL.Scheme) {
+	case "http", "https", "socks5", "socks5h":
+	default:
+		return nil, fmt.Errorf("invalid proxy URL %q: unsupported scheme", rawProxy)
+	}
+	return &http.Client{
+		Transport: &http.Transport{Proxy: http.ProxyURL(proxyURL)},
+	}, nil
+}
+
 // handleFetchModels fetches available models from an upstream provider.
 //
 //	POST /api/models/fetch
@@ -1522,6 +1543,7 @@ func (h *Handler) handleFetchModels(w http.ResponseWriter, r *http.Request) {
 		Provider   string `json:"provider"`
 		APIKey     string `json:"api_key"`
 		APIBase    string `json:"api_base"`
+		Proxy      string `json:"proxy"`
 		ModelIndex *int   `json:"model_index,omitempty"`
 	}
 	if err = json.Unmarshal(body, &req); err != nil {
@@ -1541,10 +1563,16 @@ func (h *Handler) handleFetchModels(w http.ResponseWriter, r *http.Request) {
 
 	apiKey := strings.TrimSpace(req.APIKey)
 	apiBase := strings.TrimSpace(req.APIBase)
+	proxy := strings.TrimSpace(req.Proxy)
 
-	if apiKey == "" && req.ModelIndex != nil {
-		if stored := h.lookupStoredAPIKey(*req.ModelIndex, req.Provider, apiBase); stored != "" {
-			apiKey = stored
+	if req.ModelIndex != nil {
+		if stored := h.lookupStoredModelConfig(*req.ModelIndex, req.Provider, apiBase); stored != nil {
+			if apiKey == "" {
+				apiKey = stored.APIKey()
+			}
+			if proxy == "" {
+				proxy = strings.TrimSpace(stored.Proxy)
+			}
 		}
 	}
 
@@ -1556,10 +1584,16 @@ func (h *Handler) handleFetchModels(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	client, err := httpClientForProxy(proxy)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 
-	models, err := fetchUpstreamModels(ctx, req.Provider, apiBase, apiKey)
+	models, err := fetchUpstreamModelsWithClient(ctx, req.Provider, apiBase, apiKey, client)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to fetch models: %v", err), http.StatusBadGateway)
 		return
@@ -1623,15 +1657,18 @@ func findStoredAPIKeyForEndpoint(
 	return "", "", false
 }
 
-func (h *Handler) lookupStoredAPIKey(index int, reqProvider, reqAPIBase string) string {
+// lookupStoredModelConfig returns the stored model at index when it targets the
+// same provider and effective API base as the request. Callers use it to reuse
+// saved credentials and proxy settings for fetch/test.
+func (h *Handler) lookupStoredModelConfig(index int, reqProvider, reqAPIBase string) *config.ModelConfig {
 	cfg, err := config.LoadConfig(h.configPath)
 	if err != nil || index < 0 || index >= len(cfg.ModelList) {
-		return ""
+		return nil
 	}
 	stored := cfg.ModelList[index]
 	storedProvider, _ := providers.ExtractProtocol(stored)
 	if providers.NormalizeProvider(reqProvider) != providers.NormalizeProvider(storedProvider) {
-		return ""
+		return nil
 	}
 	effectiveReqBase := strings.TrimSpace(reqAPIBase)
 	if effectiveReqBase == "" {
@@ -1642,9 +1679,9 @@ func (h *Handler) lookupStoredAPIKey(index int, reqProvider, reqAPIBase string) 
 		effectiveStoredBase = providers.DefaultAPIBaseForProtocol(storedProvider)
 	}
 	if normalizeAPIBaseForCompare(effectiveReqBase) != normalizeAPIBaseForCompare(effectiveStoredBase) {
-		return ""
+		return nil
 	}
-	return stored.APIKey()
+	return stored
 }
 
 type upstreamModel struct {
@@ -1652,7 +1689,11 @@ type upstreamModel struct {
 	OwnedBy string `json:"owned_by,omitempty"`
 }
 
-func fetchUpstreamModels(ctx context.Context, provider, apiBase, apiKey string) ([]upstreamModel, error) {
+func fetchUpstreamModelsWithClient(
+	ctx context.Context,
+	provider, apiBase, apiKey string,
+	client *http.Client,
+) ([]upstreamModel, error) {
 	apiBase = strings.TrimRight(strings.TrimSpace(apiBase), "/")
 	provider = providers.NormalizeProvider(provider)
 
@@ -1666,18 +1707,22 @@ func fetchUpstreamModels(ctx context.Context, provider, apiBase, apiKey string) 
 		}
 		root = strings.TrimRight(root, "/")
 		fetchURL = root + "/api/tags"
-		return fetchOllamaModels(ctx, fetchURL)
+		return fetchOllamaModelsWithClient(ctx, fetchURL, client)
 	case "nearai":
 		fetchURL = apiBase + "/model/list"
-		return fetchNearAIModels(ctx, fetchURL, apiKey)
+		return fetchNearAIModelsWithClient(ctx, fetchURL, apiKey, client)
 	default:
 		// OpenAI-compatible: /v1/models
 		fetchURL = apiBase + "/models"
-		return fetchOpenAICompatibleModels(ctx, fetchURL, apiKey)
+		return fetchOpenAICompatibleModelsWithClient(ctx, fetchURL, apiKey, client)
 	}
 }
 
-func fetchNearAIModels(ctx context.Context, fetchURL, apiKey string) ([]upstreamModel, error) {
+func fetchNearAIModelsWithClient(
+	ctx context.Context,
+	fetchURL, apiKey string,
+	client *http.Client,
+) ([]upstreamModel, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fetchURL, nil)
 	if err != nil {
 		return nil, err
@@ -1686,7 +1731,7 @@ func fetchNearAIModels(ctx context.Context, fetchURL, apiKey string) ([]upstream
 		req.Header.Set("Authorization", "Bearer "+apiKey)
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -1725,6 +1770,14 @@ func fetchNearAIModels(ctx context.Context, fetchURL, apiKey string) ([]upstream
 }
 
 func fetchOpenAICompatibleModels(ctx context.Context, fetchURL, apiKey string) ([]upstreamModel, error) {
+	return fetchOpenAICompatibleModelsWithClient(ctx, fetchURL, apiKey, http.DefaultClient)
+}
+
+func fetchOpenAICompatibleModelsWithClient(
+	ctx context.Context,
+	fetchURL, apiKey string,
+	client *http.Client,
+) ([]upstreamModel, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fetchURL, nil)
 	if err != nil {
 		return nil, err
@@ -1733,7 +1786,7 @@ func fetchOpenAICompatibleModels(ctx context.Context, fetchURL, apiKey string) (
 		req.Header.Set("Authorization", "Bearer "+apiKey)
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -1789,13 +1842,17 @@ func fetchOpenAICompatibleModels(ctx context.Context, fetchURL, apiKey string) (
 	return nil, fmt.Errorf("decode response: unrecognized shape: %s", strings.TrimSpace(string(preview)))
 }
 
-func fetchOllamaModels(ctx context.Context, fetchURL string) ([]upstreamModel, error) {
+func fetchOllamaModelsWithClient(
+	ctx context.Context,
+	fetchURL string,
+	client *http.Client,
+) ([]upstreamModel, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fetchURL, nil)
 	if err != nil {
 		return nil, err
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -1910,6 +1967,7 @@ func (h *Handler) handleTestInlineModel(w http.ResponseWriter, r *http.Request) 
 		Model      string `json:"model"`
 		APIBase    string `json:"api_base"`
 		APIKey     string `json:"api_key"`
+		Proxy      string `json:"proxy"`
 		AuthMethod string `json:"auth_method"`
 		ModelIndex *int   `json:"model_index"`
 	}
@@ -1923,6 +1981,7 @@ func (h *Handler) handleTestInlineModel(w http.ResponseWriter, r *http.Request) 
 		Model:      strings.TrimSpace(req.Model),
 		APIBase:    strings.TrimSpace(req.APIBase),
 		AuthMethod: strings.TrimSpace(req.AuthMethod),
+		Proxy:      strings.TrimSpace(req.Proxy),
 	}
 	if req.APIKey != "" {
 		m.SetAPIKey(req.APIKey)
@@ -1957,8 +2016,17 @@ func (h *Handler) handleTestInlineModel(w http.ResponseWriter, r *http.Request) 
 				if m.APIBase == "" && stored.APIBase != "" {
 					m.APIBase = stored.APIBase
 				}
+				if m.Proxy == "" && stored.Proxy != "" {
+					m.Proxy = stored.Proxy
+				}
 			}
 		}
+	}
+
+	client, err := httpClientForProxy(m.Proxy)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
 	}
 
 	// Check if configuration exists
@@ -1975,7 +2043,7 @@ func (h *Handler) handleTestInlineModel(w http.ResponseWriter, r *http.Request) 
 
 	// Perform a real network probe
 	start := time.Now()
-	available := probeModelConnectivity(m)
+	available := probeModelConnectivityWithClient(m, client)
 	latency := time.Since(start).Milliseconds()
 
 	result := map[string]any{
@@ -1995,14 +2063,20 @@ func (h *Handler) handleTestInlineModel(w http.ResponseWriter, r *http.Request) 
 
 // probeModelConnectivity performs a real network probe to verify model endpoint reachability.
 func probeModelConnectivity(m *config.ModelConfig) bool {
+	return probeModelConnectivityWithClient(m, &http.Client{})
+}
+
+// probeModelConnectivityWithClient probes a model through the given HTTP client
+// so callers can honor the configured proxy.
+func probeModelConnectivityWithClient(m *config.ModelConfig, client *http.Client) bool {
 	apiBase := modelProbeAPIBase(m)
 	protocol, modelID := splitModel(m)
 
 	switch protocol {
 	case "ollama":
-		return probeOllamaModel(apiBase, modelID)
+		return probeOllamaModelWithClient(apiBase, modelID, client)
 	case "vllm", "lmstudio", "gpt4free":
-		return probeOpenAICompatibleModel(apiBase, modelID, m.APIKey())
+		return probeOpenAICompatibleModelWithClient(apiBase, modelID, m.APIKey(), client)
 	case "github-copilot":
 		return probeTCPService(apiBase)
 	case "claude-cli":
@@ -2013,7 +2087,7 @@ func probeModelConnectivity(m *config.ModelConfig) bool {
 		// For remote providers (OpenAI, Anthropic, Gemini, DeepSeek, etc.),
 		// make a real GET /models request to verify connectivity and credentials.
 		if apiBase != "" {
-			return probeOpenAICompatibleModel(apiBase, modelID, m.APIKey())
+			return probeOpenAICompatibleModelWithClient(apiBase, modelID, m.APIKey(), client)
 		}
 		return false
 	}

@@ -220,6 +220,7 @@ export interface TestModelInlineRequest {
   model: string
   api_base?: string
   api_key?: string
+  proxy?: string
   auth_method?: string
   model_index?: number
 }
@@ -244,6 +245,7 @@ export interface FetchModelsRequest {
   provider: string
   api_key?: string
   api_base?: string
+  proxy?: string
   model_index?: number
 }
 

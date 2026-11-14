@@ -891,6 +891,7 @@ export function EditModelSheet({
           model: form.modelId,
           apiBase: effectiveApiBase,
           apiKey: primaryNewAPIKey,
+          proxy: form.proxy.trim() || undefined,
           authMethod: effectiveAuthMethod,
           modelIndex: model?.index,
         }}
@@ -903,6 +904,7 @@ export function EditModelSheet({
         provider={canonicalProvider}
         apiKey={primaryNewAPIKey}
         apiBase={effectiveApiBase}
+        proxy={form.proxy.trim() || undefined}
         modelIndex={model?.index}
         backendOptions={providerOptions}
       />

@@ -555,6 +555,10 @@ func probeTCPService(raw string) bool {
 }
 
 func probeOllamaModel(apiBase, modelID string) bool {
+	return probeOllamaModelWithClient(apiBase, modelID, &http.Client{})
+}
+
+func probeOllamaModelWithClient(apiBase, modelID string, client *http.Client) bool {
 	root, err := apiRootFromAPIBase(apiBase)
 	if err != nil {
 		return false
@@ -566,7 +570,7 @@ func probeOllamaModel(apiBase, modelID string) bool {
 			Model string `json:"model"`
 		} `json:"models"`
 	}
-	if err := getJSON(root+"/api/tags", &resp, ""); err != nil {
+	if err := getJSONWithClient(root+"/api/tags", &resp, "", client); err != nil {
 		return false
 	}
 
@@ -579,6 +583,13 @@ func probeOllamaModel(apiBase, modelID string) bool {
 }
 
 func probeOpenAICompatibleModel(apiBase, modelID, apiKey string) bool {
+	return probeOpenAICompatibleModelWithClient(apiBase, modelID, apiKey, &http.Client{})
+}
+
+func probeOpenAICompatibleModelWithClient(
+	apiBase, modelID, apiKey string,
+	client *http.Client,
+) bool {
 	if strings.TrimSpace(apiBase) == "" {
 		return false
 	}
@@ -589,7 +600,7 @@ func probeOpenAICompatibleModel(apiBase, modelID, apiKey string) bool {
 		} `json:"data"`
 	}
 	fetchURL := strings.TrimRight(strings.TrimSpace(apiBase), "/") + "/models"
-	if err := getJSON(fetchURL, &respEnvelope, apiKey); err == nil {
+	if err := getJSONWithClient(fetchURL, &respEnvelope, apiKey, client); err == nil {
 		for _, model := range respEnvelope.Data {
 			if strings.EqualFold(strings.TrimSpace(model.ID), modelID) {
 				return true
@@ -601,7 +612,7 @@ func probeOpenAICompatibleModel(apiBase, modelID, apiKey string) bool {
 	var respArray []struct {
 		ID string `json:"id"`
 	}
-	if err := getJSON(fetchURL, &respArray, apiKey); err != nil {
+	if err := getJSONWithClient(fetchURL, &respArray, apiKey, client); err != nil {
 		return false
 	}
 
@@ -614,6 +625,10 @@ func probeOpenAICompatibleModel(apiBase, modelID, apiKey string) bool {
 }
 
 func getJSON(rawURL string, out any, apiKey string) error {
+	return getJSONWithClient(rawURL, out, apiKey, &http.Client{})
+}
+
+func getJSONWithClient(rawURL string, out any, apiKey string, client *http.Client) error {
 	ctx, cancel := context.WithTimeout(context.Background(), modelProbeTimeout)
 	defer cancel()
 
@@ -625,7 +640,9 @@ func getJSON(rawURL string, out any, apiKey string) error {
 		req.Header.Set("Authorization", "Bearer "+apiKey)
 	}
 
-	client := &http.Client{}
+	if client == nil {
+		client = &http.Client{}
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		return err

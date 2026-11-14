@@ -868,6 +868,7 @@ export function AddModelSheet({
           provider={canonicalProvider}
           apiKey={primaryAPIKey}
           apiBase={effectiveApiBase}
+          proxy={form.proxy.trim() || undefined}
           backendOptions={providerOptions}
         />
 
@@ -880,6 +881,7 @@ export function AddModelSheet({
             model: form.model,
             apiBase: effectiveApiBase,
             apiKey: primaryAPIKey,
+            proxy: form.proxy.trim() || undefined,
             authMethod: effectiveAuthMethod,
           }}
         />

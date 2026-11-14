@@ -30,6 +30,7 @@ interface FetchModelsDialogProps {
   provider: string
   apiKey: string
   apiBase: string
+  proxy?: string
   modelIndex?: number
   backendOptions?: ModelProviderOption[]
 }
@@ -41,6 +42,7 @@ export function FetchModelsDialog({
   provider,
   apiKey,
   apiBase,
+  proxy,
   modelIndex,
   backendOptions,
 }: FetchModelsDialogProps) {
@@ -66,6 +68,7 @@ export function FetchModelsDialog({
         provider: canonicalProvider,
         api_key: apiKey,
         api_base: apiBase,
+        proxy: proxy || undefined,
         model_index: modelIndex,
       })
       setModels(res.models)
@@ -76,7 +79,7 @@ export function FetchModelsDialog({
     } finally {
       setFetching(false)
     }
-  }, [canonicalProvider, apiKey, apiBase, modelIndex, t])
+  }, [canonicalProvider, apiKey, apiBase, proxy, modelIndex, t])
 
   // Auto-fetch when dialog opens (skip if provider requires API key but none is set)
   useEffect(() => {
