@@ -1,5 +1,6 @@
 import { IconHistory, IconTrash } from "@tabler/icons-react"
 import dayjs from "dayjs"
+import type { TFunction } from "i18next"
 import type { RefObject } from "react"
 import { useTranslation } from "react-i18next"
 
@@ -12,6 +13,31 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import { parseAttachmentBlocks } from "@/features/chat/attachment-blocks"
+
+function sessionTitle(title: string, t: TFunction): string {
+  const parsed = parseAttachmentBlocks(title)
+  let text = parsed.text
+
+  // The session list truncates long previews, so an attachment block may be
+  // cut off before its end marker. Drop anything from the header on.
+  const headerIndex = text.indexOf("[Attached file:")
+  if (headerIndex >= 0) {
+    text = text.slice(0, headerIndex)
+  }
+  text = text.replace(/\s+/g, " ").trim()
+  if (text) {
+    return text
+  }
+
+  const filename = parsed.attachments[0]?.filename
+  if (filename) {
+    return filename
+  }
+
+  const partialFilename = title.match(/\[Attached file:\s*([^\n()\]]+)/)?.[1]
+  return partialFilename?.trim() || t("chat.attachedFile")
+}
 
 interface SessionHistoryMenuProps {
   sessions: SessionSummary[]
@@ -71,7 +97,7 @@ export function SessionHistoryMenu({
                 onClick={() => onSwitchSession(session.id)}
               >
                 <span className="line-clamp-1 text-sm font-medium">
-                  {session.title}
+                  {sessionTitle(session.title, t)}
                 </span>
                 <span className="text-muted-foreground text-xs">
                   {t("chat.messagesCount", {
