@@ -1,5 +1,6 @@
 import { IconChevronRight } from "@tabler/icons-react"
 import {
+  IconArchive,
   IconAtom,
   IconCalendarTime,
   IconChevronsDown,
@@ -160,6 +161,12 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
             title: "navigation.cron",
             url: "/cron",
             icon: IconCalendarTime,
+            translateTitle: true,
+          },
+          {
+            title: "navigation.backup",
+            url: "/backup",
+            icon: IconArchive,
             translateTitle: true,
           },
           {

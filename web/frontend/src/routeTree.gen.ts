@@ -16,6 +16,7 @@ import { Route as LauncherLoginRouteImport } from './routes/launcher-login'
 import { Route as CronRouteImport } from './routes/cron'
 import { Route as CredentialsRouteImport } from './routes/credentials'
 import { Route as ConfigRouteImport } from './routes/config'
+import { Route as BackupRouteImport } from './routes/backup'
 import { Route as AgentRouteImport } from './routes/agent'
 import { Route as ChannelsRouteRouteImport } from './routes/channels/route'
 import { Route as IndexRouteImport } from './routes/index'
@@ -59,6 +60,11 @@ const CredentialsRoute = CredentialsRouteImport.update({
 const ConfigRoute = ConfigRouteImport.update({
   id: '/config',
   path: '/config',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const BackupRoute = BackupRouteImport.update({
+  id: '/backup',
+  path: '/backup',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AgentRoute = AgentRouteImport.update({
@@ -111,6 +117,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/channels': typeof ChannelsRouteRouteWithChildren
   '/agent': typeof AgentRouteWithChildren
+  '/backup': typeof BackupRoute
   '/config': typeof ConfigRouteWithChildren
   '/credentials': typeof CredentialsRoute
   '/cron': typeof CronRoute
@@ -129,6 +136,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/channels': typeof ChannelsRouteRouteWithChildren
   '/agent': typeof AgentRouteWithChildren
+  '/backup': typeof BackupRoute
   '/config': typeof ConfigRouteWithChildren
   '/credentials': typeof CredentialsRoute
   '/cron': typeof CronRoute
@@ -148,6 +156,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/channels': typeof ChannelsRouteRouteWithChildren
   '/agent': typeof AgentRouteWithChildren
+  '/backup': typeof BackupRoute
   '/config': typeof ConfigRouteWithChildren
   '/credentials': typeof CredentialsRoute
   '/cron': typeof CronRoute
@@ -168,6 +177,7 @@ export interface FileRouteTypes {
     | '/'
     | '/channels'
     | '/agent'
+    | '/backup'
     | '/config'
     | '/credentials'
     | '/cron'
@@ -186,6 +196,7 @@ export interface FileRouteTypes {
     | '/'
     | '/channels'
     | '/agent'
+    | '/backup'
     | '/config'
     | '/credentials'
     | '/cron'
@@ -204,6 +215,7 @@ export interface FileRouteTypes {
     | '/'
     | '/channels'
     | '/agent'
+    | '/backup'
     | '/config'
     | '/credentials'
     | '/cron'
@@ -223,6 +235,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   ChannelsRouteRoute: typeof ChannelsRouteRouteWithChildren
   AgentRoute: typeof AgentRouteWithChildren
+  BackupRoute: typeof BackupRoute
   ConfigRoute: typeof ConfigRouteWithChildren
   CredentialsRoute: typeof CredentialsRoute
   CronRoute: typeof CronRoute
@@ -281,6 +294,13 @@ declare module '@tanstack/react-router' {
       path: '/config'
       fullPath: '/config'
       preLoaderRoute: typeof ConfigRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/backup': {
+      id: '/backup'
+      path: '/backup'
+      fullPath: '/backup'
+      preLoaderRoute: typeof BackupRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/agent': {
@@ -392,6 +412,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   ChannelsRouteRoute: ChannelsRouteRouteWithChildren,
   AgentRoute: AgentRouteWithChildren,
+  BackupRoute: BackupRoute,
   ConfigRoute: ConfigRouteWithChildren,
   CredentialsRoute: CredentialsRoute,
   CronRoute: CronRoute,

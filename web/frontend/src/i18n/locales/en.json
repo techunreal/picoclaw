@@ -15,7 +15,8 @@
     "show_less_channels": "Less",
     "config": "Config",
     "logs": "Logs",
-    "cron": "Scheduled Tasks"
+    "cron": "Scheduled Tasks",
+    "backup": "Backup & Restore"
   },
   "launcherLogin": {
     "title": "Sign in",
@@ -1282,5 +1283,39 @@
     },
     "schedulerStoppedHint": "The scheduler is not running. Start the gateway to let tasks run.",
     "toolDisabledHint": "The cron tool is disabled in Tools. Tasks are saved but will not run until you enable it."
+  },
+  "backup": {
+    "exportTitle": "Download a backup",
+    "exportDescription": "Creates a ZIP with config.json, agent files, memory, sessions, skills and scheduled tasks.",
+    "secretsTitle": "Secrets are never included",
+    "secretsDescription": "API keys, channel tokens, the Pico token and the dashboard password (stored in .security.yml and launcher-auth.db) are excluded from every backup. You will need to enter them again after restoring on a new machine.",
+    "download": "Download backup",
+    "restoreTitle": "Restore from a backup",
+    "restoreDescription": "Inspect a PicoClaw backup before anything is written. Restoring overwrites existing files listed in the archive and never deletes other files.",
+    "chooseFile": "Choose backup file",
+    "inspecting": "Inspecting…",
+    "chooseAnother": "Choose another file",
+    "createdAt": "Created",
+    "version": "Version",
+    "filesCount": "{{count}} file(s) · {{size}}",
+    "conflicts": "{{overwrite}} existing file(s) will be overwritten · {{created}} new file(s)",
+    "ignoredCount": "{{count}} item(s) ignored",
+    "overwriteWarning": "These existing files will be replaced:",
+    "restore": "Restore backup",
+    "restoring": "Restoring…",
+    "restoreFailed": "Could not restore the backup.",
+    "inspectFailed": "Could not read the backup file.",
+    "restoredToast": "Backup restored.",
+    "restoreDoneTitle": "Restore complete",
+    "restoreDoneDescription": "{{count}} file(s) restored, {{ignored}} ignored.",
+    "restartRequired": "Restart the gateway to apply the restored configuration.",
+    "confirmTitle": "Restore this backup?",
+    "confirmDescription": "{{count}} existing file(s) will be overwritten. Files that are not in the backup are left untouched. Secrets are never restored.",
+    "cancel": "Cancel",
+    "section": {
+      "config": "Config",
+      "workspace": "Workspace",
+      "globalSkills": "Global skills"
+    }
   }
 }
