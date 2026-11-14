@@ -7,6 +7,7 @@ import (
 )
 
 type SpawnTool struct {
+	manager        *SubagentManager
 	spawner        SubTurnSpawner
 	defaultModel   string
 	maxTokens      int
@@ -22,6 +23,7 @@ func NewSpawnTool(manager *SubagentManager) *SpawnTool {
 		return &SpawnTool{}
 	}
 	return &SpawnTool{
+		manager:      manager,
 		defaultModel: manager.defaultModel,
 		maxTokens:    manager.maxTokens,
 		temperature:  manager.temperature,
@@ -127,6 +129,18 @@ Task: %s`,
 
 	// Use spawner if available (direct SpawnSubTurn call)
 	if t.spawner != nil {
+		// Track the task in the shared manager so spawn_status can see it.
+		taskID := ""
+		if t.manager != nil {
+			taskID = t.manager.BeginTask(
+				task,
+				label,
+				targetAgentID,
+				ToolChannel(ctx),
+				ToolChatID(ctx),
+			)
+		}
+
 		// Launch async sub-turn in goroutine
 		go func() {
 			result, err := t.spawner.SpawnSubTurn(ctx, SubTurnConfig{
@@ -142,6 +156,20 @@ Task: %s`,
 			if err != nil {
 				result = ErrorResult(fmt.Sprintf("Spawn failed: %v", err)).WithError(err)
 			}
+			if result == nil {
+				result = NewToolResult("Subagent completed without a result")
+			}
+
+			if taskID != "" {
+				status := "completed"
+				if err != nil {
+					status = "failed"
+					if ctx.Err() != nil {
+						status = "canceled"
+					}
+				}
+				t.manager.FinishTask(taskID, status, result.ForLLM)
+			}
 
 			// Call callback if provided
 			if cb != nil {
@@ -150,10 +178,14 @@ Task: %s`,
 		}()
 
 		// Return immediate acknowledgment
+		ack := fmt.Sprintf("Spawned subagent for task: %s", task)
 		if label != "" {
-			return AsyncResult(fmt.Sprintf("Spawned subagent '%s' for task: %s", label, task))
+			ack = fmt.Sprintf("Spawned subagent '%s' for task: %s", label, task)
 		}
-		return AsyncResult(fmt.Sprintf("Spawned subagent for task: %s", task))
+		if taskID != "" {
+			ack = fmt.Sprintf("%s (task ID: %s)", ack, taskID)
+		}
+		return AsyncResult(ack)
 	}
 
 	// Fallback: spawner not configured

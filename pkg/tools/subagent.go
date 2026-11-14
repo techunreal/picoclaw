@@ -149,6 +149,21 @@ func (sm *SubagentManager) Spawn(
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
+	subagentTask := sm.beginTaskLocked(task, label, agentID, originChannel, originChatID)
+
+	// Start task in background with context cancellation support
+	go sm.runTask(ctx, subagentTask, callback)
+
+	if label != "" {
+		return fmt.Sprintf("Spawned subagent '%s' for task: %s", label, task), nil
+	}
+	return fmt.Sprintf("Spawned subagent for task: %s", task), nil
+}
+
+// beginTaskLocked inserts a running task and returns it. Callers must hold sm.mu.
+func (sm *SubagentManager) beginTaskLocked(
+	task, label, agentID, originChannel, originChatID string,
+) *SubagentTask {
 	taskID := fmt.Sprintf("subagent-%d", sm.nextID)
 	sm.nextID++
 
@@ -164,14 +179,38 @@ func (sm *SubagentManager) Spawn(
 	}
 	sm.tasks[taskID] = subagentTask
 	sm.pruneTasksLocked()
+	return subagentTask
+}
 
-	// Start task in background with context cancellation support
-	go sm.runTask(ctx, subagentTask, callback)
+// BeginTask records a running subagent task and returns its ID. It is used by
+// tools that execute the sub-turn themselves (spawn) but still want the task
+// visible to spawn_status.
+func (sm *SubagentManager) BeginTask(
+	task, label, agentID, originChannel, originChatID string,
+) string {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
 
-	if label != "" {
-		return fmt.Sprintf("Spawned subagent '%s' for task: %s", label, task), nil
+	return sm.beginTaskLocked(task, label, agentID, originChannel, originChatID).ID
+}
+
+// FinishTask updates a tracked task once its execution ended. Unknown task IDs
+// are ignored. Status is expected to be completed, failed, or canceled.
+func (sm *SubagentManager) FinishTask(taskID, status, result string) {
+	if taskID == "" {
+		return
 	}
-	return fmt.Sprintf("Spawned subagent for task: %s", task), nil
+
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+
+	task, ok := sm.tasks[taskID]
+	if !ok {
+		return
+	}
+	task.Status = status
+	task.Result = result
+	sm.pruneTasksLocked()
 }
 
 func (sm *SubagentManager) pruneTasksLocked() {
