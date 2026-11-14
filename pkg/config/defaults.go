@@ -391,9 +391,10 @@ func DefaultConfig() *Config {
 				ToolConfig: ToolConfig{
 					Enabled: false,
 				},
-				Headless:       boolPtr(true),
-				MaxOutput:      20000,
-				TimeoutSeconds: 60,
+				Headless:         boolPtr(true),
+				MaxOutput:        20000,
+				TimeoutSeconds:   60,
+				PermissionPolicy: "ask",
 			},
 			Exec: ExecConfig{
 				ToolConfig: ToolConfig{

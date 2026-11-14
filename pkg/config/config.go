@@ -1103,8 +1103,13 @@ type BrowserToolsConfig struct {
 	// AllowedDomains is the navigation/sub-resource allowlist. Exact hosts and
 	// wildcard prefixes such as "*.example.com" are accepted.
 	AllowedDomains []string `json:"allowed_domains" env:"PICOCLAW_TOOLS_BROWSER_ALLOWED_DOMAINS"`
-	// AllowAllDomains disables the domain allowlist. It must be set explicitly.
+	// AllowAllDomains is kept for compatibility. New configs use
+	// PermissionPolicy.
 	AllowAllDomains bool `json:"allow_all_domains" env:"PICOCLAW_TOOLS_BROWSER_ALLOW_ALL_DOMAINS"`
+	// PermissionPolicy controls sites that are not on AllowedDomains:
+	// "ask" shows an approval dialog, "allow" allows every site without asking,
+	// and "deny" refuses unknown sites. Default: ask.
+	PermissionPolicy string `json:"permission_policy" env:"PICOCLAW_TOOLS_BROWSER_PERMISSION_POLICY"`
 	// BinaryPath optionally points at the agent-browser executable. When empty
 	// the binary next to the gateway, on PATH, or in the npm global directory is
 	// used.
@@ -1124,6 +1129,28 @@ type BrowserToolsConfig struct {
 
 func (c *BrowserToolsConfig) IsHeadless() bool {
 	return c.Headless == nil || *c.Headless
+}
+
+// UnknownDomainPolicy returns ask, allow or deny for sites that are not on the
+// allowlist. Unknown values fall back to ask.
+func (c *BrowserToolsConfig) UnknownDomainPolicy() string {
+	switch strings.ToLower(strings.TrimSpace(c.PermissionPolicy)) {
+	case "ask":
+		return "ask"
+	case "allow":
+		return "allow"
+	case "deny":
+		return "deny"
+	}
+	if c.AllowAllDomains {
+		return "allow"
+	}
+	return "ask"
+}
+
+// IsAllowAllDomains reports whether the permission policy allows every site.
+func (c *BrowserToolsConfig) IsAllowAllDomains() bool {
+	return c.UnknownDomainPolicy() == "allow"
 }
 
 func (c *BrowserToolsConfig) GetMaxOutput() int {

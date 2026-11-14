@@ -58,6 +58,9 @@ func TestBrowserSettings_Get(t *testing.T) {
 	if response.MaxOutput == 0 || response.TimeoutSeconds == 0 {
 		t.Fatalf("defaults missing: %+v", response)
 	}
+	if response.PermissionPolicy != "ask" {
+		t.Fatalf("permission policy = %q, want ask", response.PermissionPolicy)
+	}
 }
 
 func TestBrowserSettings_EnableRequiresDomains(t *testing.T) {
@@ -102,6 +105,40 @@ func TestBrowserSettings_EnablePersistsDomains(t *testing.T) {
 	}
 	if cfg.Tools.Browser.GetMaxOutput() != 12345 || cfg.Tools.Browser.GetTimeoutSeconds() != 45 {
 		t.Fatalf("limits not saved: %+v", cfg.Tools.Browser)
+	}
+}
+
+func TestBrowserSettings_PermissionPolicy(t *testing.T) {
+	mux, configPath := newBrowserSettingsTestMux(t)
+
+	rec := doBrowserSettingsRequest(t, mux, http.MethodPut, "/api/tools/browser", map[string]any{
+		"enabled":           false,
+		"allowed_domains":   []string{"example.com"},
+		"permission_policy": "deny",
+		"headless":          true,
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+
+	cfg, err := config.LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+	if cfg.Tools.Browser.UnknownDomainPolicy() != "deny" {
+		t.Fatalf("policy = %q, want deny", cfg.Tools.Browser.UnknownDomainPolicy())
+	}
+	if cfg.Tools.Browser.IsAllowAllDomains() {
+		t.Fatal("deny policy must not allow all domains")
+	}
+
+	invalid := doBrowserSettingsRequest(t, mux, http.MethodPut, "/api/tools/browser", map[string]any{
+		"enabled":           false,
+		"allowed_domains":   []string{"example.com"},
+		"permission_policy": "sometimes",
+	})
+	if invalid.Code != http.StatusBadRequest {
+		t.Fatalf("invalid policy status = %d, want 400", invalid.Code)
 	}
 }
 

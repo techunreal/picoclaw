@@ -57,6 +57,7 @@ export interface BrowserToolConfig {
   enabled: boolean
   allowed_domains: string[]
   allow_all_domains: boolean
+  permission_policy: "ask" | "allow" | "deny"
   binary_path: string
   browser_path: string
   headless: boolean

@@ -196,6 +196,37 @@ func TestBrowserTool_DomainApproval(t *testing.T) {
 	}
 }
 
+func TestBrowserTool_PermissionPolicy(t *testing.T) {
+	runner := &fakeBrowserRunner{allowedHosts: map[string]bool{}}
+	asker := &fakeApprovalAsker{decision: browser.Deny}
+	tool := newTestBrowserTool(t, runner)
+	tool.approvals = asker
+	tool.allowTemp = func(host string, ttl time.Duration) {}
+	tool.allowAlways = func(host string) {}
+
+	tool.unknownPolicy = "deny"
+	if result := tool.Execute(context.Background(), map[string]any{
+		"action": "open",
+		"url":    "https://example.com/",
+	}); !result.IsError {
+		t.Fatal("deny policy should reject unlisted site")
+	}
+	if len(asker.asked) != 0 {
+		t.Fatalf("deny policy must not ask, asked = %v", asker.asked)
+	}
+
+	tool.unknownPolicy = "allow"
+	if result := tool.Execute(context.Background(), map[string]any{
+		"action": "open",
+		"url":    "https://example.com/",
+	}); result.IsError {
+		t.Fatalf("allow policy open error = %v", result.ForLLM)
+	}
+	if len(asker.asked) != 0 {
+		t.Fatalf("allow policy must not ask, asked = %v", asker.asked)
+	}
+}
+
 func TestBrowserTool_ValidatesRefs(t *testing.T) {
 	runner := &fakeBrowserRunner{}
 	tool := newTestBrowserTool(t, runner)

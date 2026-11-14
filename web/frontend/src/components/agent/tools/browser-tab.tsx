@@ -15,6 +15,13 @@ import { ConfigChangeNotice } from "@/components/config-change-notice"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
@@ -253,24 +260,46 @@ export function BrowserTab() {
 
             <SettingRow
               label={t(
-                "pages.agent.tools.browser.allow_all",
-                "Allow all domains",
+                "pages.agent.tools.browser.unlisted_title",
+                "Sites not on the list",
               )}
               description={t(
-                "pages.agent.tools.browser.allow_all_description",
-                "Disables the domain allowlist. Only use this for trusted research tasks.",
+                "pages.agent.tools.browser.unlisted_description",
+                "Ask shows Allow once / Always allow / Deny. Allow lets every site through without asking (not recommended). Deny refuses unlisted sites.",
               )}
             >
-              <Switch
-                checked={draft.allow_all_domains}
-                onCheckedChange={(checked) =>
-                  update({ allow_all_domains: checked })
+              <Select
+                value={draft.permission_policy}
+                onValueChange={(value) =>
+                  update({
+                    permission_policy: value as "ask" | "allow" | "deny",
+                  })
                 }
-                aria-label={t(
-                  "pages.agent.tools.browser.allow_all",
-                  "Allow all domains",
-                )}
-              />
+              >
+                <SelectTrigger className="w-56">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ask">
+                    {t(
+                      "pages.agent.tools.browser.policy_ask",
+                      "Ask for permission",
+                    )}
+                  </SelectItem>
+                  <SelectItem value="allow">
+                    {t(
+                      "pages.agent.tools.browser.policy_allow",
+                      "Allow all sites (not recommended)",
+                    )}
+                  </SelectItem>
+                  <SelectItem value="deny">
+                    {t(
+                      "pages.agent.tools.browser.policy_deny",
+                      "Deny unlisted sites",
+                    )}
+                  </SelectItem>
+                </SelectContent>
+              </Select>
             </SettingRow>
 
             <SettingRow

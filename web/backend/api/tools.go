@@ -349,7 +349,7 @@ func resolveBrowserToolSupport(cfg *config.Config) (string, string) {
 	if !cfg.Tools.IsToolEnabled("browser") {
 		return "disabled", ""
 	}
-	if len(cfg.Tools.Browser.AllowedDomains) == 0 && !cfg.Tools.Browser.AllowAllDomains {
+	if len(cfg.Tools.Browser.AllowedDomains) == 0 && !cfg.Tools.Browser.IsAllowAllDomains() {
 		return "blocked", "requires_allowed_domains"
 	}
 	if _, err := browser.LocateBinary(cfg.Tools.Browser.BinaryPath); err != nil {
@@ -375,7 +375,7 @@ func applyToolState(cfg *config.Config, toolName string, enabled bool) error {
 	case "browser":
 		if enabled &&
 			len(cfg.Tools.Browser.AllowedDomains) == 0 &&
-			!cfg.Tools.Browser.AllowAllDomains {
+			!cfg.Tools.Browser.IsAllowAllDomains() {
 			return fmt.Errorf("browser requires allowed_domains before it can be enabled")
 		}
 		cfg.Tools.Browser.Enabled = enabled

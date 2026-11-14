@@ -21,28 +21,30 @@ type browserToolStatus struct {
 }
 
 type browserToolConfigResponse struct {
-	Enabled         bool              `json:"enabled"`
-	AllowedDomains  []string          `json:"allowed_domains"`
-	AllowAllDomains bool              `json:"allow_all_domains"`
-	BinaryPath      string            `json:"binary_path"`
-	BrowserPath     string            `json:"browser_path"`
-	Headless        bool              `json:"headless"`
-	MaxOutput       int               `json:"max_output"`
-	TimeoutSeconds  int               `json:"timeout_seconds"`
-	AllowRemote     bool              `json:"allow_remote"`
-	Status          browserToolStatus `json:"status"`
+	Enabled          bool              `json:"enabled"`
+	AllowedDomains   []string          `json:"allowed_domains"`
+	AllowAllDomains  bool              `json:"allow_all_domains"`
+	PermissionPolicy string            `json:"permission_policy"`
+	BinaryPath       string            `json:"binary_path"`
+	BrowserPath      string            `json:"browser_path"`
+	Headless         bool              `json:"headless"`
+	MaxOutput        int               `json:"max_output"`
+	TimeoutSeconds   int               `json:"timeout_seconds"`
+	AllowRemote      bool              `json:"allow_remote"`
+	Status           browserToolStatus `json:"status"`
 }
 
 type browserToolConfigRequest struct {
-	Enabled         bool     `json:"enabled"`
-	AllowedDomains  []string `json:"allowed_domains"`
-	AllowAllDomains bool     `json:"allow_all_domains"`
-	BinaryPath      string   `json:"binary_path"`
-	BrowserPath     string   `json:"browser_path"`
-	Headless        bool     `json:"headless"`
-	MaxOutput       int      `json:"max_output"`
-	TimeoutSeconds  int      `json:"timeout_seconds"`
-	AllowRemote     bool     `json:"allow_remote"`
+	Enabled          bool     `json:"enabled"`
+	AllowedDomains   []string `json:"allowed_domains"`
+	AllowAllDomains  bool     `json:"allow_all_domains"`
+	PermissionPolicy string   `json:"permission_policy"`
+	BinaryPath       string   `json:"binary_path"`
+	BrowserPath      string   `json:"browser_path"`
+	Headless         bool     `json:"headless"`
+	MaxOutput        int      `json:"max_output"`
+	TimeoutSeconds   int      `json:"timeout_seconds"`
+	AllowRemote      bool     `json:"allow_remote"`
 }
 
 func (h *Handler) registerBrowserSettingsRoutes(mux *http.ServeMux) {
@@ -75,9 +77,24 @@ func (h *Handler) handleUpdateBrowserConfig(w http.ResponseWriter, r *http.Reque
 		writeBrowserSettingsError(w, http.StatusBadRequest, "invalid_domains", err.Error())
 		return
 	}
-	if req.Enabled && !req.AllowAllDomains && len(domains) == 0 {
+	policy := strings.ToLower(strings.TrimSpace(req.PermissionPolicy))
+	if policy == "" {
+		if req.AllowAllDomains {
+			policy = "allow"
+		} else {
+			policy = "ask"
+		}
+	}
+	switch policy {
+	case "ask", "allow", "deny":
+	default:
+		writeBrowserSettingsError(w, http.StatusBadRequest, "invalid_permission_policy",
+			"permission_policy must be ask, allow or deny.")
+		return
+	}
+	if req.Enabled && policy != "allow" && len(domains) == 0 {
 		writeBrowserSettingsError(w, http.StatusBadRequest, "requires_allowed_domains",
-			"Add at least one allowed domain before enabling the browser tool.")
+			"Add at least one allowed domain before enabling the browser tool, or choose Allow all sites.")
 		return
 	}
 	if req.Enabled {
@@ -122,7 +139,8 @@ func (h *Handler) handleUpdateBrowserConfig(w http.ResponseWriter, r *http.Reque
 
 	cfg.Tools.Browser.Enabled = req.Enabled
 	cfg.Tools.Browser.AllowedDomains = domains
-	cfg.Tools.Browser.AllowAllDomains = req.AllowAllDomains
+	cfg.Tools.Browser.AllowAllDomains = policy == "allow"
+	cfg.Tools.Browser.PermissionPolicy = policy
 	cfg.Tools.Browser.BinaryPath = strings.TrimSpace(req.BinaryPath)
 	cfg.Tools.Browser.BrowserPath = strings.TrimSpace(req.BrowserPath)
 	cfg.Tools.Browser.Headless = boolPointer(req.Headless)
@@ -187,15 +205,16 @@ func (h *Handler) handleTestBrowser(w http.ResponseWriter, r *http.Request) {
 func buildBrowserConfigResponse(cfg *config.Config, includeStatus bool) browserToolConfigResponse {
 	settings := cfg.Tools.Browser
 	response := browserToolConfigResponse{
-		Enabled:         settings.Enabled,
-		AllowedDomains:  append([]string(nil), settings.AllowedDomains...),
-		AllowAllDomains: settings.AllowAllDomains,
-		BinaryPath:      settings.BinaryPath,
-		BrowserPath:     settings.BrowserPath,
-		Headless:        settings.IsHeadless(),
-		MaxOutput:       settings.GetMaxOutput(),
-		TimeoutSeconds:  settings.GetTimeoutSeconds(),
-		AllowRemote:     settings.AllowRemote,
+		Enabled:          settings.Enabled,
+		AllowedDomains:   append([]string(nil), settings.AllowedDomains...),
+		AllowAllDomains:  settings.IsAllowAllDomains(),
+		PermissionPolicy: settings.UnknownDomainPolicy(),
+		BinaryPath:       settings.BinaryPath,
+		BrowserPath:      settings.BrowserPath,
+		Headless:         settings.IsHeadless(),
+		MaxOutput:        settings.GetMaxOutput(),
+		TimeoutSeconds:   settings.GetTimeoutSeconds(),
+		AllowRemote:      settings.AllowRemote,
 	}
 	if response.AllowedDomains == nil {
 		response.AllowedDomains = []string{}

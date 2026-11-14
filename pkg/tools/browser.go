@@ -25,12 +25,13 @@ type approvalAsker interface {
 
 // BrowserTool exposes the agent-browser CLI as a single, compact tool.
 type BrowserTool struct {
-	client      browserRunner
-	workspace   string
-	allowRemote bool
-	approvals   approvalAsker
-	allowTemp   func(host string, ttl time.Duration)
-	allowAlways func(host string)
+	client        browserRunner
+	workspace     string
+	allowRemote   bool
+	unknownPolicy string
+	approvals     approvalAsker
+	allowTemp     func(host string, ttl time.Duration)
+	allowAlways   func(host string)
 }
 
 // NewBrowserTool creates the browser tool. It fails when the allowlist is
@@ -41,7 +42,7 @@ func NewBrowserTool(workspace string, cfg config.BrowserToolsConfig) (*BrowserTo
 		BrowserPath:     cfg.BrowserPath,
 		Headless:        cfg.IsHeadless(),
 		AllowedDomains:  cfg.AllowedDomains,
-		AllowAllDomains: cfg.AllowAllDomains,
+		AllowAllDomains: cfg.IsAllowAllDomains(),
 		MaxOutput:       cfg.GetMaxOutput(),
 		Timeout:         time.Duration(cfg.GetTimeoutSeconds()) * time.Second,
 		StateDir:        filepath.Join(config.GetHome(), "browser"),
@@ -50,12 +51,13 @@ func NewBrowserTool(workspace string, cfg config.BrowserToolsConfig) (*BrowserTo
 		return nil, err
 	}
 	return &BrowserTool{
-		client:      client,
-		workspace:   workspace,
-		allowRemote: cfg.AllowRemote,
-		approvals:   browser.DefaultApprovals(),
-		allowTemp:   browser.AllowTemporarily,
-		allowAlways: browser.AllowHostAlways,
+		client:        client,
+		workspace:     workspace,
+		allowRemote:   cfg.AllowRemote,
+		unknownPolicy: cfg.UnknownDomainPolicy(),
+		approvals:     browser.DefaultApprovals(),
+		allowTemp:     browser.AllowTemporarily,
+		allowAlways:   browser.AllowHostAlways,
 	}, nil
 }
 
@@ -143,14 +145,22 @@ func (t *BrowserTool) Execute(ctx context.Context, args map[string]any) *ToolRes
 			return ErrorResult(err.Error())
 		}
 		if !t.client.IsDomainAllowed(host) {
-			decision := t.requestApproval(ctx, host)
-			switch decision {
-			case browser.AllowOnce:
-				t.allowDomainTemporarily(host)
-			case browser.AllowAlways:
-				t.allowDomainAlways(host)
+			switch t.unknownPolicy {
+			case "allow":
+				// The client normally allows everything already; keep this for
+				// configs whose policy changed without a restart.
+			case "deny":
+				return ErrorResult("Access to " + host + " is denied by the browser permission policy.")
 			default:
-				return ErrorResult("The user denied access to " + host + ".")
+				decision := t.requestApproval(ctx, host)
+				switch decision {
+				case browser.AllowOnce:
+					t.allowDomainTemporarily(host)
+				case browser.AllowAlways:
+					t.allowDomainAlways(host)
+				default:
+					return ErrorResult("The user denied access to " + host + ".")
+				}
 			}
 		}
 		return t.run(ctx, session, "Opening page", "open", url)
