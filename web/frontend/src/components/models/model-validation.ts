@@ -58,11 +58,39 @@ export function validateModelField(
     }
   }
 
-  // When a provider is explicitly selected, the field is a full model ID for
-  // that provider. Slashes may be part of a case-sensitive upstream namespace
-  // (for example "ACME/gpt-4o-mini"), so do not reinterpret the prefix as a
-  // PicoClaw provider key.
+  // When a provider is explicitly selected, the field is a model ID for that
+  // provider. Warn when the value repeats the provider prefix or starts with a
+  // different known provider, since those are common copy/paste mistakes.
+  // Unknown prefixes may be legitimate upstream namespaces and stay silent.
   if (selectedProvider) {
+    const slashIdx = trimmed.indexOf("/")
+    if (slashIdx > 0) {
+      const prefix = trimmed.slice(0, slashIdx)
+      const model = trimmed.slice(slashIdx + 1)
+      const selectedKey = getCanonicalProviderKey(
+        selectedProvider,
+        backendOptions,
+      )
+      const prefixKey = getCanonicalProviderKey(prefix, backendOptions)
+      if (selectedKey && prefixKey === selectedKey) {
+        return {
+          level: "warning",
+          messageKey: "models.validation.redundantProviderPrefix",
+          messageParams: { provider: selectedKey },
+          fix: model,
+        }
+      }
+      if (knownProviderKeys.has(prefixKey)) {
+        return {
+          level: "warning",
+          messageKey: "models.validation.differentProviderPrefix",
+          messageParams: {
+            prefix: prefixKey,
+            provider: selectedKey || selectedProvider,
+          },
+        }
+      }
+    }
     return {
       level: "success",
       messageKey: "models.validation.parsed",

@@ -449,6 +449,8 @@
       "shouldUse": "\"{{provider}}\" should use \"{{alias}}\"",
       "didYouMean": "Did you mean \"{{closest}}\"?",
       "unknownProvider": "Unknown provider \"{{provider}}\"",
+      "redundantProviderPrefix": "Model identifier already starts with \"{{provider}}/\". Use only the model ID, or click Fix.",
+      "differentProviderPrefix": "This looks like a \"{{prefix}}\" model, but \"{{provider}}\" is selected. The selected provider will be used.",
       "parsed": "provider={{provider}}, model={{model}}"
     },
     "combobox": {
