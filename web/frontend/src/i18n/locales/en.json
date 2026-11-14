@@ -174,8 +174,21 @@
     "version_unknown": "Unknown"
   },
   "credentials": {
-    "description": "Manage OAuth and token-based credentials for supported providers.",
+    "description": "OAuth sign-ins and API key locations for supported providers.",
     "loading": "Loading credentials...",
+    "apiKeys": {
+      "title": "API Keys",
+      "description": "API keys are stored per model. Add, replace, or remove them on the Models page.",
+      "loading": "Loading API key status...",
+      "loadFailed": "Failed to load API key status",
+      "empty": "No API keys configured yet. Add one from the Models page.",
+      "manage": "Manage on Models",
+      "summary": "{{models}} model(s) with keys · {{keys}} key(s) in total"
+    },
+    "oauth": {
+      "title": "OAuth Accounts",
+      "description": "Browser and device-code sign-ins managed below."
+    },
     "providers": {
       "openai": {
         "description": "Supports browser OAuth, device code, and token login."

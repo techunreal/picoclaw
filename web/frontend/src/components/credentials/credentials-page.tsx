@@ -6,6 +6,7 @@ import { useCredentialsPage } from "@/hooks/use-credentials-page"
 
 import { AnthropicCredentialCard } from "./anthropic-credential-card"
 import { AntigravityCredentialCard } from "./antigravity-credential-card"
+import { ApiKeysSummary } from "./api-keys-summary"
 import { DeviceCodeSheet } from "./device-code-sheet"
 import { LogoutConfirmDialog } from "./logout-confirm-dialog"
 import { OpenAICredentialCard } from "./openai-credential-card"
@@ -63,6 +64,17 @@ export function CredentialsPage() {
             <p className="text-muted-foreground mt-1">{flowHint}</p>
           </div>
         )}
+
+        <ApiKeysSummary />
+
+        <div className="mt-6">
+          <h2 className="text-sm font-semibold">
+            {t("credentials.oauth.title")}
+          </h2>
+          <p className="text-muted-foreground mt-1 text-sm">
+            {t("credentials.oauth.description")}
+          </p>
+        </div>
 
         {loading ? (
           <div className="text-muted-foreground flex items-center gap-2 py-10 text-sm">
