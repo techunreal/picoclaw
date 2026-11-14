@@ -60,6 +60,7 @@ func (al *AgentLoop) emitEvent(kind runtimeevents.Kind, meta HookMeta, payload a
 		}
 		evt.Attrs[evolutionDirectDeliveryAttr] = true
 	}
+	al.trackSubagentEvent(kind, clonedMeta, payload)
 	al.publishRuntimeEvent(evt)
 }
 

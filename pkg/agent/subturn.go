@@ -470,14 +470,20 @@ func spawnSubTurn(
 		}
 
 		status := "completed"
-		if err != nil {
+		if childTS.hardAbortRequested() || childCtx.Err() != nil {
+			status = "canceled"
+		} else if err != nil {
 			status = "error"
 		}
 		al.emitEvent(runtimeevents.KindAgentSubTurnEnd,
 			childTS.eventMeta("spawnSubTurn", "subturn.end"),
 			SubTurnEndPayload{
-				AgentID: childTS.agentID,
-				Status:  status,
+				AgentID:       childTS.agentID,
+				Status:        status,
+				ChildTurnID:   childID,
+				ParentTurnID:  parentTS.turnID,
+				DurationMS:    time.Since(childTS.startedAt).Milliseconds(),
+				ResultPreview: previewText(childTS.finalContentSnapshot(), maxSubagentResultRunes),
 			},
 		)
 	}()
