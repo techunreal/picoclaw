@@ -211,7 +211,10 @@ func modelProviderOptionsForResponse() []providers.ModelProviderOption {
 
 func defaultModelAllowedForModelConfig(mc *config.ModelConfig, defaultProvider string) bool {
 	provider, _ := modelConfigProviderAndID(mc, defaultProvider)
-	return providers.IsDefaultModelProvider(provider)
+	if providers.IsDefaultModelProvider(provider) {
+		return true
+	}
+	return mc != nil && providers.IsCustomOpenAICompatibleProvider(provider, mc.APIBase)
 }
 
 func validateIncomingModelConfig(mc *config.ModelConfig, existing *config.ModelConfig) error {
@@ -224,13 +227,17 @@ func validateIncomingModelConfig(mc *config.ModelConfig, existing *config.ModelC
 	if strings.TrimSpace(mc.Provider) == "" {
 		return fmt.Errorf("provider is required")
 	}
-	if !providers.IsSupportedModelProvider(mc.Provider) {
+	customProvider := providers.IsCustomOpenAICompatibleProvider(mc.Provider, mc.APIBase)
+	if !providers.IsSupportedModelProvider(mc.Provider) && !customProvider {
 		return fmt.Errorf("provider %q is not supported", mc.Provider)
+	}
+	if mc.Provider == "openai-compatible" && strings.TrimSpace(mc.APIBase) == "" {
+		return fmt.Errorf("api_base is required for provider %q", mc.Provider)
 	}
 	if mc.Provider == "elevenlabs" && strings.TrimSpace(mc.Model) != asr.ElevenLabsSupportedModelID() {
 		return fmt.Errorf("provider %q only supports model %q", mc.Provider, asr.ElevenLabsSupportedModelID())
 	}
-	if !createAllowedForProvider(mc.Provider) {
+	if !createAllowedForProvider(mc.Provider) && !customProvider {
 		if existing == nil {
 			return fmt.Errorf("provider %q is not available for new models", mc.Provider)
 		}

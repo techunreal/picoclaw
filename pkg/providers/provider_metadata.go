@@ -39,6 +39,17 @@ var modelProviderOptionsByName = map[string]ModelProviderOption{
 		Aliases:             []string{"gpt"},
 		httpAPI:             true,
 	},
+	"openai-compatible": {
+		ID:                  "openai-compatible",
+		DisplayName:         "Custom / OpenAI-compatible",
+		DefaultAPIBase:      "",
+		EmptyAPIKeyAllowed:  true,
+		CreateAllowed:       true,
+		DefaultModelAllowed: true,
+		SupportsFetch:       true,
+		Priority:            20,
+		httpAPI:             true,
+	},
 	"anthropic": {
 		ID:                  "anthropic",
 		DisplayName:         "Anthropic",

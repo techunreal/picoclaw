@@ -46,6 +46,35 @@ func IsDefaultModelProvider(provider string) bool {
 	return ok && option.DefaultModelAllowed
 }
 
+// IsCustomOpenAICompatibleProvider reports whether an unknown provider ID can
+// be used as a custom OpenAI-compatible endpoint. An explicit API base is
+// required and the ID must be a simple slug so typos or pasted URLs never turn
+// into silent remote endpoints.
+func IsCustomOpenAICompatibleProvider(provider, apiBase string) bool {
+	provider = strings.ToLower(strings.TrimSpace(provider))
+	if provider == "" || strings.TrimSpace(apiBase) == "" {
+		return false
+	}
+	if IsSupportedModelProvider(provider) {
+		return false
+	}
+	if len(provider) > 64 {
+		return false
+	}
+	for i, r := range provider {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+		case r == '.' || r == '_' || r == '-':
+			if i == 0 {
+				return false
+			}
+		default:
+			return false
+		}
+	}
+	return true
+}
+
 // SplitModelProviderAndID separates a legacy "provider/model" string into its
 // effective provider and canonical model ID. Unknown prefixes are treated as
 // part of the model ID and fall back to defaultProvider.

@@ -363,8 +363,42 @@ func CreateProviderFromConfig(cfg *config.ModelConfig) (LLMProvider, string, err
 		}
 		return finalizeProviderFromConfig(provider, modelID, cfg)
 
+	case "openai-compatible":
+		if strings.TrimSpace(cfg.APIBase) == "" {
+			return nil, "", fmt.Errorf("api_base is required for protocol %q", protocol)
+		}
+		provider := NewHTTPProviderWithMaxTokensFieldAndRequestTimeout(
+			cfg.APIKey(),
+			cfg.APIBase,
+			cfg.Proxy,
+			cfg.MaxTokensField,
+			userAgent,
+			cfg.RequestTimeout,
+			cfg.ExtraBody,
+			cfg.CustomHeaders,
+		)
+		provider.SetProviderName(protocol)
+		return finalizeProviderFromConfig(provider, modelID, cfg)
+
 	default:
-		return nil, "", fmt.Errorf("unknown protocol %q in model %q", protocol, cfg.Model)
+		if !IsCustomOpenAICompatibleProvider(protocol, cfg.APIBase) {
+			return nil, "", fmt.Errorf("unknown protocol %q in model %q", protocol, cfg.Model)
+		}
+		// Unknown provider IDs are accepted as explicitly configured
+		// OpenAI-compatible endpoints. The base URL requirement above keeps
+		// this from becoming an accidental fallback for typos.
+		provider := NewHTTPProviderWithMaxTokensFieldAndRequestTimeout(
+			cfg.APIKey(),
+			cfg.APIBase,
+			cfg.Proxy,
+			cfg.MaxTokensField,
+			userAgent,
+			cfg.RequestTimeout,
+			cfg.ExtraBody,
+			cfg.CustomHeaders,
+		)
+		provider.SetProviderName(protocol)
+		return finalizeProviderFromConfig(provider, modelID, cfg)
 	}
 }
 

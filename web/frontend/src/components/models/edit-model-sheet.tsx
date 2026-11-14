@@ -298,6 +298,12 @@ export function EditModelSheet({
   const providerDef = canonicalProvider
     ? providerMap.get(canonicalProvider)
     : undefined
+  // Unknown provider IDs are valid OpenAI-compatible endpoints as long as an
+  // explicit API base is configured (matches the backend rule).
+  const isCustomUnknownProvider =
+    Boolean(canonicalProvider) &&
+    !providerDef &&
+    form.apiBase.trim() !== ""
   const commonModels = providerDef?.commonModels || []
   const authMethodLocked = isProviderAuthMethodLocked(
     form.provider,
@@ -313,7 +319,8 @@ export function EditModelSheet({
     .trim()
     .toLowerCase()
   const isOAuth = effectiveAuthMethod === "oauth"
-  const defaultModelAllowed = providerDef?.defaultModelAllowed === true
+  const defaultModelAllowed =
+    providerDef?.defaultModelAllowed === true || isCustomUnknownProvider
   const apiBasePlaceholder =
     getProviderDefaultAPIBase(form.provider, providerOptions) ||
     "https://api.example.com/v1"
@@ -326,7 +333,7 @@ export function EditModelSheet({
 
   const handleSave = async () => {
     if (!model) return
-    if (!providerDef) {
+    if (!providerDef && !isCustomUnknownProvider) {
       setError(t("models.field.providerInvalid"))
       return
     }
@@ -450,7 +457,7 @@ export function EditModelSheet({
                 label={t("models.field.provider")}
                 hint={t("models.field.providerHint")}
                 error={
-                  !providerDef && form.provider
+                  !providerDef && form.provider && !isCustomUnknownProvider
                     ? t("models.field.providerInvalid")
                     : undefined
                 }
