@@ -511,6 +511,12 @@ func setupAndStartServices(
 		listenAddr,
 		runningServices.HealthServer,
 	)
+	registerCronAPI(
+		runningServices.ChannelManager,
+		runningServices.CronService,
+		authToken,
+		cfg.Tools.IsToolEnabled("cron"),
+	)
 
 	if err = runningServices.ChannelManager.StartAll(context.Background()); err != nil {
 		return nil, fmt.Errorf("error starting channels: %w", err)
@@ -721,6 +727,12 @@ func restartServices(
 	if err = runningServices.ChannelManager.Reload(context.Background(), cfg); err != nil {
 		return fmt.Errorf("error reload channels: %w", err)
 	}
+	registerCronAPI(
+		runningServices.ChannelManager,
+		runningServices.CronService,
+		runningServices.authToken,
+		cfg.Tools.IsToolEnabled("cron"),
+	)
 	fmt.Println("  ✓ Channels restarted.")
 
 	enabledChannels := runningServices.ChannelManager.GetEnabledChannels()

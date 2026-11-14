@@ -94,6 +94,9 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	// Chat attachments (PDF/text/audio extraction for the composer)
 	h.registerChatAttachmentRoutes(mux)
 
+	// Scheduled task (cron) management proxy
+	h.registerCronRoutes(mux)
+
 	// OAuth login and credential management
 	h.registerOAuthRoutes(mux)
 
