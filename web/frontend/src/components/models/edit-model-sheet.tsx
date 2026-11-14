@@ -74,6 +74,9 @@ interface EditForm {
   streamingEnabled: boolean
   extraBody: string
   customHeaders: string
+  inputCost: string
+  outputCost: string
+  currency: string
 }
 
 interface EditModelSheetProps {
@@ -108,6 +111,15 @@ function buildInitialEditForm(model: ModelInfo): EditForm {
     customHeaders: model.custom_headers
       ? JSON.stringify(model.custom_headers, null, 2)
       : "",
+    inputCost:
+      model.input_cost_per_million != null
+        ? String(model.input_cost_per_million)
+        : "",
+    outputCost:
+      model.output_cost_per_million != null
+        ? String(model.output_cost_per_million)
+        : "",
+    currency: model.currency ?? "",
   }
 }
 
@@ -138,6 +150,9 @@ export function EditModelSheet({
     streamingEnabled: false,
     extraBody: "",
     customHeaders: "",
+    inputCost: "",
+    outputCost: "",
+    currency: "",
   })
   const [saving, setSaving] = useState(false)
   const [setAsDefault, setSetAsDefault] = useState(false)
@@ -421,6 +436,9 @@ export function EditModelSheet({
         streaming,
         extra_body: extraBody,
         custom_headers: customHeaders,
+        input_cost_per_million: form.inputCost ? Number(form.inputCost) : 0,
+        output_cost_per_million: form.outputCost ? Number(form.outputCost) : 0,
+        currency: form.currency.trim(),
       })
       onUpdated(response.reference_rename)
       if (setAsDefault && !model.is_default) {
@@ -836,6 +854,46 @@ export function EditModelSheet({
                     value={form.toolSchemaTransform}
                     onChange={setField("toolSchemaTransform")}
                     placeholder="google"
+                  />
+                </Field>
+
+                <Field
+                  label={t("models.field.inputCost")}
+                  hint={t("models.field.inputCostHint")}
+                >
+                  <Input
+                    value={form.inputCost}
+                    onChange={setField("inputCost")}
+                    placeholder="3.00"
+                    type="number"
+                    min={0}
+                    step="0.0001"
+                  />
+                </Field>
+
+                <Field
+                  label={t("models.field.outputCost")}
+                  hint={t("models.field.outputCostHint")}
+                >
+                  <Input
+                    value={form.outputCost}
+                    onChange={setField("outputCost")}
+                    placeholder="6.00"
+                    type="number"
+                    min={0}
+                    step="0.0001"
+                  />
+                </Field>
+
+                <Field
+                  label={t("models.field.currency")}
+                  hint={t("models.field.currencyHint")}
+                >
+                  <Input
+                    value={form.currency}
+                    onChange={setField("currency")}
+                    placeholder="USD"
+                    maxLength={8}
                   />
                 </Field>
 

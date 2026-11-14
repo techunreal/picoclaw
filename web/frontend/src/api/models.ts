@@ -29,6 +29,9 @@ export interface ModelInfo {
   }
   extra_body?: Record<string, unknown>
   custom_headers?: Record<string, string>
+  input_cost_per_million?: number
+  output_cost_per_million?: number
+  currency?: string
   // Meta
   enabled: boolean
   available: boolean
