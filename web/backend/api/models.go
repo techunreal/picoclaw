@@ -1928,22 +1928,36 @@ func (h *Handler) handleTestModel(w http.ResponseWriter, r *http.Request) {
 	}
 
 	m := cfg.ModelList[idx]
+	if !hasModelConfiguration(m) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"success":    false,
+			"latency_ms": 0,
+			"status":     modelStatusUnconfigured,
+			"error":      "API key not configured",
+		})
+		return
+	}
+
+	client, err := httpClientForProxy(m.Proxy)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
 	start := time.Now()
-	summary := modelConfigurationStatus(m)
+	available := probeModelConnectivityWithClient(m, client)
 	latency := time.Since(start).Milliseconds()
 
 	result := map[string]any{
-		"success":    summary.Available,
+		"success":    available,
 		"latency_ms": latency,
-		"status":     summary.Status,
 	}
-
-	if !summary.Available {
-		if summary.Status == modelStatusUnconfigured {
-			result["error"] = "API key not configured"
-		} else {
-			result["error"] = "Endpoint unreachable"
-		}
+	if available {
+		result["status"] = modelStatusAvailable
+	} else {
+		result["status"] = modelStatusUnreachable
+		result["error"] = "Endpoint unreachable"
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -2075,6 +2089,10 @@ func probeModelConnectivityWithClient(m *config.ModelConfig, client *http.Client
 	switch protocol {
 	case "ollama":
 		return probeOllamaModelWithClient(apiBase, modelID, client)
+	case "gemini":
+		return probeGeminiModelWithClient(apiBase, modelID, m.APIKey(), client)
+	case "anthropic", "anthropic-messages", "alibaba-coding-anthropic":
+		return probeAnthropicModelWithClient(apiBase, modelID, m.APIKey(), client)
 	case "vllm", "lmstudio", "gpt4free":
 		return probeOpenAICompatibleModelWithClient(apiBase, modelID, m.APIKey(), client)
 	case "github-copilot":

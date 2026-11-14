@@ -624,6 +624,108 @@ func probeOpenAICompatibleModelWithClient(
 	return false
 }
 
+// probeGeminiModelWithClient checks the Gemini models endpoint using the
+// x-goog-api-key header and normalizes the "models/" name prefix.
+func probeGeminiModelWithClient(
+	apiBase, modelID, apiKey string,
+	client *http.Client,
+) bool {
+	apiBase = strings.TrimRight(strings.TrimSpace(apiBase), "/")
+	modelID = strings.TrimSpace(modelID)
+	if apiBase == "" || modelID == "" {
+		return false
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), modelProbeTimeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiBase+"/models", nil)
+	if err != nil {
+		return false
+	}
+	if apiKey = strings.TrimSpace(apiKey); apiKey != "" {
+		req.Header.Set("x-goog-api-key", apiKey)
+	}
+	if client == nil {
+		client = &http.Client{}
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return false
+	}
+
+	var parsed struct {
+		Models []struct {
+			Name string `json:"name"`
+		} `json:"models"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&parsed); err != nil {
+		return false
+	}
+	for _, model := range parsed.Models {
+		name := strings.TrimPrefix(strings.TrimSpace(model.Name), "models/")
+		if strings.EqualFold(name, modelID) {
+			return true
+		}
+	}
+	return false
+}
+
+// probeAnthropicModelWithClient checks the Anthropic models endpoint with the
+// required x-api-key and anthropic-version headers.
+func probeAnthropicModelWithClient(
+	apiBase, modelID, apiKey string,
+	client *http.Client,
+) bool {
+	apiBase = strings.TrimRight(strings.TrimSpace(apiBase), "/")
+	modelID = strings.TrimSpace(modelID)
+	if apiBase == "" || modelID == "" {
+		return false
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), modelProbeTimeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiBase+"/models", nil)
+	if err != nil {
+		return false
+	}
+	if apiKey = strings.TrimSpace(apiKey); apiKey != "" {
+		req.Header.Set("x-api-key", apiKey)
+		// Some Anthropic-compatible gateways accept bearer auth instead.
+		req.Header.Set("Authorization", "Bearer "+apiKey)
+	}
+	req.Header.Set("anthropic-version", "2023-06-01")
+	if client == nil {
+		client = &http.Client{}
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return false
+	}
+
+	var parsed struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&parsed); err != nil {
+		return false
+	}
+	for _, model := range parsed.Data {
+		if strings.EqualFold(strings.TrimSpace(model.ID), modelID) {
+			return true
+		}
+	}
+	return false
+}
+
 func getJSON(rawURL string, out any, apiKey string) error {
 	return getJSONWithClient(rawURL, out, apiKey, &http.Client{})
 }
