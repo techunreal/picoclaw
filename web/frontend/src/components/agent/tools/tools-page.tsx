@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next"
 import { PageHeader } from "@/components/page-header"
 
 import { BrowserTab } from "./browser-tab"
+import { MCPTab } from "./mcp-tab"
 import { ToolLibraryTab } from "./tool-library-tab"
 import { ToolsTabs } from "./tools-tabs"
 import { useToolsPage } from "./use-tools-page"
@@ -69,6 +70,8 @@ export function ToolsPage() {
             />
           ) : activeTab === "browser" ? (
             <BrowserTab />
+          ) : activeTab === "mcp" ? (
+            <MCPTab />
           ) : (
             <WebSearchTab
               draft={webSearchDraft}

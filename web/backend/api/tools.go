@@ -206,6 +206,7 @@ func (h *Handler) registerToolRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("PUT /api/tools/web-search-config", h.handleUpdateWebSearchConfig)
 	h.registerBrowserSettingsRoutes(mux)
 	h.registerBrowserApprovalRoutes(mux)
+	h.registerMCPRoutes(mux)
 }
 
 func (h *Handler) handleListTools(w http.ResponseWriter, r *http.Request) {
