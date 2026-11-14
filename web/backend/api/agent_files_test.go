@@ -277,7 +277,7 @@ func TestAgentFileRejectsInvalidIDs(t *testing.T) {
 		"unknown-file",
 	}
 	for _, id := range invalidIDs {
-		if _, err := resolveAgentFileTarget(cfg, id); !errors.Is(err, errAgentFileInvalidID) && err == nil {
+		if _, err := resolveAgentFileTarget(cfg, id, cfg.WorkspacePath(), ""); !errors.Is(err, errAgentFileInvalidID) && err == nil {
 			t.Errorf("resolveAgentFileTarget(%q) should fail, got nil error", id)
 		}
 	}

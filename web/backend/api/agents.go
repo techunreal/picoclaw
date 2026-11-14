@@ -47,6 +47,7 @@ type agentsResponse struct {
 	Defaults agentsDefaultsView     `json:"defaults"`
 	Dispatch *config.DispatchConfig `json:"dispatch,omitempty"`
 	Implicit bool                   `json:"implicit"`
+	Warnings []string               `json:"warnings,omitempty"`
 }
 
 type agentsUpdateRequest struct {
@@ -156,7 +157,26 @@ func buildAgentsResponse(cfg *config.Config) agentsResponse {
 		},
 		Dispatch: cfg.Agents.Dispatch,
 		Implicit: len(list) == 0,
+		Warnings: agentWorkspaceWarnings(cfg),
 	}
+}
+
+func agentWorkspaceWarnings(cfg *config.Config) []string {
+	seen := map[string]string{}
+	warnings := []string{}
+	for _, agentCfg := range cfg.Agents.List {
+		workspace, _ := effectiveAgentWorkspace(cfg, agentCfg)
+		key := workspaceKey(workspace)
+		if prev, ok := seen[key]; ok {
+			warnings = append(warnings, fmt.Sprintf(
+				"agents %q and %q share the same workspace (%s); they will share AGENT.md, memory and skills",
+				prev, agentCfg.ID, workspace,
+			))
+			continue
+		}
+		seen[key] = agentCfg.ID
+	}
+	return warnings
 }
 
 func effectiveAgentWorkspace(cfg *config.Config, agentCfg config.AgentConfig) (string, string) {

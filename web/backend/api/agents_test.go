@@ -124,6 +124,31 @@ func TestUpdateAgents_SavesValidConfig(t *testing.T) {
 	}
 }
 
+func TestListAgents_WarnsAboutSharedWorkspace(t *testing.T) {
+	configPath, cleanup := setupOAuthTestEnv(t)
+	defer cleanup()
+
+	shared := t.TempDir()
+	cfg, err := config.LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+	cfg.Agents.List = []config.AgentConfig{
+		{ID: "alpha", Default: true, Workspace: shared},
+		{ID: "beta", Workspace: shared},
+	}
+	if err := config.SaveConfig(configPath, cfg); err != nil {
+		t.Fatalf("SaveConfig() error = %v", err)
+	}
+
+	rec := httptest.NewRecorder()
+	agentsTestMux(t, configPath).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/agents", nil))
+	resp := decodeAgentsResponse(t, rec)
+	if len(resp.Warnings) != 1 {
+		t.Fatalf("warnings = %#v, want one shared-workspace warning", resp.Warnings)
+	}
+}
+
 func TestUpdateAgents_Validation(t *testing.T) {
 	configPath, cleanup := setupOAuthTestEnv(t)
 	defer cleanup()

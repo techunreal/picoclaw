@@ -22,6 +22,7 @@ import (
 
 	"github.com/sipeed/picoclaw/pkg/config"
 	"github.com/sipeed/picoclaw/pkg/fileutil"
+	"github.com/sipeed/picoclaw/pkg/routing"
 )
 
 // Agent memory/definition files exposed to the WebUI.
@@ -78,6 +79,7 @@ var agentFileStaticDefs = map[string]agentFileStaticDef{
 
 type agentFileTarget struct {
 	id        string
+	agentID   string
 	group     string
 	label     string
 	relPath   string // slash separated, relative to root
@@ -168,7 +170,16 @@ func (h *Handler) handleListAgentFiles(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	groups, err := buildAgentFileGroups(cfg)
+	workspace, agentID, err := agentFileRequestScope(cfg, r)
+	if err != nil {
+		writeAgentFileJSON(w, http.StatusBadRequest, map[string]any{
+			"code":  "invalid_agent",
+			"error": err.Error(),
+		})
+		return
+	}
+
+	groups, err := buildAgentFileGroups(cfg, workspace, agentID)
 	if err != nil {
 		writeAgentFileError(w, err)
 		return
@@ -182,7 +193,16 @@ func (h *Handler) handleGetAgentFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	target, err := resolveAgentFileTarget(cfg, r.PathValue("id"))
+	workspace, agentID, err := agentFileRequestScope(cfg, r)
+	if err != nil {
+		writeAgentFileJSON(w, http.StatusBadRequest, map[string]any{
+			"code":  "invalid_agent",
+			"error": err.Error(),
+		})
+		return
+	}
+
+	target, err := resolveAgentFileTarget(cfg, r.PathValue("id"), workspace, agentID)
 	if err != nil {
 		writeAgentFileError(w, err)
 		return
@@ -208,7 +228,16 @@ func (h *Handler) handlePutAgentFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	target, err := resolveAgentFileTarget(cfg, r.PathValue("id"))
+	workspace, agentID, err := agentFileRequestScope(cfg, r)
+	if err != nil {
+		writeAgentFileJSON(w, http.StatusBadRequest, map[string]any{
+			"code":  "invalid_agent",
+			"error": err.Error(),
+		})
+		return
+	}
+
+	target, err := resolveAgentFileTarget(cfg, r.PathValue("id"), workspace, agentID)
 	if err != nil {
 		writeAgentFileError(w, err)
 		return
@@ -301,13 +330,22 @@ func (h *Handler) handleAgentFileHistory(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	target, err := resolveAgentFileTarget(cfg, r.PathValue("id"))
+	workspace, agentID, err := agentFileRequestScope(cfg, r)
+	if err != nil {
+		writeAgentFileJSON(w, http.StatusBadRequest, map[string]any{
+			"code":  "invalid_agent",
+			"error": err.Error(),
+		})
+		return
+	}
+
+	target, err := resolveAgentFileTarget(cfg, r.PathValue("id"), workspace, agentID)
 	if err != nil {
 		writeAgentFileError(w, err)
 		return
 	}
 
-	history, err := listAgentFileBackups(target.id)
+	history, err := listAgentFileBackups(target)
 	if err != nil {
 		writeAgentFileError(w, err)
 		return
@@ -321,14 +359,23 @@ func (h *Handler) handleAgentFileHistoryContent(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	target, err := resolveAgentFileTarget(cfg, r.PathValue("id"))
+	workspace, agentID, err := agentFileRequestScope(cfg, r)
+	if err != nil {
+		writeAgentFileJSON(w, http.StatusBadRequest, map[string]any{
+			"code":  "invalid_agent",
+			"error": err.Error(),
+		})
+		return
+	}
+
+	target, err := resolveAgentFileTarget(cfg, r.PathValue("id"), workspace, agentID)
 	if err != nil {
 		writeAgentFileError(w, err)
 		return
 	}
 
 	revision := r.PathValue("revision")
-	content, createdAt, err := readAgentFileBackup(target.id, revision)
+	content, createdAt, err := readAgentFileBackup(target, revision)
 	if err != nil {
 		writeAgentFileError(w, err)
 		return
@@ -346,7 +393,16 @@ func (h *Handler) handleRestoreAgentFile(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	target, err := resolveAgentFileTarget(cfg, r.PathValue("id"))
+	workspace, agentID, err := agentFileRequestScope(cfg, r)
+	if err != nil {
+		writeAgentFileJSON(w, http.StatusBadRequest, map[string]any{
+			"code":  "invalid_agent",
+			"error": err.Error(),
+		})
+		return
+	}
+
+	target, err := resolveAgentFileTarget(cfg, r.PathValue("id"), workspace, agentID)
 	if err != nil {
 		writeAgentFileError(w, err)
 		return
@@ -361,7 +417,7 @@ func (h *Handler) handleRestoreAgentFile(w http.ResponseWriter, r *http.Request)
 		writeAgentFileError(w, err)
 		return
 	}
-	content, _, err := readAgentFileBackup(target.id, req.Revision)
+	content, _, err := readAgentFileBackup(target, req.Revision)
 	if err != nil {
 		writeAgentFileError(w, err)
 		return
@@ -433,9 +489,23 @@ func (h *Handler) loadConfigForAgentFiles(w http.ResponseWriter) (*config.Config
 	return cfg, nil
 }
 
+// agentFileRequestScope resolves the optional ?agent= selector to a workspace.
+// An empty selector keeps the default workspace for backward compatibility.
+func agentFileRequestScope(cfg *config.Config, r *http.Request) (string, string, error) {
+	requested := strings.TrimSpace(r.URL.Query().Get("agent"))
+	if requested == "" {
+		return cfg.WorkspacePath(), "", nil
+	}
+	workspace, err := resolveAgentWorkspaceForID(cfg, requested)
+	if err != nil {
+		return "", "", err
+	}
+	return workspace, routing.NormalizeAgentID(requested), nil
+}
+
 // resolveAgentFileTarget maps a stable ID to a server-side path. Unknown or
 // malformed IDs are rejected before any filesystem access.
-func resolveAgentFileTarget(cfg *config.Config, id string) (agentFileTarget, error) {
+func resolveAgentFileTarget(cfg *config.Config, id, workspace, agentID string) (agentFileTarget, error) {
 	if id == "" || len(id) > 160 || strings.Contains(id, "..") {
 		return agentFileTarget{}, errAgentFileInvalidID
 	}
@@ -443,7 +513,9 @@ func resolveAgentFileTarget(cfg *config.Config, id string) (agentFileTarget, err
 		return agentFileTarget{}, errAgentFileInvalidID
 	}
 
-	workspace := cfg.WorkspacePath()
+	if workspace == "" {
+		workspace = cfg.WorkspacePath()
+	}
 
 	if datePart, ok := strings.CutPrefix(id, "daily:"); ok {
 		if !agentFileDatePattern.MatchString(datePart) {
@@ -455,6 +527,7 @@ func resolveAgentFileTarget(cfg *config.Config, id string) (agentFileTarget, err
 		}
 		return agentFileTarget{
 			id:        id,
+			agentID:   agentID,
 			group:     agentFileGroupMemory,
 			label:     day.Format("2006-01-02"),
 			relPath:   path.Join("memory", datePart[:6], datePart+".md"),
@@ -492,6 +565,7 @@ func resolveAgentFileTarget(cfg *config.Config, id string) (agentFileTarget, err
 		}
 		return agentFileTarget{
 			id:       id,
+			agentID:  agentID,
 			group:    agentFileGroupSkills,
 			label:    dir,
 			relPath:  path.Join(dir, "SKILL.md"),
@@ -507,6 +581,7 @@ func resolveAgentFileTarget(cfg *config.Config, id string) (agentFileTarget, err
 	}
 	return agentFileTarget{
 		id:        id,
+		agentID:   agentID,
 		group:     def.group,
 		label:     def.label,
 		relPath:   def.relPath,
@@ -517,7 +592,7 @@ func resolveAgentFileTarget(cfg *config.Config, id string) (agentFileTarget, err
 	}, nil
 }
 
-func buildAgentFileGroups(cfg *config.Config) ([]agentFileGroupResponse, error) {
+func buildAgentFileGroups(cfg *config.Config, workspace, agentID string) ([]agentFileGroupResponse, error) {
 	byGroup := map[string][]agentFileItem{
 		agentFileGroupIdentity:   {},
 		agentFileGroupMemory:     {},
@@ -527,7 +602,7 @@ func buildAgentFileGroups(cfg *config.Config) ([]agentFileGroupResponse, error) 
 
 	// Identity files keep a fixed order; legacy files only appear when present.
 	for _, id := range []string{"agent", "agents", "soul", "user", "identity"} {
-		target, err := resolveAgentFileTarget(cfg, id)
+		target, err := resolveAgentFileTarget(cfg, id, workspace, agentID)
 		if err != nil {
 			return nil, err
 		}
@@ -541,7 +616,7 @@ func buildAgentFileGroups(cfg *config.Config) ([]agentFileGroupResponse, error) 
 		byGroup[target.group] = append(byGroup[target.group], buildAgentFileItem(target, info))
 	}
 
-	memoryTarget, err := resolveAgentFileTarget(cfg, "memory")
+	memoryTarget, err := resolveAgentFileTarget(cfg, "memory", workspace, agentID)
 	if err != nil {
 		return nil, err
 	}
@@ -557,7 +632,7 @@ func buildAgentFileGroups(cfg *config.Config) ([]agentFileGroupResponse, error) 
 	for offset := 0; offset < agentFileDailyNoteDays; offset++ {
 		day := now.AddDate(0, 0, -offset)
 		id := "daily:" + day.Format("20060102")
-		target, err := resolveAgentFileTarget(cfg, id)
+		target, err := resolveAgentFileTarget(cfg, id, workspace, agentID)
 		if err != nil {
 			return nil, err
 		}
@@ -572,7 +647,7 @@ func buildAgentFileGroups(cfg *config.Config) ([]agentFileGroupResponse, error) 
 		byGroup[agentFileGroupMemory] = append(byGroup[agentFileGroupMemory], buildAgentFileItem(target, info))
 	}
 
-	heartbeatTarget, err := resolveAgentFileTarget(cfg, "heartbeat")
+	heartbeatTarget, err := resolveAgentFileTarget(cfg, "heartbeat", workspace, agentID)
 	if err != nil {
 		return nil, err
 	}
@@ -588,11 +663,11 @@ func buildAgentFileGroups(cfg *config.Config) ([]agentFileGroupResponse, error) 
 		)
 	}
 
-	loader := newSkillsLoader(cfg.WorkspacePath())
+	loader := newSkillsLoader(workspace)
 	for _, skill := range loader.ListSkills() {
 		dir := filepath.Base(filepath.Dir(skill.Path))
 		id := "skill:" + skill.Source + ":" + dir
-		target, err := resolveAgentFileTarget(cfg, id)
+		target, err := resolveAgentFileTarget(cfg, id, workspace, agentID)
 		if err != nil {
 			continue
 		}
@@ -771,16 +846,23 @@ func agentFileAbsPath(rootDir, relPath string) (string, error) {
 	return absPath, nil
 }
 
-func agentFileBackupDir(id string) string {
-	safeID := strings.NewReplacer(":", "-", "/", "-", "\\", "-").Replace(id)
-	return filepath.Join(config.GetHome(), "backups", "agent-files", safeID)
+func agentFileBackupDir(target agentFileTarget) string {
+	base := filepath.Join(config.GetHome(), "backups", "agent-files")
+	if target.agentID != "" && target.agentID != routing.DefaultAgentID {
+		base = filepath.Join(base, safeAgentFileBackupName(target.agentID))
+	}
+	return filepath.Join(base, safeAgentFileBackupName(target.id))
+}
+
+func safeAgentFileBackupName(value string) string {
+	return strings.NewReplacer(":", "-", "/", "-", "\\", "-").Replace(value)
 }
 
 // backupAgentFile stores the current content of a file before it is overwritten.
 // Backups are capped per file; the oldest entries are pruned first.
 func backupAgentFile(target agentFileTarget, content []byte) error {
 	revision := agentFileRevision(content)
-	dir := agentFileBackupDir(target.id)
+	dir := agentFileBackupDir(target)
 
 	entries, err := os.ReadDir(dir)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
@@ -826,8 +908,8 @@ type agentFileBackupFile struct {
 	size      int64
 }
 
-func listAgentFileBackupFiles(id string) ([]agentFileBackupFile, error) {
-	dir := agentFileBackupDir(id)
+func listAgentFileBackupFiles(target agentFileTarget) ([]agentFileBackupFile, error) {
+	dir := agentFileBackupDir(target)
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
@@ -868,8 +950,8 @@ func listAgentFileBackupFiles(id string) ([]agentFileBackupFile, error) {
 	return backups, nil
 }
 
-func listAgentFileBackups(id string) ([]agentFileHistoryEntry, error) {
-	files, err := listAgentFileBackupFiles(id)
+func listAgentFileBackups(target agentFileTarget) ([]agentFileHistoryEntry, error) {
+	files, err := listAgentFileBackupFiles(target)
 	if err != nil {
 		return nil, err
 	}
@@ -884,11 +966,11 @@ func listAgentFileBackups(id string) ([]agentFileHistoryEntry, error) {
 	return history, nil
 }
 
-func readAgentFileBackup(id, revision string) ([]byte, int64, error) {
+func readAgentFileBackup(target agentFileTarget, revision string) ([]byte, int64, error) {
 	if !agentFileRevisionPattern.MatchString(revision) {
 		return nil, 0, errAgentFileInvalidID
 	}
-	files, err := listAgentFileBackupFiles(id)
+	files, err := listAgentFileBackupFiles(target)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -896,7 +978,7 @@ func readAgentFileBackup(id, revision string) ([]byte, int64, error) {
 		if file.revision != revision {
 			continue
 		}
-		data, err := os.ReadFile(filepath.Join(agentFileBackupDir(id), file.name))
+		data, err := os.ReadFile(filepath.Join(agentFileBackupDir(target), file.name))
 		if err != nil {
 			return nil, 0, err
 		}
