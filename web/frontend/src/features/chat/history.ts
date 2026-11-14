@@ -1,4 +1,5 @@
 import { getSessionHistory } from "@/api/sessions"
+import { parseAttachmentBlocks } from "@/features/chat/attachment-blocks"
 import { normalizeUnixTimestamp } from "@/features/chat/state"
 import {
   parseToolCallsValue,
@@ -39,26 +40,56 @@ function toChatAttachments({
   return merged.length > 0 ? merged : undefined
 }
 
+function mergeAttachments(
+  base: ChatAttachment[] | undefined,
+  extra: ChatAttachment[],
+): ChatAttachment[] | undefined {
+  const merged = [...(base ?? [])]
+  for (const attachment of extra) {
+    const duplicate = merged.some(
+      (item) =>
+        item.type === attachment.type &&
+        item.filename === attachment.filename &&
+        item.text === attachment.text,
+    )
+    if (!duplicate) {
+      merged.push(attachment)
+    }
+  }
+  return merged.length > 0 ? merged : undefined
+}
+
 export async function loadSessionMessages(
   sessionId: string,
 ): Promise<ChatMessage[]> {
   const detail = await getSessionHistory(sessionId)
-  return detail.messages.map((message, index) => ({
-    id: `hist-${index}-${Date.now()}`,
-    role: message.role,
-    content: message.content,
-    kind: message.role === "assistant" ? (message.kind ?? "normal") : undefined,
-    modelName: message.model_name,
-    toolCalls:
-      message.role === "assistant"
-        ? parseToolCallsValue(message.tool_calls)
-        : undefined,
-    attachments: toChatAttachments({
-      media: message.media,
-      attachments: message.attachments,
-    }),
-    timestamp: message.created_at ?? detail.updated,
-  }))
+  return detail.messages.map((message, index) => {
+    const parsedBlocks =
+      message.role === "user"
+        ? parseAttachmentBlocks(message.content)
+        : { text: message.content, attachments: [] as ChatAttachment[] }
+
+    return {
+      id: `hist-${index}-${Date.now()}`,
+      role: message.role,
+      content: parsedBlocks.text,
+      kind:
+        message.role === "assistant" ? (message.kind ?? "normal") : undefined,
+      modelName: message.model_name,
+      toolCalls:
+        message.role === "assistant"
+          ? parseToolCallsValue(message.tool_calls)
+          : undefined,
+      attachments: mergeAttachments(
+        toChatAttachments({
+          media: message.media,
+          attachments: message.attachments,
+        }),
+        parsedBlocks.attachments,
+      ),
+      timestamp: message.created_at ?? detail.updated,
+    }
+  })
 }
 
 function normalizeMessageTimestamp(timestamp: number | string): string {

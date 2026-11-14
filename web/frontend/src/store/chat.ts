@@ -20,6 +20,8 @@ export interface ChatAttachment {
   url: string
   filename?: string
   contentType?: string
+  /** Extracted text for PDF/text/audio attachments; empty for inline images. */
+  text?: string
 }
 
 export interface ChatToolCallFunction {

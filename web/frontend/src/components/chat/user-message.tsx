@@ -1,7 +1,8 @@
-import { IconCheck, IconCopy } from "@tabler/icons-react"
+import { IconCheck, IconCopy, IconPaperclip } from "@tabler/icons-react"
 import { useTranslation } from "react-i18next"
 
 import { Button } from "@/components/ui/button"
+import { stripAttachmentBlocks } from "@/features/chat/attachment-blocks"
 import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard"
 import { formatMessageTime } from "@/hooks/use-pico-chat"
 import { cn } from "@/lib/utils"
@@ -20,10 +21,14 @@ export function UserMessage({
 }: UserMessageProps) {
   const { t } = useTranslation()
   const { copy, isCopied } = useCopyToClipboard()
-  const hasText = content.trim().length > 0
-  const isCommand = content.trim().startsWith("/")
+  const displayContent = stripAttachmentBlocks(content)
+  const hasText = displayContent.trim().length > 0
+  const isCommand = displayContent.trim().startsWith("/")
   const imageAttachments = attachments.filter(
     (attachment) => attachment.type === "image",
+  )
+  const fileAttachments = attachments.filter(
+    (attachment) => attachment.type !== "image",
   )
   const copyMessageLabel = isCopied
     ? t("chat.copiedLabel")
@@ -46,6 +51,28 @@ export function UserMessage({
         </div>
       )}
 
+      {fileAttachments.length > 0 && (
+        <div className="flex max-w-[70%] flex-wrap justify-end gap-2">
+          {fileAttachments.map((attachment, index) => (
+            <div
+              key={`${attachment.filename}-${index}`}
+              className="bg-background/80 flex max-w-full items-center gap-2 rounded-xl border px-3 py-2 text-[13px] shadow-xs"
+              title={attachment.filename}
+            >
+              <IconPaperclip className="text-muted-foreground h-4 w-4 shrink-0" />
+              <span className="truncate">
+                {attachment.filename || t("chat.attachedFile")}
+              </span>
+              <span className="text-muted-foreground shrink-0 text-[11px]">
+                {attachment.contentType?.startsWith("audio/")
+                  ? t("chat.audioTranscript")
+                  : t("chat.extractedText")}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+
       {hasText && (
         <div className="relative max-w-[70%]">
           <div
@@ -61,10 +88,10 @@ export function UserMessage({
                 <span className="font-bold text-emerald-600 select-none dark:text-emerald-400">
                   ❯
                 </span>
-                <span className="mt-[1px]">{content}</span>
+                <span className="mt-[1px]">{displayContent}</span>
               </div>
             ) : (
-              content
+              displayContent
             )}
           </div>
           <Button
@@ -77,7 +104,7 @@ export function UserMessage({
                 ? "text-zinc-700 dark:text-zinc-200"
                 : "text-violet-700 dark:text-violet-100",
             )}
-            onClick={() => void copy(content)}
+            onClick={() => void copy(displayContent)}
             aria-label={copyMessageLabel}
             title={copyMessageLabel}
           >
