@@ -7,6 +7,7 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/sipeed/picoclaw/pkg/browser"
 	"github.com/sipeed/picoclaw/pkg/config"
 	picotools "github.com/sipeed/picoclaw/pkg/tools"
 )
@@ -123,6 +124,12 @@ var toolCatalog = []toolCatalogEntry{
 		Description: "Fetch and summarize the contents of a webpage.",
 		Category:    "web",
 		ConfigKey:   "web_fetch",
+	},
+	{
+		Name:        "browser",
+		Description: "Drive a real browser with accessibility snapshots and element actions.",
+		Category:    "web",
+		ConfigKey:   "browser",
 	},
 	{
 		Name:        "message",
@@ -270,6 +277,8 @@ func buildToolSupport(cfg *config.Config) []toolSupportItem {
 			status, reasonCode = resolveDiscoveryToolSupport(cfg, cfg.Tools.MCP.Discovery.UseBM25)
 		case "web_search":
 			status, reasonCode = resolveWebSearchToolSupport(cfg)
+		case "browser":
+			status, reasonCode = resolveBrowserToolSupport(cfg)
 		case "i2c", "spi":
 			status, reasonCode = resolveHardwareToolSupport(cfg.Tools.IsToolEnabled(entry.ConfigKey))
 		case "serial":
@@ -334,6 +343,19 @@ func resolveWebSearchToolSupport(cfg *config.Config) (string, string) {
 	return "enabled", ""
 }
 
+func resolveBrowserToolSupport(cfg *config.Config) (string, string) {
+	if !cfg.Tools.IsToolEnabled("browser") {
+		return "disabled", ""
+	}
+	if len(cfg.Tools.Browser.AllowedDomains) == 0 && !cfg.Tools.Browser.AllowAllDomains {
+		return "blocked", "requires_allowed_domains"
+	}
+	if _, err := browser.LocateBinary(cfg.Tools.Browser.BinaryPath); err != nil {
+		return "blocked", "agent_browser_missing"
+	}
+	return "enabled", ""
+}
+
 func applyToolState(cfg *config.Config, toolName string, enabled bool) error {
 	switch toolName {
 	case "read_file":
@@ -348,6 +370,13 @@ func applyToolState(cfg *config.Config, toolName string, enabled bool) error {
 		cfg.Tools.AppendFile.Enabled = enabled
 	case "exec":
 		cfg.Tools.Exec.Enabled = enabled
+	case "browser":
+		if enabled &&
+			len(cfg.Tools.Browser.AllowedDomains) == 0 &&
+			!cfg.Tools.Browser.AllowAllDomains {
+			return fmt.Errorf("browser requires allowed_domains before it can be enabled")
+		}
+		cfg.Tools.Browser.Enabled = enabled
 	case "cron":
 		cfg.Tools.Cron.Enabled = enabled
 	case "web_search":

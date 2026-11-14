@@ -161,6 +161,16 @@ func NewAgentInstance(
 			toolsRegistry.Register(execTool)
 		}
 	}
+	if cfg.Tools.IsToolEnabled("browser") {
+		browserTool, err := tools.NewBrowserTool(workspace, cfg.Tools.Browser)
+		if err != nil {
+			logger.WarnCF("agent", "Browser tool disabled", map[string]any{
+				"error": err.Error(),
+			})
+		} else {
+			toolsRegistry.Register(browserTool)
+		}
+	}
 
 	sessionsDir := filepath.Join(workspace, "sessions")
 	sessions := initSessionStore(sessionsDir)

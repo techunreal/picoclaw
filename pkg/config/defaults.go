@@ -387,6 +387,14 @@ func DefaultConfig() *Config {
 				ExecTimeoutMinutes: 5,
 				AllowCommand:       true,
 			},
+			Browser: BrowserToolsConfig{
+				ToolConfig: ToolConfig{
+					Enabled: false,
+				},
+				Headless:       boolPtr(true),
+				MaxOutput:      20000,
+				TimeoutSeconds: 60,
+			},
 			Exec: ExecConfig{
 				ToolConfig: ToolConfig{
 					Enabled: true,
@@ -620,3 +628,5 @@ func defaultChannels() ChannelsConfig {
 	}
 	return channels
 }
+
+func boolPtr(v bool) *bool { return &v }

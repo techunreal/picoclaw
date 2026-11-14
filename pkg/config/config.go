@@ -1097,6 +1097,47 @@ type CronToolsConfig struct {
 	CommandAllowedRemotes []string `json:"command_allowed_remotes" env:"PICOCLAW_TOOLS_CRON_COMMAND_ALLOWED_REMOTES"`
 }
 
+// BrowserToolsConfig configures the agent-browser backed browser tool.
+type BrowserToolsConfig struct {
+	ToolConfig `envPrefix:"PICOCLAW_TOOLS_BROWSER_"`
+	// AllowedDomains is the navigation/sub-resource allowlist. Exact hosts and
+	// wildcard prefixes such as "*.example.com" are accepted.
+	AllowedDomains []string `json:"allowed_domains" env:"PICOCLAW_TOOLS_BROWSER_ALLOWED_DOMAINS"`
+	// AllowAllDomains disables the domain allowlist. It must be set explicitly.
+	AllowAllDomains bool `json:"allow_all_domains" env:"PICOCLAW_TOOLS_BROWSER_ALLOW_ALL_DOMAINS"`
+	// BinaryPath optionally points at the agent-browser executable. When empty
+	// the binary next to the gateway, on PATH, or in the npm global directory is
+	// used.
+	BinaryPath string `json:"binary_path,omitempty" env:"PICOCLAW_TOOLS_BROWSER_BINARY_PATH"`
+	// BrowserPath optionally points at Chrome/Edge. When empty a system browser
+	// is detected.
+	BrowserPath string `json:"browser_path,omitempty" env:"PICOCLAW_TOOLS_BROWSER_BROWSER_PATH"`
+	// Headless defaults to true.
+	Headless *bool `json:"headless,omitempty" env:"PICOCLAW_TOOLS_BROWSER_HEADLESS"`
+	// MaxOutput bounds page text returned to the model. 0 uses the default.
+	MaxOutput int `json:"max_output,omitempty" env:"PICOCLAW_TOOLS_BROWSER_MAX_OUTPUT"`
+	// TimeoutSeconds bounds a single CLI command. 0 uses the default.
+	TimeoutSeconds int `json:"timeout_seconds,omitempty" env:"PICOCLAW_TOOLS_BROWSER_TIMEOUT_SECONDS"`
+}
+
+func (c *BrowserToolsConfig) IsHeadless() bool {
+	return c.Headless == nil || *c.Headless
+}
+
+func (c *BrowserToolsConfig) GetMaxOutput() int {
+	if c.MaxOutput <= 0 {
+		return 20000
+	}
+	return c.MaxOutput
+}
+
+func (c *BrowserToolsConfig) GetTimeoutSeconds() int {
+	if c.TimeoutSeconds <= 0 {
+		return 60
+	}
+	return c.TimeoutSeconds
+}
+
 type ExecConfig struct {
 	ToolConfig          `         envPrefix:"PICOCLAW_TOOLS_EXEC_"`
 	EnableDenyPatterns  bool     `                                 json:"enable_deny_patterns"  env:"PICOCLAW_TOOLS_EXEC_ENABLE_DENY_PATTERNS"`
@@ -1156,6 +1197,7 @@ type ToolsConfig struct {
 	FilterMinLength int                `json:"filter_min_length" yaml:"-"                env:"PICOCLAW_TOOLS_FILTER_MIN_LENGTH"`
 	Web             WebToolsConfig     `json:"web"               yaml:"web,omitempty"`
 	Cron            CronToolsConfig    `json:"cron"              yaml:"-"`
+	Browser         BrowserToolsConfig `json:"browser"           yaml:"-"`
 	Exec            ExecConfig         `json:"exec"              yaml:"-"`
 	Skills          SkillsToolsConfig  `json:"skills"            yaml:"skills,omitempty"`
 	MediaCleanup    MediaCleanupConfig `json:"media_cleanup"     yaml:"-"`
