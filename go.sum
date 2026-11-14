@@ -205,6 +205,8 @@ github.com/kylelemons/godebug v1.1.0 h1:RPNrshWIDI6G2gRW9EHilWtl7Z6Sb1BR0xunSBf0
 github.com/kylelemons/godebug v1.1.0/go.mod h1:9/0rRGxNHcop5bhtWyNeEfOS8JIWk580+fNqagV/RAw=
 github.com/larksuite/oapi-sdk-go/v3 v3.9.4 h1:oMgcY7NBjJv1QXJqFAfcoN/TbScCkCuRZfbb1mCwZmI=
 github.com/larksuite/oapi-sdk-go/v3 v3.9.4/go.mod h1:ZEplY+kwuIrj/nqw5uSCINNATcH3KdxSN7y+UxYY5fI=
+github.com/ledongthuc/pdf v0.0.0-20261020125853-5e46805f718e h1:U2Z+V2xqvjJg0azbxHnhOmz2DrpYq0WKpItMPKR6FhY=
+github.com/ledongthuc/pdf v0.0.0-20261020125853-5e46805f718e/go.mod h1:1fEHWurg7pvf5SG6XNE5Q8UZmOwex51Mkx3SLhrW5B4=
 github.com/line/line-bot-sdk-go/v8 v8.20.1 h1:OE7qwJbuZPz9MGOHHNI0E6rQNtIU7ENHyFXpvbVLwII=
 github.com/line/line-bot-sdk-go/v8 v8.20.1/go.mod h1:QMXJwPka2ysSeVQKWXkBp8DzBFs+CFAXFNo75KJtWho=
 github.com/lucasb-eyer/go-colorful v1.3.0 h1:2/yBRLdWBZKrf7gB40FoiKfAWYQ0lqNcbuQwVHXptag=
