@@ -327,6 +327,7 @@ Each entry includes:
 Important behavior:
 
 - The discovery section appears only when the current agent has the `spawn` tool and includes only peer agents it is permitted to spawn via `subagents.allow_agents`.
+- `tools.subagent` is the master switch: when it is off, `subagent`, `spawn`, `spawn_status`, and `delegate` are not registered for the agent. Per-agent `subagents.enabled` (default `true`) can disable them for a single agent on top of the global switch.
 - The current agent and non-spawnable peers are omitted, so the model does not plan against unavailable agents.
 - Discovery is intentionally lightweight. It gives the model only the identity it needs to choose a peer: `id`, `name`, and `description`.
 - `config.json` remains the infrastructure layer: workspace, default agent selection, routing, and subagent permissions. Those permissions also gate discovery visibility.

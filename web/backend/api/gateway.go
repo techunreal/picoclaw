@@ -482,6 +482,18 @@ func computeConfigSignature(cfg *config.Config) string {
 	if cfg.Tools.SpawnStatus.Enabled {
 		toolSignatures = append(toolSignatures, "spawn_status")
 	}
+	if cfg.Tools.Subagent.Enabled {
+		toolSignatures = append(toolSignatures, "subagent")
+	}
+	subagentsDisabled := []string{}
+	for _, agentCfg := range cfg.Agents.List {
+		if agentCfg.Subagents != nil && agentCfg.Subagents.Enabled != nil && !*agentCfg.Subagents.Enabled {
+			subagentsDisabled = append(subagentsDisabled, agentCfg.ID)
+		}
+	}
+	if len(subagentsDisabled) > 0 {
+		parts = append(parts, "subagents_disabled:"+strings.Join(subagentsDisabled, ","))
+	}
 	if cfg.Tools.I2C.Enabled {
 		toolSignatures = append(toolSignatures, "i2c")
 	}

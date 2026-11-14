@@ -653,6 +653,16 @@ func (a *AgentInstance) AllowsMCPServer(serverName string) bool {
 	return ok
 }
 
+// SubagentsEnabled reports whether this agent allows subagents. It only covers
+// the per-agent subagents.enabled flag; the global tools.subagent switch is
+// checked by the tool registration code.
+func (a *AgentInstance) SubagentsEnabled() bool {
+	if a == nil {
+		return false
+	}
+	return a.Subagents.IsEnabled()
+}
+
 func compilePatterns(patterns []string) []*regexp.Regexp {
 	compiled := make([]*regexp.Regexp, 0, len(patterns))
 	for _, p := range patterns {

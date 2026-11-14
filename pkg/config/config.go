@@ -322,8 +322,17 @@ type AgentConfig struct {
 }
 
 type SubagentsConfig struct {
+	// Enabled is the per-agent subagent switch. When omitted it defaults to
+	// enabled; the global tools.subagent switch must also be on.
+	Enabled     *bool             `json:"enabled,omitempty"`
 	AllowAgents []string          `json:"allow_agents,omitempty"`
 	Model       *AgentModelConfig `json:"model,omitempty"`
+}
+
+// IsEnabled reports whether the agent may spawn subagents. A missing config or
+// a missing enabled flag means enabled for backward compatibility.
+func (s *SubagentsConfig) IsEnabled() bool {
+	return s == nil || s.Enabled == nil || *s.Enabled
 }
 
 type DispatchConfig struct {

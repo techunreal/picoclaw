@@ -285,11 +285,13 @@ func registerSharedTools(
 			}
 		}
 
-		// Spawn and spawn_status tools share a SubagentManager.
-		// Construct it when either tool is enabled (both require subagent).
-		spawnEnabled := cfg.Tools.IsToolEnabled("spawn")
-		spawnStatusEnabled := cfg.Tools.IsToolEnabled("spawn_status")
-		if (spawnEnabled || spawnStatusEnabled) && cfg.Tools.IsToolEnabled("subagent") {
+		// Subagent master switch: tools.subagent plus the optional per-agent
+		// subagents.enabled flag. When off none of subagent, spawn,
+		// spawn_status or delegate are registered for this agent.
+		subagentsEnabled := cfg.Tools.IsToolEnabled("subagent") && agent.SubagentsEnabled()
+		spawnEnabled := subagentsEnabled && cfg.Tools.IsToolEnabled("spawn")
+		spawnStatusEnabled := subagentsEnabled && cfg.Tools.IsToolEnabled("spawn_status")
+		if subagentsEnabled {
 			subagentManager := tools.NewSubagentManager(provider, agent.Model, agent.Workspace)
 			subagentManager.SetLLMOptions(agent.MaxTokens, agent.Temperature)
 
@@ -362,10 +364,17 @@ func registerSharedTools(
 			})
 
 			// Clone the parent's tool registry so subagents can use all
-			// tools registered so far (file, web, etc.) but NOT spawn/
-			// spawn_status which are added below — preventing recursive
-			// subagent spawning.
+			// tools registered so far (file, web, etc.) but NOT subagent/
+			// spawn/spawn_status which are added below — preventing
+			// recursive subagent spawning.
 			subagentManager.SetTools(agent.Tools.Clone())
+
+			// The synchronous subagent tool is available whenever the master
+			// switch is on; spawn and spawn_status keep their own toggles.
+			subagentTool := tools.NewSubagentTool(subagentManager)
+			subagentTool.SetSpawner(NewSubTurnSpawner(al))
+			agent.Tools.Register(subagentTool)
+
 			if spawnEnabled {
 				spawnTool := tools.NewSpawnTool(subagentManager)
 				spawnTool.SetSpawner(NewSubTurnSpawner(al))
@@ -375,24 +384,21 @@ func registerSharedTools(
 				})
 
 				agent.Tools.Register(spawnTool)
-
-				// Also register the synchronous subagent tool
-				subagentTool := tools.NewSubagentTool(subagentManager)
-				subagentTool.SetSpawner(NewSubTurnSpawner(al))
-				agent.Tools.Register(subagentTool)
 			}
 			if spawnStatusEnabled {
 				agent.Tools.Register(tools.NewSpawnStatusTool(subagentManager))
 			}
-		} else if (spawnEnabled || spawnStatusEnabled) && !cfg.Tools.IsToolEnabled("subagent") {
-			logger.WarnCF("agent", "spawn/spawn_status tools require subagent to be enabled", nil)
+		} else if cfg.Tools.IsToolEnabled("spawn") || cfg.Tools.IsToolEnabled("spawn_status") {
+			logger.WarnCF("agent", "spawn/spawn_status tools require the subagent master switch", map[string]any{
+				"agent": agentID,
+			})
 		}
 
 		// Register delegate tool for multi-agent setups.
-		// Auto-enabled when multiple agents exist. Delegation uses the SubTurn
-		// mechanism directly (not SubagentManager) and is independent of the
-		// subagent tool.
-		if len(registry.ListAgentIDs()) > 1 {
+		// Auto-enabled when multiple agents exist and the subagent master
+		// switch is on. Delegation uses the SubTurn mechanism directly (not
+		// SubagentManager).
+		if len(registry.ListAgentIDs()) > 1 && subagentsEnabled {
 			delegateTool := tools.NewDelegateTool()
 			delegateTool.SetSpawner(NewSubTurnSpawner(al))
 			currentAgentID := agentID

@@ -156,6 +156,12 @@ var toolCatalog = []toolCatalogEntry{
 		ConfigKey:   "install_skill",
 	},
 	{
+		Name:        "subagent",
+		Description: "Allow the agent to spawn subagents, run background subtasks and delegate work to other agents. Master switch for subagent, spawn, spawn_status and delegate.",
+		Category:    "agents",
+		ConfigKey:   "subagent",
+	},
+	{
 		Name:        "spawn",
 		Description: "Launch a background subagent for long-running or delegated work.",
 		Category:    "agents",
@@ -400,6 +406,8 @@ func applyToolState(cfg *config.Config, toolName string, enabled bool) error {
 		if enabled {
 			cfg.Tools.Skills.Enabled = true
 		}
+	case "subagent":
+		cfg.Tools.Subagent.Enabled = enabled
 	case "spawn":
 		cfg.Tools.Spawn.Enabled = enabled
 		if enabled {

@@ -2192,6 +2192,8 @@ func newMultiAgentLoop(t *testing.T, provider providers.LLMProvider) (*AgentLoop
 		},
 	}
 
+	cfg.Tools.Subagent.Enabled = true
+
 	msgBus := bus.NewMessageBus()
 	al := NewAgentLoop(cfg, msgBus, provider)
 
