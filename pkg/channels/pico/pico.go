@@ -1223,13 +1223,24 @@ func (c *PicoChannel) handleMessageSend(pc *picoConn, msg PicoMessage) {
 		return
 	}
 
-	if strings.TrimSpace(content) == "" && len(media) == 0 {
+	fileAttachments, err := parseFileAttachments(msg.Payload["attachments"])
+	if err != nil {
+		errMsg := newErrorWithPayload("invalid_attachment", err.Error(), map[string]any{
+			"request_id": msg.ID,
+		})
+		pc.writeJSON(errMsg)
+		return
+	}
+
+	if strings.TrimSpace(content) == "" && len(media) == 0 && len(fileAttachments) == 0 {
 		errMsg := newErrorWithPayload("empty_content", "message content is empty", map[string]any{
 			"request_id": msg.ID,
 		})
 		pc.writeJSON(errMsg)
 		return
 	}
+
+	content = appendAttachmentBlocks(content, fileAttachments)
 
 	sessionID := msg.SessionID
 	if sessionID == "" {
