@@ -1180,6 +1180,28 @@ func (m *Manager) SetupHTTPServerListeners(listeners []net.Listener, addr string
 	m.httpListeners = append([]net.Listener(nil), listeners...)
 }
 
+// Mount registers an extra handler on the shared gateway HTTP mux. It is used
+// for internal APIs (for example the cron management API) that are not owned by
+// a channel. Callers are responsible for authenticating requests.
+func (m *Manager) Mount(pattern string, handler http.Handler) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.mux == nil {
+		return
+	}
+	m.mux.Handle(pattern, handler)
+}
+
+// Unmount removes a handler previously registered with Mount.
+func (m *Manager) Unmount(pattern string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.mux == nil {
+		return
+	}
+	m.mux.Unhandle(pattern)
+}
+
 // registerHTTPHandlersLocked registers webhook and health-check handlers for
 // all channels currently in m.channels. Caller must hold m.mu (or ensure
 // exclusive access).

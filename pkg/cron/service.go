@@ -4,9 +4,11 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -60,7 +62,53 @@ type JobHandler func(job *CronJob) (string, error)
 const (
 	maxConcurrentCronJobs = 4
 	cronShutdownTimeout   = 5 * time.Second
+	// MinEveryIntervalMS is the smallest accepted recurring interval. Very
+	// small intervals can hammer the agent and the store file.
+	MinEveryIntervalMS int64 = 60_000
 )
+
+var (
+	// ErrJobNotFound is returned when a job ID does not exist.
+	ErrJobNotFound = errors.New("cron job not found")
+	// ErrNotRunning is returned when an action needs the scheduler loop.
+	ErrNotRunning = errors.New("cron service is not running")
+)
+
+// ValidateSchedule checks a schedule before it is persisted.
+func ValidateSchedule(schedule CronSchedule, now time.Time) error {
+	switch strings.TrimSpace(schedule.Kind) {
+	case "at":
+		if schedule.AtMS == nil {
+			return errors.New("schedule.at_ms is required")
+		}
+		if *schedule.AtMS <= now.UnixMilli() {
+			return errors.New("schedule.at_ms must be in the future")
+		}
+	case "every":
+		if schedule.EveryMS == nil {
+			return errors.New("schedule.every_ms is required")
+		}
+		if *schedule.EveryMS < MinEveryIntervalMS {
+			return fmt.Errorf("schedule.every_ms must be at least %d seconds", MinEveryIntervalMS/1000)
+		}
+	case "cron":
+		expr := strings.TrimSpace(schedule.Expr)
+		if expr == "" {
+			return errors.New("schedule.expr is required")
+		}
+		if !gronx.IsValid(expr) {
+			return errors.New("schedule.expr is not a valid cron expression")
+		}
+		if tz := strings.TrimSpace(schedule.TZ); tz != "" {
+			if _, err := time.LoadLocation(tz); err != nil {
+				return errors.New("schedule.tz is not a valid time zone")
+			}
+		}
+	default:
+		return errors.New("schedule.kind must be one of: at, every, cron")
+	}
+	return nil
+}
 
 type CronService struct {
 	storePath string
@@ -252,6 +300,49 @@ func (cs *CronService) checkJobs() {
 	}
 
 	cs.mu.Unlock()
+}
+
+// RunNow schedules a job for immediate execution without changing its normal
+// schedule. The call returns as soon as the job is queued; status is visible on
+// the job state once the run finishes.
+func (cs *CronService) RunNow(jobID string) error {
+	cs.mu.Lock()
+	if !cs.running || cs.stopChan == nil {
+		cs.mu.Unlock()
+		return ErrNotRunning
+	}
+
+	found := false
+	for i := range cs.store.Jobs {
+		if cs.store.Jobs[i].ID == jobID {
+			found = true
+			break
+		}
+	}
+	if !found {
+		cs.mu.Unlock()
+		return ErrJobNotFound
+	}
+
+	// Add while holding the lock so Stop's WaitGroup.Wait cannot race with a
+	// manual run that starts right as the service shuts down.
+	cs.jobWG.Add(1)
+	stopChan := cs.stopChan
+	sem := cs.jobSem
+	cs.mu.Unlock()
+
+	go func() {
+		defer cs.jobWG.Done()
+		select {
+		case sem <- struct{}{}:
+			defer func() { <-sem }()
+		case <-stopChan:
+			return
+		}
+		cs.executeJobByID(jobID)
+	}()
+
+	return nil
 }
 
 func (cs *CronService) executeJobByID(jobID string) {
@@ -628,18 +719,13 @@ func (cs *CronService) ListJobs(includeDisabled bool) []CronJob {
 	cs.mu.RLock()
 	defer cs.mu.RUnlock()
 
-	if includeDisabled {
-		return cs.store.Jobs
-	}
-
-	var enabled []CronJob
+	jobs := make([]CronJob, 0, len(cs.store.Jobs))
 	for _, job := range cs.store.Jobs {
-		if job.Enabled {
-			enabled = append(enabled, job)
+		if includeDisabled || job.Enabled {
+			jobs = append(jobs, cloneCronJob(job))
 		}
 	}
-
-	return enabled
+	return jobs
 }
 
 func (cs *CronService) Status() map[string]any {
