@@ -33,6 +33,10 @@ type Handler struct {
 	// Serializes agent file writes so revision checks and backups cannot
 	// interleave between concurrent editors.
 	agentFilesMu sync.Mutex
+	// Serializes backup export/inspect/restore operations and guards the
+	// short-lived upload map used by the two-step restore flow.
+	backupMu      sync.Mutex
+	backupUploads map[string]*backupUpload
 }
 
 // NewHandler creates an instance of the API handler.
@@ -45,6 +49,7 @@ func NewHandler(configPath string) *Handler {
 		oauthState:                 make(map[string]string),
 		weixinFlows:                make(map[string]*weixinFlow),
 		wecomFlows:                 make(map[string]*wecomFlow),
+		backupUploads:              make(map[string]*backupUpload),
 	}
 }
 
@@ -96,6 +101,9 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 
 	// Scheduled task (cron) management proxy
 	h.registerCronRoutes(mux)
+
+	// Backup export / inspect / restore
+	h.registerBackupRoutes(mux)
 
 	// OAuth login and credential management
 	h.registerOAuthRoutes(mux)
