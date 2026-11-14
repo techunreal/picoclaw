@@ -139,8 +139,9 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   return res.json() as Promise<T>
 }
 
-export async function getSkills(): Promise<SkillsResponse> {
-  return request<SkillsResponse>("/api/skills")
+export async function getSkills(agentId?: string): Promise<SkillsResponse> {
+  const query = agentId ? `?agent=${encodeURIComponent(agentId)}` : ""
+  return request<SkillsResponse>(`/api/skills${query}`)
 }
 
 export async function getSkill(name: string): Promise<SkillDetailResponse> {

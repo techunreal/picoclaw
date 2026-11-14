@@ -57,7 +57,7 @@ export function useSkillsPage() {
 
   const skillsQuery = useQuery({
     queryKey: ["skills"],
-    queryFn: getSkills,
+    queryFn: () => getSkills(),
   })
 
   const skillDetailQuery = useQuery({

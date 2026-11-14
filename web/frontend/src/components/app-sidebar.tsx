@@ -13,6 +13,7 @@ import {
   IconSettings,
   IconSparkles,
   IconTools,
+  IconUsers,
 } from "@tabler/icons-react"
 import { Link, useRouterState } from "@tanstack/react-router"
 import * as React from "react"
@@ -135,6 +136,12 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       {
         ...baseNavGroups[2],
         items: [
+          {
+            title: "navigation.agents",
+            url: "/agent/agents",
+            icon: IconUsers,
+            translateTitle: true,
+          },
           {
             title: "navigation.memory",
             url: "/agent/files",
