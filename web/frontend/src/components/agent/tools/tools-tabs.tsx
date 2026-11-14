@@ -24,6 +24,11 @@ const tabs: Array<{
     translationKey: "pages.agent.tools.web_search.title",
     defaultLabel: "Web Search",
   },
+  {
+    key: "browser",
+    translationKey: "pages.agent.tools.browser.title",
+    defaultLabel: "Browser",
+  },
 ]
 
 export function ToolsTabs({ activeTab, onChange }: ToolsTabsProps) {

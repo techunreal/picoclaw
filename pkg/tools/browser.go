@@ -10,6 +10,7 @@ import (
 
 	"github.com/sipeed/picoclaw/pkg/browser"
 	"github.com/sipeed/picoclaw/pkg/config"
+	"github.com/sipeed/picoclaw/pkg/constants"
 )
 
 type browserRunner interface {
@@ -19,8 +20,9 @@ type browserRunner interface {
 
 // BrowserTool exposes the agent-browser CLI as a single, compact tool.
 type BrowserTool struct {
-	client    browserRunner
-	workspace string
+	client      browserRunner
+	workspace   string
+	allowRemote bool
 }
 
 // NewBrowserTool creates the browser tool. It fails when the allowlist is
@@ -39,7 +41,11 @@ func NewBrowserTool(workspace string, cfg config.BrowserToolsConfig) (*BrowserTo
 	if err != nil {
 		return nil, err
 	}
-	return &BrowserTool{client: client, workspace: workspace}, nil
+	return &BrowserTool{
+		client:      client,
+		workspace:   workspace,
+		allowRemote: cfg.AllowRemote,
+	}, nil
 }
 
 func (t *BrowserTool) Name() string { return "browser" }
@@ -107,8 +113,13 @@ func (t *BrowserTool) Parameters() map[string]any {
 }
 
 func (t *BrowserTool) Execute(ctx context.Context, args map[string]any) *ToolResult {
+	channel := ToolChannel(ctx)
+	if !t.allowRemote && channel != "" && !constants.IsLocalCommandChannel(channel) {
+		return ErrorResult("browser is not allowed from remote channels; enable tools.browser.allow_remote explicitly")
+	}
+
 	action := strings.ToLower(strings.TrimSpace(stringArg(args, "action")))
-	session := browser.SessionName(ToolChannel(ctx), ToolChatID(ctx))
+	session := browser.SessionName(channel, ToolChatID(ctx))
 
 	switch action {
 	case "open":

@@ -1118,6 +1118,8 @@ type BrowserToolsConfig struct {
 	MaxOutput int `json:"max_output,omitempty" env:"PICOCLAW_TOOLS_BROWSER_MAX_OUTPUT"`
 	// TimeoutSeconds bounds a single CLI command. 0 uses the default.
 	TimeoutSeconds int `json:"timeout_seconds,omitempty" env:"PICOCLAW_TOOLS_BROWSER_TIMEOUT_SECONDS"`
+	// AllowRemote lets external chat channels use the browser. Default false.
+	AllowRemote bool `json:"allow_remote" env:"PICOCLAW_TOOLS_BROWSER_ALLOW_REMOTE"`
 }
 
 func (c *BrowserToolsConfig) IsHeadless() bool {

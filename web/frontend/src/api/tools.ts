@@ -44,6 +44,34 @@ export interface WebSearchConfigResponse {
   settings: Record<string, WebSearchProviderConfig>
 }
 
+export interface BrowserToolStatus {
+  binary_found: boolean
+  binary_path?: string
+  binary_version?: string
+  browser_detected: boolean
+  browser_path?: string
+  error?: string
+}
+
+export interface BrowserToolConfig {
+  enabled: boolean
+  allowed_domains: string[]
+  allow_all_domains: boolean
+  binary_path: string
+  browser_path: string
+  headless: boolean
+  max_output: number
+  timeout_seconds: number
+  allow_remote: boolean
+  status: BrowserToolStatus
+}
+
+export interface BrowserToolTestResult {
+  ok: boolean
+  version?: string
+  error?: string
+}
+
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await launcherFetch(path, options)
   if (!res.ok) {
@@ -95,5 +123,25 @@ export async function updateWebSearchConfig(
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
+  })
+}
+
+export async function getBrowserToolConfig(): Promise<BrowserToolConfig> {
+  return request<BrowserToolConfig>("/api/tools/browser")
+}
+
+export async function updateBrowserToolConfig(
+  payload: Omit<BrowserToolConfig, "status">,
+): Promise<BrowserToolConfig> {
+  return request<BrowserToolConfig>("/api/tools/browser", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  })
+}
+
+export async function testBrowserTool(): Promise<BrowserToolTestResult> {
+  return request<BrowserToolTestResult>("/api/tools/browser/test", {
+    method: "POST",
   })
 }

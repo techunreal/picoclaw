@@ -189,7 +189,7 @@ func ensureActionPolicy(dir string) (string, error) {
 		return "", err
 	}
 	path := filepath.Join(dir, "action-policy.json")
-	policy := `{"default":"deny","allow":["navigate","click","fill","interact","snapshot","scroll","wait","get","read","close"]}` + "\n"
+	policy := `{"default":"deny","allow":["navigate","click","fill","interact","snapshot","screenshot","scroll","wait","get","read","close"]}` + "\n"
 	existing, err := os.ReadFile(path)
 	if err == nil && string(existing) == policy {
 		return path, nil

@@ -109,6 +109,31 @@ func TestBrowserTool_Actions(t *testing.T) {
 	}
 }
 
+func TestBrowserTool_RemoteChannels(t *testing.T) {
+	runner := &fakeBrowserRunner{}
+	tool := newTestBrowserTool(t, runner)
+	remoteCtx := WithToolContext(context.Background(), "telegram", "chat-1")
+
+	result := tool.Execute(remoteCtx, map[string]any{"action": "back"})
+	if !result.IsError {
+		t.Fatal("browser should be blocked for remote channels by default")
+	}
+	if len(runner.calls) != 0 {
+		t.Fatalf("browser ran for remote channel: %v", runner.calls)
+	}
+
+	tool.allowRemote = true
+	if result := tool.Execute(remoteCtx, map[string]any{"action": "back"}); result.IsError {
+		t.Fatalf("allowed remote action error = %v", result.ForLLM)
+	}
+
+	localCtx := WithToolContext(context.Background(), "pico", "pico-session")
+	tool.allowRemote = false
+	if result := tool.Execute(localCtx, map[string]any{"action": "back"}); result.IsError {
+		t.Fatalf("local WebUI action error = %v", result.ForLLM)
+	}
+}
+
 func TestBrowserTool_ValidatesRefs(t *testing.T) {
 	runner := &fakeBrowserRunner{}
 	tool := newTestBrowserTool(t, runner)
