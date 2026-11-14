@@ -1,7 +1,9 @@
 import {
   IconDownload,
   IconLoader2,
+  IconPlus,
   IconPlugConnected,
+  IconTrash,
 } from "@tabler/icons-react"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
@@ -59,7 +61,7 @@ interface AddForm {
   provider: string
   model: string
   apiBase: string
-  apiKey: string
+  apiKeys: string[]
   proxy: string
   authMethod: string
   connectMode: string
@@ -79,7 +81,7 @@ const EMPTY_ADD_FORM: AddForm = {
   provider: "",
   model: "",
   apiBase: "",
-  apiKey: "",
+  apiKeys: [""],
   proxy: "",
   authMethod: "",
   connectMode: "",
@@ -132,9 +134,17 @@ export function AddModelSheet({
   const providerMap = getProviderCatalogMap(providerOptions)
 
   const apiKeyPlaceholder = maskedSecretPlaceholder(
-    form.apiKey,
+    form.apiKeys[0] ?? "",
     t("models.field.apiKeyPlaceholder"),
   )
+  const primaryAPIKey =
+    form.apiKeys.map((key) => key.trim()).find(Boolean) ?? ""
+  const setAPIKeyAt = (index: number, value: string) => {
+    setForm((f) => ({
+      ...f,
+      apiKeys: f.apiKeys.map((key, i) => (i === index ? value : key)),
+    }))
+  }
   const isDirty =
     JSON.stringify(form) !== JSON.stringify(EMPTY_ADD_FORM) || setAsDefault
 
@@ -392,7 +402,7 @@ export function AddModelSheet({
         provider: provider || undefined,
         model: modelId,
         api_base: submittedApiBase,
-        api_key: form.apiKey.trim() || undefined,
+        api_keys: form.apiKeys.map((key) => key.trim()).filter(Boolean),
         proxy: form.proxy.trim() || undefined,
         auth_method: authMethodLocked
           ? defaultAuthMethod || undefined
@@ -596,12 +606,45 @@ export function AddModelSheet({
               </Field>
 
               {!isOAuth && (
-                <Field label={t("models.field.apiKey")}>
-                  <KeyInput
-                    value={form.apiKey}
-                    onChange={(v) => setForm((f) => ({ ...f, apiKey: v }))}
-                    placeholder={apiKeyPlaceholder}
-                  />
+                <Field label={t("models.field.apiKeys")}>
+                  <div className="space-y-2">
+                    {form.apiKeys.map((key, index) => (
+                      <div key={index} className="flex items-center gap-2">
+                        <KeyInput
+                          value={key}
+                          onChange={(v) => setAPIKeyAt(index, v)}
+                          placeholder={apiKeyPlaceholder}
+                        />
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          onClick={() =>
+                            setForm((f) => ({
+                              ...f,
+                              apiKeys:
+                                f.apiKeys.length > 1
+                                  ? f.apiKeys.filter((_, i) => i !== index)
+                                  : [""],
+                            }))
+                          }
+                          title={t("models.field.removeAPIKey")}
+                        >
+                          <IconTrash className="size-3.5" />
+                        </Button>
+                      </div>
+                    ))}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7 text-xs"
+                      onClick={() =>
+                        setForm((f) => ({ ...f, apiKeys: [...f.apiKeys, ""] }))
+                      }
+                    >
+                      <IconPlus className="size-3" />
+                      {t("models.field.addAPIKey")}
+                    </Button>
+                  </div>
                 </Field>
               )}
 
@@ -823,7 +866,7 @@ export function AddModelSheet({
           onClose={() => setFetchOpen(false)}
           onFill={handleFetchFill}
           provider={canonicalProvider}
-          apiKey={form.apiKey}
+          apiKey={primaryAPIKey}
           apiBase={effectiveApiBase}
           backendOptions={providerOptions}
         />
@@ -836,7 +879,7 @@ export function AddModelSheet({
             provider: canonicalProvider,
             model: form.model,
             apiBase: effectiveApiBase,
-            apiKey: form.apiKey,
+            apiKey: primaryAPIKey,
             authMethod: effectiveAuthMethod,
           }}
         />

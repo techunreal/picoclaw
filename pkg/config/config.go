@@ -1875,7 +1875,10 @@ func expandMultiKeyModels(models []*ModelConfig) []*ModelConfig {
 			ExtraBody:           m.ExtraBody,
 			CustomHeaders:       m.CustomHeaders,
 			UserAgent:           m.UserAgent,
-			APIKeys:             SimpleSecureStrings(keys[0]),
+			// Keep the full key list on the primary entry. Virtual __key_N
+			// entries exist only at runtime, so SaveConfig must still be able to
+			// persist every key. APIKey() continues to return the first key.
+			APIKeys: SimpleSecureStrings(keys...),
 		}
 
 		// Prepend new fallbacks to existing ones

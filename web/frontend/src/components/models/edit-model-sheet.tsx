@@ -1,7 +1,9 @@
 import {
   IconDownload,
   IconLoader2,
+  IconPlus,
   IconPlugConnected,
+  IconTrash,
 } from "@tabler/icons-react"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
@@ -59,7 +61,6 @@ import { TestModelDialog } from "./test-model-dialog"
 interface EditForm {
   provider: string
   modelId: string
-  apiKey: string
   apiBase: string
   proxy: string
   authMethod: string
@@ -90,7 +91,6 @@ function buildInitialEditForm(model: ModelInfo): EditForm {
   return {
     provider: getCanonicalProviderKey(model.provider),
     modelId: model.model,
-    apiKey: "",
     apiBase: model.api_base ?? "",
     proxy: model.proxy ?? "",
     authMethod: model.auth_method ?? "",
@@ -125,7 +125,6 @@ export function EditModelSheet({
   const [form, setForm] = useState<EditForm>({
     provider: "",
     modelId: "",
-    apiKey: "",
     apiBase: "",
     proxy: "",
     authMethod: "",
@@ -143,6 +142,9 @@ export function EditModelSheet({
   const [saving, setSaving] = useState(false)
   const [setAsDefault, setSetAsDefault] = useState(false)
   const [error, setError] = useState("")
+  const [existingKeyMasks, setExistingKeyMasks] = useState<string[]>([])
+  const [keptKeyIndexes, setKeptKeyIndexes] = useState<number[]>([])
+  const [newAPIKeys, setNewAPIKeys] = useState<string[]>([""])
   const [modelValidation, setModelValidation] =
     useState<FieldValidation | null>(null)
   const [testOpen, setTestOpen] = useState(false)
@@ -154,10 +156,14 @@ export function EditModelSheet({
   const providerMap = getProviderCatalogMap(providerOptions)
 
   const initialForm = model ? buildInitialEditForm(model) : null
+  const keysDirty =
+    keptKeyIndexes.length !== existingKeyMasks.length ||
+    newAPIKeys.some((key) => key.trim() !== "")
   const isDirty =
     model != null &&
     (JSON.stringify(form) !== JSON.stringify(initialForm) ||
-      setAsDefault !== model.is_default)
+      setAsDefault !== model.is_default ||
+      keysDirty)
 
   useEffect(() => {
     if (model) {
@@ -167,6 +173,15 @@ export function EditModelSheet({
       setModelValidation(null)
       setFetchedModels([])
       setCatalogModels([])
+      const masks =
+        model.api_keys && model.api_keys.length > 0
+          ? model.api_keys
+          : model.api_key
+            ? [model.api_key]
+            : []
+      setExistingKeyMasks(masks)
+      setKeptKeyIndexes(masks.map((_, index) => index))
+      setNewAPIKeys([""])
       // Load matching catalog models
       const providerKey = getCanonicalProviderKey(
         model.provider,
@@ -380,12 +395,16 @@ export function EditModelSheet({
         model.streaming?.enabled === true || form.streamingEnabled
           ? { enabled: form.streamingEnabled }
           : undefined
+      const pendingAPIKeys = newAPIKeys
+        .map((key) => key.trim())
+        .filter(Boolean)
       const response = await updateModelByName(model.model_name, {
         model_name: model.model_name,
         provider: provider,
         model: modelId,
         api_base: submittedApiBase,
-        api_key: form.apiKey.trim() || undefined,
+        api_keys_keep: keysDirty ? keptKeyIndexes : undefined,
+        api_keys: keysDirty ? pendingAPIKeys : undefined,
         proxy: form.proxy.trim() || undefined,
         auth_method: authMethodLocked
           ? defaultAuthMethod || undefined
@@ -424,13 +443,12 @@ export function EditModelSheet({
     }
   }
 
-  const hasSavedAPIKey = Boolean(model?.api_key)
-  const apiKeyPlaceholder = hasSavedAPIKey
-    ? maskedSecretPlaceholder(
-        model?.api_key ?? "",
-        t("models.field.apiKeyPlaceholderSet"),
-      )
-    : t("models.field.apiKeyPlaceholder")
+  const apiKeyPlaceholder = maskedSecretPlaceholder(
+    newAPIKeys[0] ?? "",
+    t("models.field.apiKeyPlaceholder"),
+  )
+  const primaryNewAPIKey =
+    newAPIKeys.map((key) => key.trim()).find(Boolean) ?? ""
 
   return (
     <>
@@ -573,16 +591,80 @@ export function EditModelSheet({
 
               {!isOAuth && (
                 <Field
-                  label={t("models.field.apiKey")}
-                  hint={
-                    hasSavedAPIKey ? t("models.edit.apiKeyHint") : undefined
-                  }
+                  label={t("models.field.apiKeys")}
+                  hint={t("models.edit.apiKeysHint")}
                 >
-                  <KeyInput
-                    value={form.apiKey}
-                    onChange={(v) => setForm((f) => ({ ...f, apiKey: v }))}
-                    placeholder={apiKeyPlaceholder}
-                  />
+                  <div className="space-y-2">
+                    {keptKeyIndexes.length > 0 && (
+                      <div className="space-y-1">
+                        {keptKeyIndexes.map((index) => (
+                          <div
+                            key={index}
+                            className="bg-muted/40 flex items-center gap-2 rounded-md border px-2 py-1"
+                          >
+                            <span className="text-muted-foreground flex-1 font-mono text-xs">
+                              {existingKeyMasks[index]}
+                            </span>
+                            <Button
+                              variant="ghost"
+                              size="icon-sm"
+                              onClick={() =>
+                                setKeptKeyIndexes((prev) =>
+                                  prev.filter((i) => i !== index),
+                                )
+                              }
+                              title={t("models.field.removeAPIKey")}
+                            >
+                              <IconTrash className="size-3.5" />
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {existingKeyMasks.length === 0 && (
+                      <p className="text-muted-foreground text-xs">
+                        {t("models.edit.noAPIKeys")}
+                      </p>
+                    )}
+                    {newAPIKeys.map((key, index) => (
+                      <div key={index} className="flex items-center gap-2">
+                        <KeyInput
+                          value={key}
+                          onChange={(v) =>
+                            setNewAPIKeys((prev) =>
+                              prev.map((item, i) => (i === index ? v : item)),
+                            )
+                          }
+                          placeholder={apiKeyPlaceholder}
+                        />
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          onClick={() =>
+                            setNewAPIKeys((prev) =>
+                              prev.length > 1
+                                ? prev.filter((_, i) => i !== index)
+                                : [""],
+                            )
+                          }
+                          title={t("models.field.removeAPIKey")}
+                        >
+                          <IconTrash className="size-3.5" />
+                        </Button>
+                      </div>
+                    ))}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7 text-xs"
+                      onClick={() =>
+                        setNewAPIKeys((prev) => [...prev, ""])
+                      }
+                    >
+                      <IconPlus className="size-3" />
+                      {t("models.field.addAPIKey")}
+                    </Button>
+                  </div>
                 </Field>
               )}
 
@@ -808,7 +890,7 @@ export function EditModelSheet({
           provider: canonicalProvider,
           model: form.modelId,
           apiBase: effectiveApiBase,
-          apiKey: form.apiKey,
+          apiKey: primaryNewAPIKey,
           authMethod: effectiveAuthMethod,
           modelIndex: model?.index,
         }}
@@ -819,7 +901,7 @@ export function EditModelSheet({
         onClose={() => setFetchOpen(false)}
         onFill={handleFetchFill}
         provider={canonicalProvider}
-        apiKey={form.apiKey}
+        apiKey={primaryNewAPIKey}
         apiBase={effectiveApiBase}
         modelIndex={model?.index}
         backendOptions={providerOptions}

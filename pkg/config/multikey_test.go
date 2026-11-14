@@ -1,6 +1,7 @@
 package config
 
 import (
+	"path/filepath"
 	"testing"
 )
 
@@ -323,6 +324,83 @@ func TestExpandMultiKeyModels_SingleKey_NotVirtual(t *testing.T) {
 	if result[0].isVirtual {
 		t.Errorf("single key model should not be virtual")
 	}
+}
+
+func TestExpandMultiKeyModels_PrimaryKeepsAllKeys(t *testing.T) {
+	models := []*ModelConfig{
+		{
+			ModelName: "multi",
+			Model:     "openai/gpt-4o",
+			APIKeys:   SimpleSecureStrings("key1", "key2", "key3"),
+		},
+	}
+
+	result := expandMultiKeyModels(models)
+	if len(result) != 3 {
+		t.Fatalf("expected 3 models, got %d", len(result))
+	}
+
+	primary := result[len(result)-1]
+	if len(primary.APIKeys) != 3 {
+		t.Fatalf("primary APIKeys = %v, want all 3 keys for round-trip saves", primary.APIKeys.Values())
+	}
+	if primary.APIKey() != "key1" {
+		t.Fatalf("primary APIKey() = %q, want key1", primary.APIKey())
+	}
+}
+
+func TestMultiKeyConfig_RoundTripPreservesAllKeys(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.json")
+
+	cfg := DefaultConfig()
+	cfg.ModelList = []*ModelConfig{
+		{
+			ModelName: "multi",
+			Provider:  "openai",
+			Model:     "gpt-4o-mini",
+			APIKeys:   SimpleSecureStrings("key1", "key2"),
+		},
+	}
+	cfg.Agents.Defaults.ModelName = "multi"
+	if err := SaveConfig(configPath, cfg); err != nil {
+		t.Fatalf("SaveConfig error: %v", err)
+	}
+
+	loaded, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig error: %v", err)
+	}
+	var primary *ModelConfig
+	for _, model := range loaded.ModelList {
+		if model.ModelName == "multi" {
+			primary = model
+			break
+		}
+	}
+	if primary == nil {
+		t.Fatal("primary model missing after load")
+	}
+	if keys := primary.APIKeys.Values(); len(keys) != 2 || keys[0] != "key1" || keys[1] != "key2" {
+		t.Fatalf("api_keys = %v, want [key1 key2]", keys)
+	}
+
+	// Saving the expanded config must not drop the second key.
+	if err := SaveConfig(configPath, loaded); err != nil {
+		t.Fatalf("second SaveConfig error: %v", err)
+	}
+	reloaded, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("second LoadConfig error: %v", err)
+	}
+	for _, model := range reloaded.ModelList {
+		if model.ModelName == "multi" {
+			if keys := model.APIKeys.Values(); len(keys) != 2 {
+				t.Fatalf("after round-trip api_keys = %v, want 2 keys", keys)
+			}
+			return
+		}
+	}
+	t.Fatal("primary model missing after second load")
 }
 
 func TestMergeAPIKeys(t *testing.T) {

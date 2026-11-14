@@ -40,14 +40,16 @@ func (h *Handler) registerModelRoutes(mux *http.ServeMux) {
 // modelResponse is the JSON structure returned for each model in the list.
 // All ModelConfig fields are included so the frontend can display and edit them.
 type modelResponse struct {
-	Index      int    `json:"index"`
-	ModelName  string `json:"model_name"`
-	Provider   string `json:"provider,omitempty"`
-	Model      string `json:"model"`
-	APIBase    string `json:"api_base,omitempty"`
-	APIKey     string `json:"api_key"`
-	Proxy      string `json:"proxy,omitempty"`
-	AuthMethod string `json:"auth_method,omitempty"`
+	Index       int      `json:"index"`
+	ModelName   string   `json:"model_name"`
+	Provider    string   `json:"provider,omitempty"`
+	Model       string   `json:"model"`
+	APIBase     string   `json:"api_base,omitempty"`
+	APIKey      string   `json:"api_key"`
+	APIKeys     []string `json:"api_keys,omitempty"`
+	APIKeyCount int      `json:"api_key_count,omitempty"`
+	Proxy       string   `json:"proxy,omitempty"`
+	AuthMethod  string   `json:"auth_method,omitempty"`
 	// Advanced fields
 	ConnectMode         string                      `json:"connect_mode,omitempty"`
 	Workspace           string                      `json:"workspace,omitempty"`
@@ -645,6 +647,7 @@ func (h *Handler) handleListModels(w http.ResponseWriter, r *http.Request) {
 	models := make([]modelResponse, 0, len(cfg.ModelList))
 	for i, m := range cfg.ModelList {
 		provider, modelID := providers.ExtractProtocol(m)
+		maskedKeys := maskAPIKeyList(m.APIKeys.Values())
 		models = append(models, modelResponse{
 			Index:               i,
 			ModelName:           m.ModelName,
@@ -652,6 +655,8 @@ func (h *Handler) handleListModels(w http.ResponseWriter, r *http.Request) {
 			Model:               modelID,
 			APIBase:             m.APIBase,
 			APIKey:              maskAPIKey(m.APIKey()),
+			APIKeys:             maskedKeys,
+			APIKeyCount:         len(maskedKeys),
 			Proxy:               m.Proxy,
 			AuthMethod:          m.AuthMethod,
 			ConnectMode:         m.ConnectMode,
@@ -718,7 +723,8 @@ func (h *Handler) handleAddModel(w http.ResponseWriter, r *http.Request) {
 
 	type custom struct {
 		config.ModelConfig
-		APIKey string `json:"api_key"`
+		APIKey  string   `json:"api_key"`
+		APIKeys []string `json:"api_keys"`
 	}
 
 	var mc custom
@@ -727,7 +733,9 @@ func (h *Handler) handleAddModel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if mc.APIKey != "" {
+	if apiKeys := normalizeAPIKeyList(mc.APIKeys); len(apiKeys) > 0 {
+		mc.ModelConfig.APIKeys = config.SimpleSecureStrings(apiKeys...)
+	} else if mc.APIKey != "" {
 		mc.ModelConfig.SetAPIKey(mc.APIKey)
 	}
 
@@ -741,7 +749,7 @@ func (h *Handler) handleAddModel(w http.ResponseWriter, r *http.Request) {
 	}
 	normalizeIncomingModelConfig(&mc.ModelConfig, defaultChainProvider(cfg))
 	apiKeyReused := false
-	if strings.TrimSpace(mc.APIKey) == "" {
+	if len(mc.ModelConfig.APIKeys) == 0 {
 		if key, reusedFrom, ok := findStoredAPIKeyForEndpoint(
 			cfg.ModelList,
 			mc.Provider,
@@ -783,6 +791,7 @@ func (h *Handler) handleAddModel(w http.ResponseWriter, r *http.Request) {
 		"status":         "ok",
 		"index":          len(cfg.ModelList) - 1,
 		"api_key_reused": apiKeyReused,
+		"api_key_count":  len(mc.ModelConfig.APIKeys.Values()),
 	})
 }
 
@@ -893,7 +902,9 @@ func (h *Handler) updateModel(
 
 	type custom struct {
 		config.ModelConfig
-		APIKey string `json:"api_key"`
+		APIKey      string   `json:"api_key"`
+		APIKeys     []string `json:"api_keys"`
+		APIKeysKeep []int    `json:"api_keys_keep"`
 	}
 
 	var mc custom
@@ -901,6 +912,8 @@ func (h *Handler) updateModel(
 		http.Error(w, fmt.Sprintf("Invalid JSON: %v", err), http.StatusBadRequest)
 		return
 	}
+	_, apiKeysProvided := rawFields["api_keys"]
+	_, apiKeysKeepProvided := rawFields["api_keys_keep"]
 
 	h.configMu.Lock()
 	defer h.configMu.Unlock()
@@ -923,13 +936,22 @@ func (h *Handler) updateModel(
 	}
 	oldModelName := strings.TrimSpace(cfg.ModelList[idx].ModelName)
 
-	// Preserve the existing API key when the caller omits it (empty string).
-	// This lets the UI update api_base / proxy without clearing the stored secret.
-	if mc.APIKey == "" {
-		mc.ModelConfig.SetAPIKey(cfg.ModelList[idx].APIKey())
-	} else {
-		mc.ModelConfig.SetAPIKey(mc.APIKey)
+	// Resolve the key list. Omitting both api_keys and api_keys_keep preserves
+	// every stored key so unrelated edits never drop failover credentials.
+	existingKeys := cfg.ModelList[idx].APIKeys.Values()
+	nextKeys, keyErr := resolveUpdatedAPIKeys(
+		mc.APIKey,
+		mc.APIKeys,
+		mc.APIKeysKeep,
+		apiKeysKeepProvided,
+		apiKeysProvided,
+		existingKeys,
+	)
+	if keyErr != nil {
+		http.Error(w, fmt.Sprintf("Validation error: %v", keyErr), http.StatusBadRequest)
+		return
 	}
+	mc.ModelConfig.APIKeys = config.SimpleSecureStrings(nextKeys...)
 	// Preserve existing ExtraBody when omitted (nil), but clear it when
 	// the frontend sends an empty object {} to indicate the field should
 	// be removed.
@@ -1312,6 +1334,88 @@ func maskAPIKey(key string) string {
 
 	// Show first 3 chars and last 4 chars
 	return key[:3] + "****" + key[len(key)-4:]
+}
+
+// maskAPIKeyList masks every stored key. Plaintext keys never leave the
+// launcher through the models API.
+func maskAPIKeyList(keys []string) []string {
+	if len(keys) == 0 {
+		return nil
+	}
+	masked := make([]string, 0, len(keys))
+	for _, key := range keys {
+		key = strings.TrimSpace(key)
+		if key == "" {
+			continue
+		}
+		masked = append(masked, maskAPIKey(key))
+	}
+	return masked
+}
+
+// normalizeAPIKeyList trims, drops empty values and removes duplicates while
+// preserving first-seen order.
+func normalizeAPIKeyList(keys []string) []string {
+	if len(keys) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(keys))
+	normalized := make([]string, 0, len(keys))
+	for _, key := range keys {
+		key = strings.TrimSpace(key)
+		if key == "" {
+			continue
+		}
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		normalized = append(normalized, key)
+	}
+	return normalized
+}
+
+// resolveUpdatedAPIKeys applies the multi-key update contract:
+//   - api_keys_keep present: start from those stored indexes and append api_keys
+//   - api_keys present without keep: replace the full list with api_keys
+//   - only api_key: replace the list with one key
+//   - none: preserve the existing list
+func resolveUpdatedAPIKeys(
+	legacyKey string,
+	newKeys []string,
+	keepIndexes []int,
+	keepProvided bool,
+	newKeysProvided bool,
+	existing []string,
+) ([]string, error) {
+	if keepProvided || newKeysProvided {
+		var base []string
+		if keepProvided {
+			selected, err := selectAPIKeys(existing, keepIndexes)
+			if err != nil {
+				return nil, err
+			}
+			base = selected
+		}
+		combined := append(append([]string(nil), base...), normalizeAPIKeyList(newKeys)...)
+		return normalizeAPIKeyList(combined), nil
+	}
+	if trimmed := strings.TrimSpace(legacyKey); trimmed != "" {
+		return []string{trimmed}, nil
+	}
+	return append([]string(nil), existing...), nil
+}
+
+// selectAPIKeys returns the stored keys at the requested indexes.
+func selectAPIKeys(keys []string, indexes []int) ([]string, error) {
+	selected := make([]string, 0, len(indexes))
+	for _, idx := range indexes {
+		if idx < 0 || idx >= len(keys) {
+			return nil, fmt.Errorf("api key index %d out of range (0-%d)", idx, len(keys)-1)
+		}
+		selected = append(selected, keys[idx])
+	}
+	return selected, nil
 }
 
 // handleFetchModels fetches available models from an upstream provider.

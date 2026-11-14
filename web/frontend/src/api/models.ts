@@ -10,6 +10,10 @@ export interface ModelInfo {
   model: string
   api_base?: string
   api_key: string
+  api_keys?: string[]
+  api_key_count?: number
+  // Update-only: indexes of stored keys to keep while api_keys appends new ones.
+  api_keys_keep?: number[]
   proxy?: string
   auth_method?: string
   // Advanced fields

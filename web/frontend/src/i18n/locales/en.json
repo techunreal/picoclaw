@@ -333,8 +333,11 @@
       "selectProviderFirst": "Select a provider first",
       "apiBase": "API Base URL",
       "apiKey": "API Key",
+      "apiKeys": "API Keys",
       "apiKeyPlaceholder": "Enter your API key",
       "apiKeyPlaceholderSet": "Leave blank to keep existing key",
+      "addAPIKey": "Add another key",
+      "removeAPIKey": "Remove key",
       "proxy": "HTTP Proxy",
       "proxyHint": "Optional. e.g. http://127.0.0.1:7890",
       "authMethod": "Auth Method",
@@ -366,6 +369,8 @@
     "edit": {
       "title": "Configure {{name}}",
       "apiKeyHint": "A key is already set. Leave blank to keep it unchanged.",
+      "apiKeysHint": "Only masked values are shown. Removed keys are deleted when you save.",
+      "noAPIKeys": "No API keys configured.",
       "oauthNote": "This provider uses OAuth — no API key required.",
       "saveError": "Failed to save",
       "saveSuccess": "Model configuration saved."
