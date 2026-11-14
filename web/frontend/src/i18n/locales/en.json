@@ -14,7 +14,8 @@
     "show_more_channels": "More",
     "show_less_channels": "Less",
     "config": "Config",
-    "logs": "Logs"
+    "logs": "Logs",
+    "cron": "Scheduled Tasks"
   },
   "launcherLogin": {
     "title": "Sign in",
@@ -1200,5 +1201,86 @@
       "title": "View Documentation",
       "description": "Need more help? Click the documentation button in the top right corner to view detailed guides and configuration docs."
     }
+  },
+  "cron": {
+    "newTask": "New task",
+    "refresh": "Refresh",
+    "loading": "Loading scheduled tasks…",
+    "loadFailed": "Could not load scheduled tasks.",
+    "emptyTitle": "No scheduled tasks yet",
+    "emptyDescription": "Create a task to run an agent prompt on a schedule, or ask the agent to schedule one for you.",
+    "createTitle": "New scheduled task",
+    "editTitle": "Edit scheduled task",
+    "dialogDescription": "The agent receives the prompt when the task runs.",
+    "save": "Save",
+    "saving": "Saving…",
+    "cancel": "Cancel",
+    "saved": "Scheduled task saved.",
+    "saveFailed": "Could not save the scheduled task.",
+    "updateFailed": "Could not update the scheduled task.",
+    "runNow": "Run now",
+    "runQueued": "Task queued. Status will update shortly.",
+    "runFailed": "Could not run the task.",
+    "edit": "Edit",
+    "delete": "Delete",
+    "deleting": "Deleting…",
+    "deleted": "Scheduled task deleted.",
+    "deleteFailed": "Could not delete the scheduled task.",
+    "deleteTitle": "Delete scheduled task?",
+    "deleteDescription": "\"{{name}}\" will be removed permanently.",
+    "toggle": "Enable or disable task",
+    "enabledToast": "Task enabled.",
+    "disabledToast": "Task disabled.",
+    "nextRun": "Next run",
+    "lastRun": "Last run",
+    "updated": "Updated",
+    "never": "Never",
+    "messageRequired": "Enter the prompt to send when the task runs.",
+    "scheduleInvalid": "Choose a valid schedule.",
+    "scheduleMustBeFuture": "The one-time schedule must be in the future.",
+    "scheduleUnknown": "Custom schedule",
+    "scheduleOnce": "Once, {{time}}",
+    "scheduleEveryMinutes": "Every {{count}} minute(s)",
+    "scheduleEveryHours": "Every {{count}} hour(s)",
+    "scheduleDaily": "Daily at {{time}}",
+    "scheduleCron": "Cron: {{expr}}",
+    "scheduleCronHint": "Cron expression: {{expr}}",
+    "field": {
+      "name": "Name",
+      "namePlaceholder": "Morning summary",
+      "message": "Prompt",
+      "messagePlaceholder": "What should the agent do?",
+      "messageHint": "The agent runs this prompt with its normal tools and model.",
+      "schedule": "Schedule",
+      "time": "Time",
+      "interval": "Repeat every",
+      "unit": "Unit",
+      "onceAt": "Run once at",
+      "cronExpr": "Cron expression",
+      "cronExprHint": "Five fields: minute hour day-of-month month day-of-week.",
+      "advanced": "Advanced delivery",
+      "channel": "Channel",
+      "target": "Target",
+      "targetHint": "Leave empty for local execution (cli/direct)."
+    },
+    "preset": {
+      "daily": "Daily at a time",
+      "interval": "Repeat on an interval",
+      "once": "Run once",
+      "cron": "Custom cron expression"
+    },
+    "unit": {
+      "minutes": "Minutes",
+      "hours": "Hours"
+    },
+    "status": {
+      "enabled": "Enabled",
+      "disabled": "Disabled",
+      "lastRunOk": "Last run OK",
+      "lastRunFailed": "Last run failed",
+      "command": "Command"
+    },
+    "schedulerStoppedHint": "The scheduler is not running. Start the gateway to let tasks run.",
+    "toolDisabledHint": "The cron tool is disabled in Tools. Tasks are saved but will not run until you enable it."
   }
 }
