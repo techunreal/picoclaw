@@ -114,23 +114,35 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   return res.json() as Promise<T>
 }
 
-function filePath(id: string): string {
-  return `/api/agent/files/${encodeURIComponent(id)}`
+function withAgent(path: string, agent?: string): string {
+  if (!agent) return path
+  const separator = path.includes("?") ? "&" : "?"
+  return `${path}${separator}agent=${encodeURIComponent(agent)}`
 }
 
-export async function listAgentFiles(): Promise<AgentFileListResponse> {
-  return request<AgentFileListResponse>("/api/agent/files")
+function filePath(id: string, agent?: string): string {
+  return withAgent(`/api/agent/files/${encodeURIComponent(id)}`, agent)
 }
 
-export async function getAgentFile(id: string): Promise<AgentFileDetail> {
-  return request<AgentFileDetail>(filePath(id))
+export async function listAgentFiles(
+  agent?: string,
+): Promise<AgentFileListResponse> {
+  return request<AgentFileListResponse>(withAgent("/api/agent/files", agent))
+}
+
+export async function getAgentFile(
+  id: string,
+  agent?: string,
+): Promise<AgentFileDetail> {
+  return request<AgentFileDetail>(filePath(id, agent))
 }
 
 export async function saveAgentFile(
   id: string,
   input: AgentFileWriteRequest,
+  agent?: string,
 ): Promise<AgentFileWriteResponse> {
-  return request<AgentFileWriteResponse>(filePath(id), {
+  return request<AgentFileWriteResponse>(filePath(id, agent), {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(input),
@@ -139,24 +151,29 @@ export async function saveAgentFile(
 
 export async function getAgentFileHistory(
   id: string,
+  agent?: string,
 ): Promise<AgentFileHistoryResponse> {
-  return request<AgentFileHistoryResponse>(`${filePath(id)}/history`)
+  return request<AgentFileHistoryResponse>(
+    `${filePath(id, agent)}/history`,
+  )
 }
 
 export async function getAgentFileHistoryContent(
   id: string,
   revision: string,
+  agent?: string,
 ): Promise<AgentFileHistoryContentResponse> {
   return request<AgentFileHistoryContentResponse>(
-    `${filePath(id)}/history/${encodeURIComponent(revision)}`,
+    `${filePath(id, agent)}/history/${encodeURIComponent(revision)}`,
   )
 }
 
 export async function restoreAgentFile(
   id: string,
   revision: string,
+  agent?: string,
 ): Promise<AgentFileWriteResponse> {
-  return request<AgentFileWriteResponse>(`${filePath(id)}/restore`, {
+  return request<AgentFileWriteResponse>(`${filePath(id, agent)}/restore`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ revision }),

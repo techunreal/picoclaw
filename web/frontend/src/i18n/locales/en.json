@@ -220,6 +220,7 @@
     "defaultBadge": "Default",
     "noName": "No display name",
     "edit": "Edit",
+    "openFiles": "Files",
     "delete": "Delete",
     "deleteTitle": "Delete agent \"{{id}}\"?",
     "deleteDescription": "The workspace and its files are not deleted. Routing rules targeting this agent will be removed ({{count}}).",
@@ -852,6 +853,9 @@
         "restart_warning_confirm": "Save anyway",
         "restart_warning_inline": "The AGENT.md frontmatter changed. Restart the gateway after saving to apply it.",
         "restart_warning_toast": "AGENT.md frontmatter changed. Restart the gateway to apply it.",
+        "agent_badge": "Agent: {{agent}}",
+        "select_agent": "Agent workspace",
+        "default_agent": "Default workspace",
         "groups": {
           "identity": "Identity",
           "memory": "Memory",

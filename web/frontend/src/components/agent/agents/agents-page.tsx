@@ -10,6 +10,7 @@ import {
 } from "@tabler/icons-react"
 import { useState } from "react"
 import { useTranslation } from "react-i18next"
+import { Link } from "@tanstack/react-router"
 
 import type { AgentView, DispatchRule } from "@/api/agents"
 import { AgentEditDialog } from "@/components/agent/agents/agent-edit-dialog"
@@ -151,6 +152,16 @@ export function AgentsPage() {
             </div>
           )}
 
+          {listQuery.data?.warnings?.map((warning) => (
+            <div
+              key={warning}
+              className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-300"
+            >
+              <IconAlertTriangle className="mt-0.5 size-4 shrink-0" />
+              <span>{warning}</span>
+            </div>
+          ))}
+
           {listQuery.isLoading && (
             <div className="text-muted-foreground py-16 text-center text-sm">
               {t("agents.loading")}
@@ -202,6 +213,14 @@ export function AgentsPage() {
                         </p>
                       </div>
                       <div className="flex items-center gap-1">
+                        <Button asChild variant="ghost" size="sm">
+                          <Link
+                            to="/agent/files"
+                            search={{ agent: selectedAgent.id }}
+                          >
+                            {t("agents.openFiles")}
+                          </Link>
+                        </Button>
                         <Button
                           type="button"
                           variant="ghost"

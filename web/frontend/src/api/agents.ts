@@ -59,6 +59,7 @@ export interface AgentsResponse {
   defaults: AgentDefaults
   dispatch?: DispatchConfig
   implicit: boolean
+  warnings?: string[]
 }
 
 export class AgentApiError extends Error {

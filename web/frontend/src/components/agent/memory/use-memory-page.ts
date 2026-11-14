@@ -28,8 +28,10 @@ export interface MemoryEditorState {
 }
 
 const listKey = ["agent-files", "list"] as const
-const detailKey = (id: string) => ["agent-files", "detail", id] as const
-const historyKey = (id: string) => ["agent-files", "history", id] as const
+const detailKey = (id: string, agent?: string) =>
+  ["agent-files", "detail", agent ?? "", id] as const
+const historyKey = (id: string, agent?: string) =>
+  ["agent-files", "history", agent ?? "", id] as const
 
 interface WriteVariables {
   id: string
@@ -63,7 +65,7 @@ function toEditorState(detail: AgentFileDetail): MemoryEditorState {
   }
 }
 
-export function useMemoryPage() {
+export function useMemoryPage(agentId?: string) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
 
@@ -75,9 +77,17 @@ export function useMemoryPage() {
   const [conflictOpen, setConflictOpen] = useState(false)
   const [restartWarningOpen, setRestartWarningOpen] = useState(false)
 
+  useEffect(() => {
+    setSelectedId(null)
+    setEditor(null)
+    setHistoryOpen(false)
+    setHistoryTargetId(null)
+    setConflictOpen(false)
+  }, [agentId])
+
   const listQuery = useQuery({
-    queryKey: listKey,
-    queryFn: listAgentFiles,
+    queryKey: [...listKey, agentId ?? ""],
+    queryFn: () => listAgentFiles(agentId),
   })
 
   const files = useMemo(
@@ -106,8 +116,8 @@ export function useMemoryPage() {
   }, [files, selectedId])
 
   const detailQuery = useQuery({
-    queryKey: detailKey(selectedId ?? ""),
-    queryFn: () => getAgentFile(selectedId as string),
+    queryKey: detailKey(selectedId ?? "", agentId),
+    queryFn: () => getAgentFile(selectedId as string, agentId),
     enabled: selectedId !== null,
   })
 
@@ -132,16 +142,22 @@ export function useMemoryPage() {
 
   const writeMutation = useMutation({
     mutationFn: (variables: WriteVariables) =>
-      saveAgentFile(variables.id, {
-        content: variables.content,
-        revision: variables.revision,
-      }),
+      saveAgentFile(
+        variables.id,
+        {
+          content: variables.content,
+          revision: variables.revision,
+        },
+        agentId,
+      ),
     onSuccess: (response, variables) => {
       const cached = queryClient.getQueryData<AgentFileDetail>(
-        detailKey(variables.id),
+        detailKey(variables.id, agentId),
       )
       if (cached) {
-        queryClient.setQueryData<AgentFileDetail>(detailKey(variables.id), {
+        queryClient.setQueryData<AgentFileDetail>(
+          detailKey(variables.id, agentId),
+          {
           ...cached,
           content: variables.content,
           revision: response.revision,
@@ -189,10 +205,14 @@ export function useMemoryPage() {
 
   const createMutation = useMutation({
     mutationFn: (variables: { item: AgentFileItem; content: string }) =>
-      saveAgentFile(variables.item.id, {
-        content: variables.content,
-        revision: "",
-      }),
+      saveAgentFile(
+        variables.item.id,
+        {
+          content: variables.content,
+          revision: "",
+        },
+        agentId,
+      ),
     onSuccess: (response, variables) => {
       const detail: AgentFileDetail = {
         ...variables.item,
@@ -203,7 +223,7 @@ export function useMemoryPage() {
         modified_at: response.modified_at,
       }
       queryClient.setQueryData<AgentFileDetail>(
-        detailKey(variables.item.id),
+        detailKey(variables.item.id, agentId),
         detail,
       )
       setEditor(toEditorState(detail))
@@ -222,7 +242,7 @@ export function useMemoryPage() {
 
   const restoreMutation = useMutation({
     mutationFn: (variables: RestoreVariables) =>
-      restoreAgentFile(variables.id, variables.revision),
+      restoreAgentFile(variables.id, variables.revision, agentId),
     onSuccess: (_response, variables) => {
       setHistoryOpen(false)
       toast.success(
@@ -232,12 +252,12 @@ export function useMemoryPage() {
       )
       void queryClient.invalidateQueries({ queryKey: ["agent-files", "list"] })
       void queryClient.invalidateQueries({
-        queryKey: historyKey(variables.id),
+        queryKey: historyKey(variables.id, agentId),
       })
-      void getAgentFile(variables.id)
+      void getAgentFile(variables.id, agentId)
         .then((detail) => {
           queryClient.setQueryData<AgentFileDetail>(
-            detailKey(variables.id),
+            detailKey(variables.id, agentId),
             detail,
           )
           setEditor((previous) =>
@@ -260,8 +280,8 @@ export function useMemoryPage() {
   })
 
   const historyQuery = useQuery({
-    queryKey: historyKey(historyTargetId ?? ""),
-    queryFn: () => getAgentFileHistory(historyTargetId as string),
+    queryKey: historyKey(historyTargetId ?? "", agentId),
+    queryFn: () => getAgentFileHistory(historyTargetId as string, agentId),
     enabled: historyOpen && historyTargetId !== null,
   })
 
@@ -324,9 +344,9 @@ export function useMemoryPage() {
       return
     }
     const id = editor.id
-    void getAgentFile(id)
+    void getAgentFile(id, agentId)
       .then((detail) => {
-        queryClient.setQueryData<AgentFileDetail>(detailKey(id), detail)
+        queryClient.setQueryData<AgentFileDetail>(detailKey(id, agentId), detail)
         setEditor(toEditorState(detail))
         setConflictOpen(false)
         toast.success(t("pages.agent.memory.reload_success"))
@@ -345,7 +365,7 @@ export function useMemoryPage() {
       return
     }
     const id = editor.id
-    void getAgentFile(id)
+    void getAgentFile(id, agentId)
       .then((latest) => {
         setConflictOpen(false)
         performSave(latest.exists ? latest.revision : "")

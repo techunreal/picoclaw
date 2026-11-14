@@ -1,6 +1,10 @@
+import { useQuery } from "@tanstack/react-query"
+import { useNavigate } from "@tanstack/react-router"
 import { useTranslation } from "react-i18next"
 
+import { getAgents } from "@/api/agents"
 import { PageHeader } from "@/components/page-header"
+import { Badge } from "@/components/ui/badge"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -20,8 +24,11 @@ import { MemoryAutoWriteSwitch } from "./memory-auto-write-switch"
 import { MemoryMasterSwitch } from "./memory-master-switch"
 import { useMemoryPage } from "./use-memory-page"
 
-export function MemoryPage() {
+export function MemoryPage({ agentId }: { agentId?: string }) {
   const { t } = useTranslation()
+  const navigate = useNavigate()
+  const agentsQuery = useQuery({ queryKey: ["agents"], queryFn: getAgents })
+  const agentOptions = agentsQuery.data?.agents ?? []
   const {
     groups,
     selectedItem,
@@ -54,7 +61,7 @@ export function MemoryPage() {
     handleOpenHistory,
     handleCreate,
     handleRestore,
-  } = useMemoryPage()
+  } = useMemoryPage(agentId)
 
   const selectedId = editor?.id ?? selectedItem?.id ?? null
   const selectedName = selectedItem ? agentFileLabel(selectedItem, t) : ""
@@ -62,6 +69,35 @@ export function MemoryPage() {
   return (
     <div className="flex h-full flex-col">
       <PageHeader title={t("navigation.memory")}>
+        <div className="flex items-center gap-2">
+          {agentId && (
+            <Badge variant="secondary" className="font-mono">
+              {t("pages.agent.memory.agent_badge", { agent: agentId })}
+            </Badge>
+          )}
+          <label htmlFor="memory-agent" className="sr-only">
+            {t("pages.agent.memory.select_agent")}
+          </label>
+          <select
+            id="memory-agent"
+            value={agentId ?? ""}
+            onChange={(event) =>
+              void navigate({
+                to: "/agent/files",
+                search: { agent: event.target.value || undefined },
+              })
+            }
+            className="border-input bg-background h-9 rounded-md border px-3 text-sm shadow-xs"
+            aria-label={t("pages.agent.memory.select_agent")}
+          >
+            <option value="">{t("pages.agent.memory.default_agent")}</option>
+            {agentOptions.map((agent) => (
+              <option key={agent.id} value={agent.id}>
+                {agent.name ? `${agent.id} — ${agent.name}` : agent.id}
+              </option>
+            ))}
+          </select>
+        </div>
         <MemoryAutoWriteSwitch />
         <MemoryMasterSwitch />
       </PageHeader>
