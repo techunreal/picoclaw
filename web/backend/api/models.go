@@ -52,16 +52,19 @@ type modelResponse struct {
 	Proxy       string   `json:"proxy,omitempty"`
 	AuthMethod  string   `json:"auth_method,omitempty"`
 	// Advanced fields
-	ConnectMode         string                      `json:"connect_mode,omitempty"`
-	Workspace           string                      `json:"workspace,omitempty"`
-	RPM                 int                         `json:"rpm,omitempty"`
-	MaxTokensField      string                      `json:"max_tokens_field,omitempty"`
-	RequestTimeout      int                         `json:"request_timeout,omitempty"`
-	ThinkingLevel       string                      `json:"thinking_level,omitempty"`
-	ToolSchemaTransform string                      `json:"tool_schema_transform,omitempty"`
-	Streaming           config.ModelStreamingConfig `json:"streaming,omitempty"`
-	ExtraBody           map[string]any              `json:"extra_body,omitempty"`
-	CustomHeaders       map[string]string           `json:"custom_headers,omitempty"`
+	ConnectMode          string                      `json:"connect_mode,omitempty"`
+	Workspace            string                      `json:"workspace,omitempty"`
+	RPM                  int                         `json:"rpm,omitempty"`
+	MaxTokensField       string                      `json:"max_tokens_field,omitempty"`
+	RequestTimeout       int                         `json:"request_timeout,omitempty"`
+	ThinkingLevel        string                      `json:"thinking_level,omitempty"`
+	ToolSchemaTransform  string                      `json:"tool_schema_transform,omitempty"`
+	Streaming            config.ModelStreamingConfig `json:"streaming,omitempty"`
+	ExtraBody            map[string]any              `json:"extra_body,omitempty"`
+	CustomHeaders        map[string]string           `json:"custom_headers,omitempty"`
+	InputCostPerMTokens  float64                     `json:"input_cost_per_million,omitempty"`
+	OutputCostPerMTokens float64                     `json:"output_cost_per_million,omitempty"`
+	Currency             string                      `json:"currency,omitempty"`
 	// Meta
 	Enabled             bool   `json:"enabled"`
 	Available           bool   `json:"available"`
@@ -656,32 +659,35 @@ func (h *Handler) handleListModels(w http.ResponseWriter, r *http.Request) {
 		provider, modelID := providers.ExtractProtocol(m)
 		maskedKeys := maskAPIKeyList(m.APIKeys.Values())
 		models = append(models, modelResponse{
-			Index:               i,
-			ModelName:           m.ModelName,
-			Provider:            provider,
-			Model:               modelID,
-			APIBase:             m.APIBase,
-			APIKey:              maskAPIKey(m.APIKey()),
-			APIKeys:             maskedKeys,
-			APIKeyCount:         len(maskedKeys),
-			Proxy:               m.Proxy,
-			AuthMethod:          m.AuthMethod,
-			ConnectMode:         m.ConnectMode,
-			Workspace:           m.Workspace,
-			RPM:                 m.RPM,
-			MaxTokensField:      m.MaxTokensField,
-			RequestTimeout:      m.RequestTimeout,
-			ThinkingLevel:       m.ThinkingLevel,
-			ToolSchemaTransform: m.ToolSchemaTransform,
-			Streaming:           m.Streaming,
-			ExtraBody:           m.ExtraBody,
-			CustomHeaders:       m.CustomHeaders,
-			Enabled:             !m.Disabled,
-			Available:           modelStatuses[i].Available,
-			Status:              modelStatuses[i].Status,
-			IsDefault:           m.ModelName == defaultModel,
-			IsVirtual:           m.IsVirtual(),
-			DefaultModelAllowed: defaultModelAllowedForModelConfig(m, defaultChainProvider(cfg)),
+			Index:                i,
+			ModelName:            m.ModelName,
+			Provider:             provider,
+			Model:                modelID,
+			APIBase:              m.APIBase,
+			APIKey:               maskAPIKey(m.APIKey()),
+			APIKeys:              maskedKeys,
+			APIKeyCount:          len(maskedKeys),
+			Proxy:                m.Proxy,
+			AuthMethod:           m.AuthMethod,
+			ConnectMode:          m.ConnectMode,
+			Workspace:            m.Workspace,
+			RPM:                  m.RPM,
+			MaxTokensField:       m.MaxTokensField,
+			RequestTimeout:       m.RequestTimeout,
+			ThinkingLevel:        m.ThinkingLevel,
+			ToolSchemaTransform:  m.ToolSchemaTransform,
+			Streaming:            m.Streaming,
+			ExtraBody:            m.ExtraBody,
+			CustomHeaders:        m.CustomHeaders,
+			InputCostPerMTokens:  m.InputCostPerMTokens,
+			OutputCostPerMTokens: m.OutputCostPerMTokens,
+			Currency:             m.Currency,
+			Enabled:              !m.Disabled,
+			Available:            modelStatuses[i].Available,
+			Status:               modelStatuses[i].Status,
+			IsDefault:            m.ModelName == defaultModel,
+			IsVirtual:            m.IsVirtual(),
+			DefaultModelAllowed:  defaultModelAllowedForModelConfig(m, defaultChainProvider(cfg)),
 		})
 	}
 
@@ -994,6 +1000,15 @@ func (h *Handler) updateModel(
 	}
 	if _, ok := rawFields["streaming"]; !ok {
 		mc.Streaming = cfg.ModelList[idx].Streaming
+	}
+	if _, ok := rawFields["input_cost_per_million"]; !ok {
+		mc.InputCostPerMTokens = cfg.ModelList[idx].InputCostPerMTokens
+	}
+	if _, ok := rawFields["output_cost_per_million"]; !ok {
+		mc.OutputCostPerMTokens = cfg.ModelList[idx].OutputCostPerMTokens
+	}
+	if _, ok := rawFields["currency"]; !ok {
+		mc.Currency = cfg.ModelList[idx].Currency
 	}
 	// Preserve the existing Provider when the caller omits it. This keeps the
 	// update API backward-compatible for clients that haven't started sending

@@ -74,6 +74,7 @@ func NewAgentLoop(
 		steering:          newSteeringQueue(parseSteeringMode(cfg.Agents.Defaults.SteeringMode)),
 		workerSem:         make(chan struct{}, workerPoolSize),
 		subagentRuns:      newSubagentMonitor(),
+		usage:             newUsageStore(),
 		ownsRuntimeEvents: true,
 	}
 	for _, opt := range opts {

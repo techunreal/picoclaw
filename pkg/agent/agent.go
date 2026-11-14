@@ -69,6 +69,7 @@ type AgentLoop struct {
 	activeTurnStates sync.Map
 	subTurnCounter   atomic.Int64
 	subagentRuns     *subagentMonitor
+	usage            *usageStore
 
 	turnSeq atomic.Uint64
 

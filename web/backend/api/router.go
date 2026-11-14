@@ -105,6 +105,9 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	// Subagent monitor proxy
 	h.registerSubagentRoutes(mux)
 
+	// Runtime token usage proxy
+	h.registerUsageRoutes(mux)
+
 	// Backup export / inspect / restore
 	h.registerBackupRoutes(mux)
 

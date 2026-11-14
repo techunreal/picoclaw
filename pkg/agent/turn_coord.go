@@ -237,6 +237,23 @@ func (al *AgentLoop) runTurn(ctx context.Context, ts *turnState, pipeline *Pipel
 
 		if exec.response != nil && exec.response.Usage != nil && exec.response.Usage.TotalTokens > 0 {
 			totalTokens := ts.addLLMTokens(exec.response.Usage.TotalTokens)
+			modelName := exec.llmModelName
+			if modelName == "" {
+				modelName = exec.llmModel
+			}
+			if modelName == "" && ts.agent != nil {
+				modelName = ts.agent.Model
+			}
+			al.usage.Record(
+				ts.agentID,
+				ts.sessionKey,
+				ts.channel,
+				ts.chatID,
+				modelName,
+				exec.response.Usage.PromptTokens,
+				exec.response.Usage.CompletionTokens,
+				exec.response.Usage.TotalTokens,
+			)
 			if totalTokens > maxTurnTokens {
 				logger.WarnCF("agent", "Turn stopped after exceeding token budget",
 					map[string]any{

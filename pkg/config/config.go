@@ -849,6 +849,13 @@ type ModelConfig struct {
 	ExtraBody           map[string]any       `json:"extra_body,omitempty"`            // Additional fields to inject into request body
 	CustomHeaders       map[string]string    `json:"custom_headers,omitempty"`        // Additional headers to inject into every HTTP request
 
+	// Optional pricing for the usage/cost panel. Values are per one million
+	// tokens; when both are zero the model is reported without an estimated
+	// cost. Currency defaults to USD.
+	InputCostPerMTokens  float64 `json:"input_cost_per_million,omitempty"`
+	OutputCostPerMTokens float64 `json:"output_cost_per_million,omitempty"`
+	Currency             string  `json:"currency,omitempty"`
+
 	APIKeys SecureStrings `json:"api_keys,omitzero" yaml:"api_keys,omitempty"` // API authentication keys (multiple keys for failover)
 
 	// Enabled indicates whether this model entry is active. When omitted in
