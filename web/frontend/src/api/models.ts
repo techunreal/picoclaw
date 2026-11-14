@@ -76,6 +76,8 @@ export interface ModelActionResponse {
   status: string
   index?: number
   default_model?: string
+  fallback_chain?: string[]
+  enabled?: boolean
   reference_rename?: ModelReferenceRename
   api_key_reused?: boolean
 }
@@ -155,6 +157,20 @@ export async function deleteModelByName(
     `/api/models/by-name/${encodeURIComponent(modelName)}`,
     {
       method: "DELETE",
+    },
+  )
+}
+
+export async function setModelEnabled(
+  modelName: string,
+  enabled: boolean,
+): Promise<ModelActionResponse> {
+  return request<ModelActionResponse>(
+    `/api/models/enabled/${encodeURIComponent(modelName)}`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ enabled }),
     },
   )
 }

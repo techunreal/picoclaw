@@ -19,6 +19,24 @@ func TestModelNameFromIdentityKey_PreservesNonLegacyIdentity(t *testing.T) {
 	}
 }
 
+func TestResolveModelCandidates_SkipsDisabledModel(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.ModelList = []*config.ModelConfig{
+		{
+			ModelName: "disabled-model",
+			Provider:  "openai",
+			Model:     "gpt-4o-mini",
+			APIKeys:   config.SimpleSecureStrings("sk-test"),
+			Disabled:  true,
+		},
+	}
+
+	candidates := resolveModelCandidates(cfg, "openai", "disabled-model", nil)
+	if len(candidates) != 0 {
+		t.Fatalf("resolveModelCandidates() = %#v, want disabled model skipped", candidates)
+	}
+}
+
 func TestModelAliasFromCandidateIdentityKey(t *testing.T) {
 	if got := modelAliasFromCandidateIdentityKey("model_name:primary"); got != "primary" {
 		t.Fatalf("modelAliasFromCandidateIdentityKey() = %q, want %q", got, "primary")

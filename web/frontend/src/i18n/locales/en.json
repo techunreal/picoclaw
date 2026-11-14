@@ -255,22 +255,30 @@
     },
     "badge": {
       "default": "Default",
-      "virtual": "Virtual"
+      "virtual": "Virtual",
+      "disabled": "Disabled"
     },
+    "enableLabel": "Enabled",
+    "toggleEnabledError": "Failed to update the model state",
+    "enabledToast": "\"{{name}}\" enabled.",
+    "disabledToast": "\"{{name}}\" disabled.",
     "action": {
       "edit": "Edit API key",
       "setDefault": "Set as default",
       "addToFallback": "Add to fallback chain",
       "removeFromFallback": "Remove from fallback chain",
       "delete": "Delete model",
+      "toggleEnabled": "Enable or disable model",
       "setDefaultDisabled": {
         "unavailable": "Cannot set unavailable model as default",
         "isDefault": "Already the default model",
         "isVirtual": "Cannot set virtual model as default",
+        "disabled": "Disabled models cannot be the default model.",
         "unsupportedProvider": "This provider cannot be used as the default chat model."
       },
       "addToFallbackDisabled": {
-        "isDefault": "Default model cannot be added to the fallback chain"
+        "isDefault": "Default model cannot be added to the fallback chain",
+        "disabled": "Disabled models cannot be added to the fallback chain."
       },
       "deleteDisabled": {
         "isDefault": "Cannot delete the default model"

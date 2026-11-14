@@ -109,6 +109,7 @@ export function useChatModels({ isConnected }: UseChatModelsOptions) {
     return [...modelsByAlias.values()].flatMap((entries) =>
       entries.every(
         (model) =>
+          model.enabled !== false &&
           model.default_model_allowed !== false &&
           model.is_virtual !== true &&
           model.status !== "unconfigured",

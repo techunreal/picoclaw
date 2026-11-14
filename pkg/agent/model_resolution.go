@@ -113,7 +113,7 @@ func candidateFromModelConfig(
 	defaultProvider string,
 	mc *config.ModelConfig,
 ) (providers.FallbackCandidate, bool) {
-	if mc == nil {
+	if mc == nil || mc.Disabled {
 		return providers.FallbackCandidate{}, false
 	}
 

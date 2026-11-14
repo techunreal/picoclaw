@@ -10,6 +10,7 @@ import { useTranslation } from "react-i18next"
 
 import type { ModelInfo } from "@/api/models"
 import { Button } from "@/components/ui/button"
+import { Switch } from "@/components/ui/switch"
 import {
   Tooltip,
   TooltipContent,
@@ -21,6 +22,7 @@ interface ModelCardProps {
   onEdit: (model: ModelInfo) => void
   onSetDefault: (model: ModelInfo) => void
   onToggleFallback: (model: ModelInfo) => void
+  onToggleEnabled: (model: ModelInfo) => void
   onDelete: (model: ModelInfo) => void
   inFallbackChain: boolean
   isDefault: boolean
@@ -34,6 +36,7 @@ export function ModelCard({
   onEdit,
   onSetDefault,
   onToggleFallback,
+  onToggleEnabled,
   onDelete,
   inFallbackChain,
   isDefault,
@@ -45,8 +48,10 @@ export function ModelCard({
   const isOAuth = model.auth_method === "oauth"
   const status = model.status
   const statusLabel = t(`models.status.${status}`)
-  const canSetDefault = model.available && !isDefault && defaultChainAllowed
+  const canSetDefault =
+    model.enabled && model.available && !isDefault && defaultChainAllowed
   const canUseInFallback =
+    model.enabled &&
     model.available &&
     !isDefault &&
     !fallbackDefaultConflict &&
@@ -54,6 +59,8 @@ export function ModelCard({
 
   const setDefaultLabel = t("models.action.setDefault")
   const setDefaultDisabledReason = (() => {
+    if (!model.enabled)
+      return t("models.action.setDefaultDisabled.disabled")
     if (!model.available)
       return t("models.action.setDefaultDisabled.unavailable")
     if (isDefault) return t("models.action.setDefaultDisabled.isDefault")
@@ -69,6 +76,8 @@ export function ModelCard({
     ? t("models.action.removeFromFallback")
     : t("models.action.addToFallback")
   const toggleFallbackDisabledReason = (() => {
+    if (!model.enabled)
+      return t("models.action.addToFallbackDisabled.disabled")
     if (!model.available)
       return t("models.action.setDefaultDisabled.unavailable")
     if (model.is_virtual) return t("models.action.setDefaultDisabled.isVirtual")
@@ -88,9 +97,11 @@ export function ModelCard({
     <div
       className={[
         "group/card hover:bg-muted/30 relative flex w-full max-w-[36rem] flex-col gap-3 justify-self-start rounded-xl border p-4 transition-colors hover:shadow-xs",
-        model.available
-          ? "border-border/60 bg-card"
-          : "border-border/50 bg-card/60",
+        !model.enabled
+          ? "border-border/40 bg-card/40 opacity-70"
+          : model.available
+            ? "border-border/60 bg-card"
+            : "border-border/50 bg-card/60",
       ].join(" ")}
     >
       <div className="flex items-start justify-between gap-2">
@@ -119,6 +130,11 @@ export function ModelCard({
           {model.is_virtual && (
             <span className="bg-muted text-muted-foreground shrink-0 rounded px-1.5 py-0.5 text-[10px] leading-none font-medium">
               {t("models.badge.virtual")}
+            </span>
+          )}
+          {!model.enabled && (
+            <span className="bg-destructive/10 text-destructive shrink-0 rounded px-1.5 py-0.5 text-[10px] leading-none font-medium">
+              {t("models.badge.disabled")}
             </span>
           )}
         </div>
@@ -245,6 +261,17 @@ export function ModelCard({
             {statusLabel}
           </span>
         )}
+        <div className="ml-auto flex items-center gap-1.5">
+          <span className="text-muted-foreground text-[11px]">
+            {t("models.enableLabel")}
+          </span>
+          <Switch
+            checked={model.enabled}
+            onCheckedChange={() => onToggleEnabled(model)}
+            disabled={model.is_virtual}
+            aria-label={t("models.action.toggleEnabled")}
+          />
+        </div>
       </div>
     </div>
   )

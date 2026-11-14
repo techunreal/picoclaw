@@ -13,6 +13,7 @@ interface ProviderSectionProps {
   onEdit: (model: ModelInfo) => void
   onSetDefault: (model: ModelInfo) => void
   onToggleFallback: (model: ModelInfo) => void
+  onToggleEnabled: (model: ModelInfo) => void
   onDelete: (model: ModelInfo) => void
   fallbackChain: string[]
   defaultModelName: string
@@ -27,6 +28,7 @@ export function ProviderSection({
   onEdit,
   onSetDefault,
   onToggleFallback,
+  onToggleEnabled,
   onDelete,
   fallbackChain,
   defaultModelName,
@@ -71,6 +73,7 @@ export function ProviderSection({
               onEdit={onEdit}
               onSetDefault={onSetDefault}
               onToggleFallback={onToggleFallback}
+              onToggleEnabled={onToggleEnabled}
               onDelete={onDelete}
               inFallbackChain={fallbackChain.includes(model.model_name)}
               isDefault={defaultModelName === model.model_name}

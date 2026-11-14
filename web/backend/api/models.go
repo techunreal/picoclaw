@@ -31,6 +31,7 @@ func (h *Handler) registerModelRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("PUT /api/models/default-chain", h.handleUpdateDefaultChain)
 	mux.HandleFunc("PUT /api/models/by-name/{name...}", h.handleUpdateModelByName)
 	mux.HandleFunc("DELETE /api/models/by-name/{name...}", h.handleDeleteModelByName)
+	mux.HandleFunc("PUT /api/models/enabled/{name...}", h.handleSetModelEnabled)
 	mux.HandleFunc("PUT /api/models/{index}", h.handleUpdateModel)
 	mux.HandleFunc("DELETE /api/models/{index}", h.handleDeleteModel)
 	mux.HandleFunc("POST /api/models/{index}/test", h.handleTestModel)
@@ -379,6 +380,12 @@ func validateDefaultChainModelSet(
 		return fmt.Errorf("fallback model %q not found in model_list", modelName)
 	}
 	for _, modelCfg := range models {
+		if modelCfg.Disabled {
+			if defaultContext {
+				return fmt.Errorf("model %q is disabled and cannot be used as the default chat model", modelName)
+			}
+			return fmt.Errorf("model %q is disabled and cannot be used in the fallback chain", modelName)
+		}
 		if modelCfg.IsVirtual() {
 			if defaultContext {
 				return fmt.Errorf("cannot set virtual model %q as default", modelName)
@@ -669,7 +676,7 @@ func (h *Handler) handleListModels(w http.ResponseWriter, r *http.Request) {
 			Streaming:           m.Streaming,
 			ExtraBody:           m.ExtraBody,
 			CustomHeaders:       m.CustomHeaders,
-			Enabled:             m.Enabled,
+			Enabled:             !m.Disabled,
 			Available:           modelStatuses[i].Available,
 			Status:              modelStatuses[i].Status,
 			IsDefault:           m.ModelName == defaultModel,
@@ -725,12 +732,16 @@ func (h *Handler) handleAddModel(w http.ResponseWriter, r *http.Request) {
 		config.ModelConfig
 		APIKey  string   `json:"api_key"`
 		APIKeys []string `json:"api_keys"`
+		Enabled *bool    `json:"enabled"`
 	}
 
 	var mc custom
 	if err = json.Unmarshal(body, &mc); err != nil {
 		http.Error(w, fmt.Sprintf("Invalid JSON: %v", err), http.StatusBadRequest)
 		return
+	}
+	if mc.Enabled != nil {
+		mc.ModelConfig.Disabled = !*mc.Enabled
 	}
 
 	if apiKeys := normalizeAPIKeyList(mc.APIKeys); len(apiKeys) > 0 {
@@ -905,6 +916,7 @@ func (h *Handler) updateModel(
 		APIKey      string   `json:"api_key"`
 		APIKeys     []string `json:"api_keys"`
 		APIKeysKeep []int    `json:"api_keys_keep"`
+		Enabled     *bool    `json:"enabled"`
 	}
 
 	var mc custom
@@ -914,6 +926,9 @@ func (h *Handler) updateModel(
 	}
 	_, apiKeysProvided := rawFields["api_keys"]
 	_, apiKeysKeepProvided := rawFields["api_keys_keep"]
+	if _, enabledProvided := rawFields["enabled"]; enabledProvided && mc.Enabled != nil {
+		mc.ModelConfig.Disabled = !*mc.Enabled
+	}
 
 	h.configMu.Lock()
 	defer h.configMu.Unlock()
@@ -938,6 +953,12 @@ func (h *Handler) updateModel(
 
 	// Resolve the key list. Omitting both api_keys and api_keys_keep preserves
 	// every stored key so unrelated edits never drop failover credentials.
+	if _, enabledProvided := rawFields["enabled"]; !enabledProvided {
+		if _, disabledProvided := rawFields["disabled"]; !disabledProvided {
+			mc.ModelConfig.Disabled = cfg.ModelList[idx].Disabled
+		}
+	}
+
 	existingKeys := cfg.ModelList[idx].APIKeys.Values()
 	nextKeys, keyErr := resolveUpdatedAPIKeys(
 		mc.APIKey,
@@ -1096,6 +1117,74 @@ func (h *Handler) handleDeleteModelByName(w http.ResponseWriter, r *http.Request
 	}
 	h.deleteModel(w, r, func(cfg *config.Config) (int, error) {
 		return resolveModelIndexByName(cfg, name)
+	})
+}
+
+// handleSetModelEnabled toggles whether a model participates in runtime
+// selection. Disabled models stay in model_list and the model list UI, but are
+// removed from the default/fallback chain and skipped by resolution.
+//
+//	PUT /api/models/enabled/{name}
+func (h *Handler) handleSetModelEnabled(w http.ResponseWriter, r *http.Request) {
+	name := strings.TrimSpace(r.PathValue("name"))
+	if name == "" {
+		http.Error(w, "model name is required", http.StatusBadRequest)
+		return
+	}
+
+	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	if err != nil {
+		http.Error(w, "Failed to read request body", http.StatusBadRequest)
+		return
+	}
+	defer r.Body.Close()
+
+	var req struct {
+		Enabled *bool `json:"enabled"`
+	}
+	if err = json.Unmarshal(body, &req); err != nil {
+		http.Error(w, fmt.Sprintf("Invalid JSON: %v", err), http.StatusBadRequest)
+		return
+	}
+	if req.Enabled == nil {
+		http.Error(w, "enabled is required", http.StatusBadRequest)
+		return
+	}
+
+	h.configMu.Lock()
+	defer h.configMu.Unlock()
+
+	cfg, err := config.LoadConfig(h.configPath)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to load config: %v", err), http.StatusInternalServerError)
+		return
+	}
+	normalizeStoredModelProviders(cfg)
+
+	idx, err := resolveModelIndexByName(cfg, name)
+	if err != nil {
+		writeModelResolutionError(w, err)
+		return
+	}
+	if cfg.ModelList[idx].IsVirtual() {
+		http.Error(w, "cannot change enabled state of a virtual model", http.StatusBadRequest)
+		return
+	}
+
+	cfg.ModelList[idx].Disabled = !*req.Enabled
+	normalizeDefaultChainReferences(cfg)
+
+	if err := config.SaveConfig(h.configPath, cfg); err != nil {
+		http.Error(w, fmt.Sprintf("Failed to save config: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{
+		"status":         "ok",
+		"enabled":        *req.Enabled,
+		"default_model":  cfg.Agents.Defaults.ModelName,
+		"fallback_chain": cfg.Agents.Defaults.ModelFallbacks,
 	})
 }
 

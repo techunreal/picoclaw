@@ -25,6 +25,9 @@ func ResolveModelConfig(cfg *config.Config, model string) (*config.ModelConfig, 
 		defaultProvider = "openai"
 	}
 	if modelCfg, err := cfg.GetModelConfig(model); err == nil && modelCfg != nil {
+		if modelCfg.Disabled {
+			return nil, fmt.Errorf("model %q is disabled", model)
+		}
 		return cloneResolvedModelConfig(modelCfg, defaultProvider), nil
 	}
 
@@ -45,7 +48,7 @@ func ResolveModelConfig(cfg *config.Config, model string) (*config.ModelConfig, 
 	var providerTemplate *config.ModelConfig
 	providerTemplateScore := -1
 	for _, candidate := range cfg.ModelList {
-		if candidate == nil || candidate.IsVirtual() {
+		if candidate == nil || candidate.IsVirtual() || candidate.Disabled {
 			continue
 		}
 		score := modelConfigTemplateScore(candidate, defaultProvider)

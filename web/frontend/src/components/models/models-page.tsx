@@ -20,6 +20,7 @@ import {
   type ModelProviderOption,
   type ModelReferenceRename,
   getModels,
+  setModelEnabled,
   updateDefaultChain,
 } from "@/api/models"
 import { ConfigChangeNotice } from "@/components/config-change-notice"
@@ -51,6 +52,7 @@ interface ProviderGroup {
 
 function modelEntryAllowedInDefaultChain(model: ModelInfo) {
   return (
+    model.enabled &&
     !model.is_virtual &&
     model.default_model_allowed !== false &&
     model.status !== "unconfigured"
@@ -727,6 +729,27 @@ export function ModelsPage() {
     )
   }
 
+  const handleToggleEnabled = async (model: ModelInfo) => {
+    if (model.is_virtual) return
+    const nextEnabled = !model.enabled
+    beginModelMutation()
+    try {
+      await setModelEnabled(model.model_name, nextEnabled)
+      await refreshGatewayState({ force: true })
+      toast.success(
+        nextEnabled
+          ? t("models.enabledToast", { name: model.model_name })
+          : t("models.disabledToast", { name: model.model_name }),
+      )
+    } catch (e) {
+      toast.error(
+        e instanceof Error ? e.message : t("models.toggleEnabledError"),
+      )
+    } finally {
+      finishModelMutation()
+    }
+  }
+
   const handleToggleFallback = (model: ModelInfo) => {
     const defaultIdentity = modelReferenceIdentity(
       defaultModelDraft,
@@ -1074,6 +1097,9 @@ export function ModelsPage() {
                 onEdit={setEditingModel}
                 onSetDefault={handleSetDefault}
                 onToggleFallback={handleToggleFallback}
+                onToggleEnabled={(model) => {
+                  void handleToggleEnabled(model)
+                }}
                 onDelete={setDeletingModel}
                 fallbackChain={fallbackChainDraft}
                 defaultModelName={defaultModelDraft}

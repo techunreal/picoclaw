@@ -846,6 +846,11 @@ type ModelConfig struct {
 	// existing configs, the field is inferred during load: models with API keys
 	// or the reserved "local-model" name are auto-enabled.
 	Enabled bool `json:"enabled,omitempty" yaml:"enabled,omitempty"`
+	// Disabled explicitly removes this model from runtime selection and from
+	// the default/fallback chains. It defaults to false so existing configs
+	// remain enabled without a config migration. The Web API exposes it as
+	// "enabled" (inverted) because that reads better in the UI.
+	Disabled bool `json:"disabled,omitempty" yaml:"disabled,omitempty"`
 	// UserAgent is the user agent string to use for HTTP requests.
 	UserAgent string `json:"user_agent,omitempty" yaml:"-"`
 
@@ -1850,6 +1855,8 @@ func expandMultiKeyModels(models []*ModelConfig) []*ModelConfig {
 				ExtraBody:           m.ExtraBody,
 				CustomHeaders:       m.CustomHeaders,
 				UserAgent:           m.UserAgent,
+				Enabled:             m.Enabled,
+				Disabled:            m.Disabled,
 				isVirtual:           true,
 			}
 			expanded = append(expanded, additionalEntry)
@@ -1875,6 +1882,8 @@ func expandMultiKeyModels(models []*ModelConfig) []*ModelConfig {
 			ExtraBody:           m.ExtraBody,
 			CustomHeaders:       m.CustomHeaders,
 			UserAgent:           m.UserAgent,
+			Enabled:             m.Enabled,
+			Disabled:            m.Disabled,
 			// Keep the full key list on the primary entry. Virtual __key_N
 			// entries exist only at runtime, so SaveConfig must still be able to
 			// persist every key. APIKey() continues to return the first key.
