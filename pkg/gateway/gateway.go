@@ -518,6 +518,7 @@ func setupAndStartServices(
 		cfg.Tools.IsToolEnabled("cron"),
 	)
 	registerBrowserApprovalAPI(runningServices.ChannelManager, authToken)
+	registerSubagentsAPI(runningServices.ChannelManager, agentLoop, authToken)
 
 	if err = runningServices.ChannelManager.StartAll(context.Background()); err != nil {
 		return nil, fmt.Errorf("error starting channels: %w", err)
@@ -735,6 +736,7 @@ func restartServices(
 		cfg.Tools.IsToolEnabled("cron"),
 	)
 	registerBrowserApprovalAPI(runningServices.ChannelManager, runningServices.authToken)
+	registerSubagentsAPI(runningServices.ChannelManager, al, runningServices.authToken)
 	fmt.Println("  ✓ Channels restarted.")
 
 	enabledChannels := runningServices.ChannelManager.GetEnabledChannels()

@@ -102,6 +102,9 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	// Scheduled task (cron) management proxy
 	h.registerCronRoutes(mux)
 
+	// Subagent monitor proxy
+	h.registerSubagentRoutes(mux)
+
 	// Backup export / inspect / restore
 	h.registerBackupRoutes(mux)
 
