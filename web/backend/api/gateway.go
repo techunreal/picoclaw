@@ -494,6 +494,15 @@ func computeConfigSignature(cfg *config.Config) string {
 	if len(subagentsDisabled) > 0 {
 		parts = append(parts, "subagents_disabled:"+strings.Join(subagentsDisabled, ","))
 	}
+	if agentSignature, err := json.Marshal(struct {
+		List     []config.AgentConfig   `json:"list"`
+		Dispatch *config.DispatchConfig `json:"dispatch,omitempty"`
+	}{
+		List:     cfg.Agents.List,
+		Dispatch: cfg.Agents.Dispatch,
+	}); err == nil {
+		parts = append(parts, "agents:"+string(agentSignature))
+	}
 	if cfg.Tools.I2C.Enabled {
 		toolSignatures = append(toolSignatures, "i2c")
 	}

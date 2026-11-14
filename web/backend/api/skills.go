@@ -178,7 +178,17 @@ func (h *Handler) handleListSkills(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	items, err := buildSkillSupportItems(cfg)
+	workspace := cfg.WorkspacePath()
+	if agentID := strings.TrimSpace(r.URL.Query().Get("agent")); agentID != "" {
+		resolved, err := resolveAgentWorkspaceForID(cfg, agentID)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		workspace = resolved
+	}
+
+	items, err := buildSkillSupportItemsForWorkspace(cfg, workspace)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to build skill list: %v", err), http.StatusInternalServerError)
 		return
@@ -1000,7 +1010,11 @@ func ensureSkillRegistryToolEnabled(cfg *config.Config, toolName string) error {
 }
 
 func buildSkillSupportItems(cfg *config.Config) ([]skillSupportItem, error) {
-	rawSkills := newSkillsLoader(cfg.WorkspacePath()).ListSkills()
+	return buildSkillSupportItemsForWorkspace(cfg, cfg.WorkspacePath())
+}
+
+func buildSkillSupportItemsForWorkspace(cfg *config.Config, workspace string) ([]skillSupportItem, error) {
+	rawSkills := newSkillsLoader(workspace).ListSkills()
 	items := make([]skillSupportItem, 0, len(rawSkills))
 	for _, skill := range rawSkills {
 		item, err := enrichSkillInfo(cfg, skill)

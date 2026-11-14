@@ -124,6 +124,9 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	// Agent memory/definition files
 	h.registerAgentFileRoutes(mux)
 
+	// Multi-agent configuration (list + dispatch)
+	h.registerAgentRoutes(mux)
+
 	// Memory prompt master switch
 	h.registerAgentMemoryRoutes(mux)
 

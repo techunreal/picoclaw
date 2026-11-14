@@ -201,9 +201,9 @@ func (r *AgentRegistry) workspaceForAgentIDLocked(agentID string) string {
 }
 
 func (r *AgentRegistry) defaultAgentIDLocked() string {
-	if _, ok := r.agents[routing.DefaultAgentID]; ok {
-		return routing.DefaultAgentID
-	}
+	// Match routing precedence: an explicit agents.list wins, default flag
+	// first, then the first list entry. Only fall back to the implicit main
+	// agent when no list is configured.
 	if r.cfg != nil && len(r.cfg.Agents.List) > 0 {
 		for _, agentCfg := range r.cfg.Agents.List {
 			if !agentCfg.Default {
@@ -218,6 +218,9 @@ func (r *AgentRegistry) defaultAgentIDLocked() string {
 		if _, ok := r.agents[id]; ok {
 			return id
 		}
+	}
+	if _, ok := r.agents[routing.DefaultAgentID]; ok {
+		return routing.DefaultAgentID
 	}
 	for id := range r.agents {
 		return id

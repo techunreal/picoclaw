@@ -1,0 +1,333 @@
+package api
+
+import (
+	"bytes"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"testing"
+
+	"github.com/sipeed/picoclaw/pkg/config"
+)
+
+func agentsTestMux(t *testing.T, configPath string) *http.ServeMux {
+	t.Helper()
+	h := NewHandler(configPath)
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+	return mux
+}
+
+func decodeAgentsResponse(t *testing.T, rec *httptest.ResponseRecorder) agentsResponse {
+	t.Helper()
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	var resp agentsResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+	return resp
+}
+
+func validAgent(t *testing.T, id string, isDefault bool) config.AgentConfig {
+	t.Helper()
+	return config.AgentConfig{
+		ID:        id,
+		Name:      "Agent " + id,
+		Default:   isDefault,
+		Workspace: t.TempDir(),
+		Model:     &config.AgentModelConfig{Primary: "custom-default"},
+		Skills:    []string{"weather"},
+		Subagents: &config.SubagentsConfig{AllowAgents: []string{"beta"}},
+	}
+}
+
+func TestListAgents_ImplicitMain(t *testing.T) {
+	configPath, cleanup := setupOAuthTestEnv(t)
+	defer cleanup()
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/agents", nil)
+	agentsTestMux(t, configPath).ServeHTTP(rec, req)
+
+	resp := decodeAgentsResponse(t, rec)
+	if !resp.Implicit {
+		t.Fatal("implicit = false, want true for an empty agents.list")
+	}
+	if len(resp.Agents) != 0 {
+		t.Fatalf("agents = %d, want 0", len(resp.Agents))
+	}
+	if resp.Defaults.ModelName != "custom-default" {
+		t.Fatalf("default model = %q, want custom-default", resp.Defaults.ModelName)
+	}
+}
+
+func TestUpdateAgents_SavesValidConfig(t *testing.T) {
+	configPath, cleanup := setupOAuthTestEnv(t)
+	defer cleanup()
+
+	alpha := validAgent(t, "alpha", true)
+	alpha.Workspace = filepath.Join(t.TempDir(), "alpha-workspace")
+	beta := validAgent(t, "beta", false)
+	beta.Subagents = &config.SubagentsConfig{AllowAgents: []string{"*"}}
+
+	body, err := json.Marshal(agentsUpdateRequest{
+		Agents: []config.AgentConfig{alpha, beta},
+		Dispatch: &config.DispatchConfig{Rules: []config.DispatchRule{{
+			Name:  "telegram to beta",
+			Agent: "beta",
+			When:  config.DispatchSelector{Channel: "telegram"},
+		}}},
+	})
+	if err != nil {
+		t.Fatalf("Marshal() error = %v", err)
+	}
+
+	mux := agentsTestMux(t, configPath)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPut, "/api/agents", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("PUT status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+
+	updated, err := config.LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+	if len(updated.Agents.List) != 2 {
+		t.Fatalf("agents = %d, want 2", len(updated.Agents.List))
+	}
+	if updated.Agents.List[0].ID != "alpha" || !updated.Agents.List[0].Default {
+		t.Fatalf("unexpected first agent: %#v", updated.Agents.List[0])
+	}
+	if updated.Agents.Dispatch == nil || len(updated.Agents.Dispatch.Rules) != 1 {
+		t.Fatalf("dispatch rules not saved: %#v", updated.Agents.Dispatch)
+	}
+
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/api/agents", nil)
+	mux.ServeHTTP(rec, req)
+	resp := decodeAgentsResponse(t, rec)
+	if resp.Implicit || len(resp.Agents) != 2 {
+		t.Fatalf("unexpected response: implicit=%v agents=%d", resp.Implicit, len(resp.Agents))
+	}
+	if resp.Agents[0].EffectiveWorkspace == "" {
+		t.Fatal("effective workspace is empty")
+	}
+	if info, err := os.Stat(alpha.Workspace); err != nil || !info.IsDir() {
+		t.Fatalf("workspace %q was not created: %v", alpha.Workspace, err)
+	}
+}
+
+func TestUpdateAgents_Validation(t *testing.T) {
+	configPath, cleanup := setupOAuthTestEnv(t)
+	defer cleanup()
+
+	duplicateWorkspace := t.TempDir()
+
+	tests := []struct {
+		name string
+		body agentsUpdateRequest
+	}{
+		{
+			name: "invalid id",
+			body: agentsUpdateRequest{Agents: []config.AgentConfig{{ID: "Bad ID", Default: true}}},
+		},
+		{
+			name: "duplicate id",
+			body: agentsUpdateRequest{Agents: []config.AgentConfig{
+				{ID: "alpha", Default: true},
+				{ID: "alpha"},
+			}},
+		},
+		{
+			name: "multiple defaults",
+			body: agentsUpdateRequest{Agents: []config.AgentConfig{
+				{ID: "alpha", Default: true},
+				{ID: "beta", Default: true},
+			}},
+		},
+		{
+			name: "no default",
+			body: agentsUpdateRequest{Agents: []config.AgentConfig{
+				{ID: "alpha"},
+				{ID: "beta"},
+			}},
+		},
+		{
+			name: "relative workspace",
+			body: agentsUpdateRequest{Agents: []config.AgentConfig{
+				{ID: "alpha", Default: true, Workspace: "relative/path"},
+			}},
+		},
+		{
+			name: "workspace traversal",
+			body: agentsUpdateRequest{Agents: []config.AgentConfig{
+				{ID: "alpha", Default: true, Workspace: t.TempDir() + string(os.PathSeparator) + ".." + string(os.PathSeparator) + "escape"},
+			}},
+		},
+		{
+			name: "duplicate workspace",
+			body: agentsUpdateRequest{Agents: []config.AgentConfig{
+				{ID: "alpha", Default: true, Workspace: duplicateWorkspace},
+				{ID: "beta", Workspace: duplicateWorkspace},
+			}},
+		},
+		{
+			name: "unknown model",
+			body: agentsUpdateRequest{Agents: []config.AgentConfig{
+				{ID: "alpha", Default: true, Model: &config.AgentModelConfig{Primary: "missing"}},
+			}},
+		},
+		{
+			name: "unknown subagent target",
+			body: agentsUpdateRequest{Agents: []config.AgentConfig{
+				{ID: "alpha", Default: true, Subagents: &config.SubagentsConfig{AllowAgents: []string{"ghost"}}},
+			}},
+		},
+		{
+			name: "dispatch unknown agent",
+			body: agentsUpdateRequest{
+				Agents: []config.AgentConfig{{ID: "alpha", Default: true}},
+				Dispatch: &config.DispatchConfig{Rules: []config.DispatchRule{{
+					Agent: "ghost",
+					When:  config.DispatchSelector{Channel: "telegram"},
+				}}},
+			},
+		},
+		{
+			name: "dispatch empty selector",
+			body: agentsUpdateRequest{
+				Agents: []config.AgentConfig{{ID: "alpha", Default: true}},
+				Dispatch: &config.DispatchConfig{Rules: []config.DispatchRule{{
+					Agent: "alpha",
+				}}},
+			},
+		},
+		{
+			name: "dispatch without agents",
+			body: agentsUpdateRequest{
+				Dispatch: &config.DispatchConfig{Rules: []config.DispatchRule{{
+					Agent: "alpha",
+					When:  config.DispatchSelector{Channel: "telegram"},
+				}}},
+			},
+		},
+	}
+
+	mux := agentsTestMux(t, configPath)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			body, err := json.Marshal(tt.body)
+			if err != nil {
+				t.Fatalf("Marshal() error = %v", err)
+			}
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodPut, "/api/agents", bytes.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+			mux.ServeHTTP(rec, req)
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d, want 400, body = %s", rec.Code, rec.Body.String())
+			}
+		})
+	}
+}
+
+func TestListSkills_ScopedToAgentWorkspace(t *testing.T) {
+	configPath, cleanup := setupOAuthTestEnv(t)
+	defer cleanup()
+
+	alphaWS := t.TempDir()
+	betaWS := t.TempDir()
+	for _, item := range []struct{ ws, name string }{
+		{alphaWS, "alpha-skill"},
+		{betaWS, "beta-skill"},
+	} {
+		dir := filepath.Join(item.ws, "skills", item.name)
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("MkdirAll() error = %v", err)
+		}
+		content := "---\nname: " + item.name + "\ndescription: smoke skill\n---\n# " + item.name + "\n"
+		if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(content), 0o644); err != nil {
+			t.Fatalf("WriteFile() error = %v", err)
+		}
+	}
+
+	body, err := json.Marshal(agentsUpdateRequest{Agents: []config.AgentConfig{
+		{ID: "alpha", Default: true, Workspace: alphaWS},
+		{ID: "beta", Workspace: betaWS},
+	}})
+	if err != nil {
+		t.Fatalf("Marshal() error = %v", err)
+	}
+
+	mux := agentsTestMux(t, configPath)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPut, "/api/agents", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("PUT status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+
+	for agentID, both := range map[string][2]string{
+		"alpha": {"alpha-skill", "beta-skill"},
+		"beta":  {"beta-skill", "alpha-skill"},
+	} {
+		want, unwanted := both[0], both[1]
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/api/skills?agent="+agentID, nil)
+		mux.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("GET skills agent=%s status = %d, body = %s", agentID, rec.Code, rec.Body.String())
+		}
+		var resp skillSupportResponse
+		if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+			t.Fatalf("Unmarshal() error = %v", err)
+		}
+		foundWant, foundUnwanted := false, false
+		for _, skill := range resp.Skills {
+			if skill.Name == want {
+				foundWant = true
+			}
+			if skill.Name == unwanted {
+				foundUnwanted = true
+			}
+		}
+		if !foundWant {
+			t.Fatalf("agent %s did not list %q", agentID, want)
+		}
+		if foundUnwanted {
+			t.Fatalf("agent %s leaked workspace skill %q", agentID, unwanted)
+		}
+	}
+}
+
+func TestConfigSignatureChangesWithAgentsAndDispatch(t *testing.T) {
+	cfg := config.DefaultConfig()
+	before := computeConfigSignature(cfg)
+
+	cfg.Agents.List = []config.AgentConfig{{ID: "alpha", Default: true}}
+	withAgent := computeConfigSignature(cfg)
+	if before == withAgent {
+		t.Fatal("signature should change when an agent is added")
+	}
+
+	cfg.Agents.List[0].Name = "Renamed"
+	if withAgent == computeConfigSignature(cfg) {
+		t.Fatal("signature should change when an agent name changes")
+	}
+
+	cfg.Agents.Dispatch = &config.DispatchConfig{Rules: []config.DispatchRule{{
+		Agent: "alpha",
+		When:  config.DispatchSelector{Channel: "telegram"},
+	}}}
+	if withAgent == computeConfigSignature(cfg) {
+		t.Fatal("signature should change when dispatch rules change")
+	}
+}

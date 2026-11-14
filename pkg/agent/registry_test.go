@@ -114,6 +114,22 @@ func TestAgentRegistry_GetDefaultAgent(t *testing.T) {
 	}
 }
 
+func TestAgentRegistry_GetDefaultAgent_PrefersDefaultFlagOverLiteralMain(t *testing.T) {
+	cfg := testCfg(t, []config.AgentConfig{
+		{ID: "main"},
+		{ID: "beta", Default: true},
+	})
+	registry := NewAgentRegistry(cfg, &mockRegistryProvider{})
+
+	agent := registry.GetDefaultAgent()
+	if agent == nil {
+		t.Fatal("expected a default agent")
+	}
+	if agent.ID != "beta" {
+		t.Fatalf("default agent = %q, want beta (explicit default flag)", agent.ID)
+	}
+}
+
 func TestAgentRegistry_CanSpawnSubagent(t *testing.T) {
 	cfg := testCfg(t, []config.AgentConfig{
 		{
