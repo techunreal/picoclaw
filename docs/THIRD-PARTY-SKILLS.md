@@ -16,13 +16,13 @@ third-party binaries are executed by the skills themselves.
 | `humanizer` | https://github.com/blader/humanizer | MIT, Copyright (c) 2025 Siqi Chen | Unmodified; `LICENSE` included in the skill folder |
 | `brainstorming` | https://github.com/obra/superpowers | MIT, Copyright (c) 2025 Jesse Vincent | Core skill; the optional Node-based visual companion was removed and replaced with a short text note |
 | `skill-safety-check` | PicoClaw fork | MIT | Original skill written for this fork; inspired by the idea of `skill-vetter` but not a copy |
+| `repo-research` | PicoClaw fork | MIT | Original skill for finding and evaluating GitHub repositories; uses `git`/web, no `gh` dependency |
 
 ## Optional skills (not bundled by default)
 
 These remain in the repository under `docs/skills-optional/` for a later
 opt-in pack. They are not copied into the workspace by the installer.
 
-- `github` — requires the `gh` CLI.
 - `hardware` — requires the I2C/SPI tools and Sipeed hardware.
 - `summarize` — requires the `summarize` CLI.
 - `tmux` — Linux/macOS only.

@@ -13,6 +13,7 @@ func TestOnboardWorkspaceShipsCuratedSkills(t *testing.T) {
 		"brainstorming",
 		"humanizer",
 		"picoclaw-agent",
+		"repo-research",
 		"skill-creator",
 		"skill-safety-check",
 		"weather",
