@@ -1451,6 +1451,18 @@
       "title": "Start Gateway",
       "description": "After configuring models, click the \"Start Gateway\" button at the top to begin chatting with AI."
     },
+    "agentTools": {
+      "title": "Agent tools",
+      "description": "The Agent menu holds memory and personality files, multiple agents, installed skills, and subagent runs."
+    },
+    "services": {
+      "title": "Automation & backups",
+      "description": "Use Services to schedule recurring tasks and to export or restore your configuration and workspace."
+    },
+    "usage": {
+      "title": "Usage & cost",
+      "description": "The Usage page tracks token usage and estimated cost per model and session."
+    },
     "docs": {
       "title": "View Documentation",
       "description": "Need more help? Click the documentation button in the top right corner to view detailed guides and configuration docs."

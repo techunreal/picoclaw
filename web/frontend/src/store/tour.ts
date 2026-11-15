@@ -1,7 +1,27 @@
 import { atom } from "jotai"
 import { atomWithStorage } from "jotai/utils"
 
-export type TourStep = "welcome" | "models" | "gateway" | "docs" | "completed"
+export type TourStep =
+  | "welcome"
+  | "models"
+  | "gateway"
+  | "agentTools"
+  | "services"
+  | "usage"
+  | "docs"
+  | "completed"
+
+// TOUR_STEP_ORDER drives next/previous navigation and the progress counter.
+export const TOUR_STEP_ORDER: TourStep[] = [
+  "welcome",
+  "models",
+  "gateway",
+  "agentTools",
+  "services",
+  "usage",
+  "docs",
+  "completed",
+]
 
 export interface TourState {
   currentStep: TourStep
@@ -36,31 +56,17 @@ export const tourCurrentStepAtom = atom(
 
 export function useTourActions() {
   const goToNextStep = (currentStep: TourStep): TourStep => {
-    const steps: TourStep[] = [
-      "welcome",
-      "models",
-      "gateway",
-      "docs",
-      "completed",
-    ]
-    const currentIndex = steps.indexOf(currentStep)
-    if (currentIndex < steps.length - 1) {
-      return steps[currentIndex + 1]
+    const currentIndex = TOUR_STEP_ORDER.indexOf(currentStep)
+    if (currentIndex < TOUR_STEP_ORDER.length - 1) {
+      return TOUR_STEP_ORDER[currentIndex + 1]
     }
     return "completed"
   }
 
   const goToPrevStep = (currentStep: TourStep): TourStep => {
-    const steps: TourStep[] = [
-      "welcome",
-      "models",
-      "gateway",
-      "docs",
-      "completed",
-    ]
-    const currentIndex = steps.indexOf(currentStep)
+    const currentIndex = TOUR_STEP_ORDER.indexOf(currentStep)
     if (currentIndex > 0) {
-      return steps[currentIndex - 1]
+      return TOUR_STEP_ORDER[currentIndex - 1]
     }
     return currentStep
   }

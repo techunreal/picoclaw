@@ -5,12 +5,13 @@ import {
 } from "@tabler/icons-react"
 import { useRouterState } from "@tanstack/react-router"
 import { useAtom } from "jotai"
-import { useEffect, useRef } from "react"
+import { useEffect, useLayoutEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import {
+  TOUR_STEP_ORDER,
   type TourStep,
   tourAtom,
   tourCurrentStepAtom,
@@ -52,10 +53,6 @@ export function TourGuide() {
     }
   }, [pathname, tourState.isActive, setCurrentStep, setIsActive])
 
-  if (!tourState.isActive || tourState.currentStep === "completed") {
-    return null
-  }
-
   const steps: Record<TourStep, TourStepConfig> = {
     welcome: {
       title: t("tour.welcome.title"),
@@ -75,6 +72,24 @@ export function TourGuide() {
       position: "left",
       offsetY: 60,
     },
+    agentTools: {
+      title: t("tour.agentTools.title"),
+      description: t("tour.agentTools.description"),
+      targetSelector: "[data-tour='agent-group']",
+      position: "right",
+    },
+    services: {
+      title: t("tour.services.title"),
+      description: t("tour.services.description"),
+      targetSelector: "[data-tour='services-group']",
+      position: "right",
+    },
+    usage: {
+      title: t("tour.usage.title"),
+      description: t("tour.usage.description"),
+      targetSelector: "[data-tour='usage-nav']",
+      position: "right",
+    },
     docs: {
       title: t("tour.docs.title"),
       description: t("tour.docs.description"),
@@ -91,15 +106,8 @@ export function TourGuide() {
   }
 
   const currentConfig = steps[tourState.currentStep]
-  const stepOrder: TourStep[] = [
-    "welcome",
-    "models",
-    "gateway",
-    "docs",
-    "completed",
-  ]
-  const currentStepIndex = stepOrder.indexOf(tourState.currentStep)
-  const totalSteps = stepOrder.length - 1
+  const currentStepIndex = TOUR_STEP_ORDER.indexOf(tourState.currentStep)
+  const totalSteps = TOUR_STEP_ORDER.length - 1
 
   const handleNext = () => {
     const nextStep = goToNextStep(tourState.currentStep)
@@ -176,6 +184,42 @@ export function TourGuide() {
   const position = getPopoverPosition()
   const isCentered = !targetElement
 
+  // Nudge the popover back inside the viewport when it would be clipped
+  // (e.g. a sidebar group near the bottom of the window).
+  const popoverRef = useRef<HTMLDivElement>(null)
+  const [popoverShift, setPopoverShift] = useState({ x: 0, y: 0 })
+  useLayoutEffect(() => {
+    setPopoverShift({ x: 0, y: 0 })
+    const frame = requestAnimationFrame(() => {
+      const node = popoverRef.current
+      if (!node) return
+      const rect = node.getBoundingClientRect()
+      const margin = 8
+      let x = 0
+      let y = 0
+      if (rect.right > window.innerWidth - margin) {
+        x = window.innerWidth - margin - rect.right
+      }
+      if (rect.left < margin) {
+        x = margin - rect.left
+      }
+      if (rect.bottom > window.innerHeight - margin) {
+        y = window.innerHeight - margin - rect.bottom
+      }
+      if (rect.top < margin) {
+        y = margin - rect.top
+      }
+      if (x !== 0 || y !== 0) {
+        setPopoverShift({ x, y })
+      }
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [tourState.currentStep, targetElement])
+
+  if (!tourState.isActive || tourState.currentStep === "completed") {
+    return null
+  }
+
   return (
     <>
       {targetElement ? (
@@ -208,11 +252,18 @@ export function TourGuide() {
       )}
 
       <div
+        ref={popoverRef}
         className={cn(
-          "bg-background fixed z-[102] w-80 rounded-xl border p-4 shadow-2xl",
+          "bg-background fixed z-[102] w-80 max-h-[calc(100vh-1rem)] overflow-y-auto rounded-xl border p-4 shadow-2xl",
           isCentered && "max-w-md",
         )}
-        style={position}
+        style={{
+          ...position,
+          transform:
+            typeof position.transform === "string"
+              ? `${position.transform} translate(${popoverShift.x}px, ${popoverShift.y}px)`
+              : `translate(${popoverShift.x}px, ${popoverShift.y}px)`,
+        }}
       >
         <div className="mb-3 flex items-center gap-2">
           {currentConfig.icon}

@@ -221,7 +221,16 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
           >
             <SidebarGroup className="px-2 py-0">
               <SidebarGroupLabel asChild>
-                <CollapsibleTrigger className="hover:bg-muted/60 flex w-full cursor-pointer items-center justify-between rounded-md px-2 py-1.5 transition-colors">
+                <CollapsibleTrigger
+                  className="hover:bg-muted/60 flex w-full cursor-pointer items-center justify-between rounded-md px-2 py-1.5 transition-colors"
+                  data-tour={
+                    group.label === "navigation.agent_group"
+                      ? "agent-group"
+                      : group.label === "navigation.services"
+                        ? "services-group"
+                        : undefined
+                  }
+                >
                   <span>{t(group.label)}</span>
                   <IconChevronRight className="size-3.5 opacity-50 transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90" />
                 </CollapsibleTrigger>
@@ -241,7 +250,11 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                             isActive={isActive}
                             onClick={handleNavItemClick}
                             data-tour={
-                              item.url === "/models" ? "models-nav" : undefined
+                              item.url === "/models"
+                                ? "models-nav"
+                                : item.url === "/usage"
+                                  ? "usage-nav"
+                                  : undefined
                             }
                             className={`h-9 px-3 ${isActive ? "bg-accent/80 text-foreground font-medium" : "text-muted-foreground hover:bg-muted/60"}`}
                           >
