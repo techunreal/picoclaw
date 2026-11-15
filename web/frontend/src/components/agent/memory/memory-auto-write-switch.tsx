@@ -25,6 +25,10 @@ export function MemoryAutoWriteSwitch() {
         ["agent-memory-settings"],
         settings,
       )
+      if (settings.restart_required) {
+        toast.warning(t("pages.agent.memory.restart_required"))
+        return
+      }
       toast.success(
         settings.auto_write
           ? t("pages.agent.memory.auto_write_success_on")

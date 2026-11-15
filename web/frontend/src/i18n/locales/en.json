@@ -851,6 +851,7 @@
         "auto_write_never": "No automatic writes yet",
         "auto_write_success_on": "Automatic daily-note writes enabled.",
         "auto_write_success_off": "Automatic daily-note writes disabled.",
+        "restart_required": "Saved. Restart the gateway to apply the memory change.",
         "auto_write_error": "Failed to update the auto-write setting.",
         "detail_load_error": "Failed to load this file.",
         "select_file": "Select a file to view or edit.",

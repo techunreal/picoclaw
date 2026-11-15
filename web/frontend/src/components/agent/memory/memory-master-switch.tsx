@@ -25,6 +25,10 @@ export function MemoryMasterSwitch() {
         ["agent-memory-settings"],
         settings,
       )
+      if (settings.restart_required) {
+        toast.warning(t("pages.agent.memory.restart_required"))
+        return
+      }
       toast.success(
         settings.enabled
           ? t("pages.agent.memory.master_switch_success_on")

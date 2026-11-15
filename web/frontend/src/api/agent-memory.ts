@@ -8,6 +8,7 @@ export interface MemorySettings {
   auto_write_runtime: boolean
   auto_write_default: boolean
   last_write_at?: number
+  restart_required?: boolean
 }
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {

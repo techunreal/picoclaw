@@ -84,11 +84,16 @@ func TestHandleAgentMemoryAutoWrite(t *testing.T) {
 	}
 
 	resp = put(`{"auto_write":true}`)
-	if !resp.AutoWrite || !resp.AutoWriteRuntime {
+	if !resp.AutoWrite {
 		t.Fatalf("auto-write was not enabled: %#v", resp)
 	}
-	if !agentpkg.MemoryAutoWriteEnabled() {
-		t.Fatal("runtime auto-write switch should be enabled immediately")
+	// Without a running gateway the launcher cannot apply the change; it must
+	// report a restart instead of pretending the runtime switch flipped.
+	if !resp.RestartRequired {
+		t.Fatalf("expected restart_required without a gateway: %#v", resp)
+	}
+	if resp.AutoWriteRuntime {
+		t.Fatalf("launcher-local runtime flag must not be flipped: %#v", resp)
 	}
 	if !resp.Enabled {
 		t.Fatal("auto_write-only update must not change the memory master switch")
@@ -103,8 +108,11 @@ func TestHandleAgentMemoryAutoWrite(t *testing.T) {
 	}
 
 	resp = put(`{"enabled":false,"auto_write":false}`)
-	if resp.Enabled || resp.AutoWrite || agentpkg.MemoryEnabled() || agentpkg.MemoryAutoWriteEnabled() {
+	if resp.Enabled || resp.AutoWrite {
 		t.Fatalf("both switches should be off: %#v", resp)
+	}
+	if !resp.RestartRequired {
+		t.Fatalf("expected restart_required without a gateway: %#v", resp)
 	}
 
 	rec := httptest.NewRecorder()
@@ -157,12 +165,19 @@ func TestHandleAgentMemoryToggle(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("PUT status = %d body=%s", rec.Code, rec.Body.String())
 	}
-	if agentpkg.MemoryEnabled() {
-		t.Fatal("runtime memory switch should be disabled immediately")
+	var toggleResp memorySettingsResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &toggleResp); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+	if toggleResp.Enabled {
+		t.Fatalf("enabled should be false after PUT: %#v", toggleResp)
+	}
+	if !toggleResp.RestartRequired {
+		t.Fatalf("expected restart_required without a gateway: %#v", toggleResp)
 	}
 
 	resp = get()
-	if resp.Enabled || resp.Runtime {
+	if resp.Enabled {
 		t.Fatalf("memory should be disabled, got %#v", resp)
 	}
 
@@ -185,8 +200,9 @@ func TestHandleAgentMemoryToggle(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("re-enable status = %d body=%s", rec.Code, rec.Body.String())
 	}
-	if !agentpkg.MemoryEnabled() {
-		t.Fatal("runtime memory switch should be enabled again")
+	resp = get()
+	if !resp.Enabled {
+		t.Fatalf("memory should be enabled again, got %#v", resp)
 	}
 
 	// Invalid payloads are rejected.
