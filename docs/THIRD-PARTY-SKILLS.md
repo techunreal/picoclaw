@@ -17,6 +17,7 @@ third-party binaries are executed by the skills themselves.
 | `brainstorming` | https://github.com/obra/superpowers | MIT, Copyright (c) 2025 Jesse Vincent | Core skill; the optional Node-based visual companion was removed and replaced with a short text note |
 | `skill-safety-check` | PicoClaw fork | MIT | Original skill written for this fork; inspired by the idea of `skill-vetter` but not a copy |
 | `repo-research` | PicoClaw fork | MIT | Original skill for finding and evaluating GitHub repositories; uses `git`/web, no `gh` dependency |
+| `deep-research` | PicoClaw fork | MIT | Original multi-source research workflow; uses web fetch/browser, no MCP servers or API keys |
 | `office-word`, `office-excel`, `office-powerpoint`, `office-pdf` | PicoClaw fork | MIT | Original skills for the bundled Office Pack; Python runtime and library licenses are listed in `docs/OFFICE-PACK.md` |
 
 ## Optional skills (not bundled by default)

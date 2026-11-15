@@ -11,6 +11,7 @@ func TestOnboardWorkspaceShipsCuratedSkills(t *testing.T) {
 	want := []string{
 		"agent-browser",
 		"brainstorming",
+		"deep-research",
 		"humanizer",
 		"office-excel",
 		"office-pdf",
@@ -74,6 +75,24 @@ func TestOnboardWorkspaceShipsNoOptionalSkills(t *testing.T) {
 	for _, name := range []string{"github", "hardware", "summarize", "tmux"} {
 		if _, err := fs.Stat(OnboardWorkspace, path.Join("workspace/skills", name)); err == nil {
 			t.Errorf("optional skill %q must stay out of the bundled workspace", name)
+		}
+	}
+}
+
+func TestOnboardWorkspaceShipsDeepResearch(t *testing.T) {
+	data, err := fs.ReadFile(OnboardWorkspace, "workspace/skills/deep-research/SKILL.md")
+	if err != nil {
+		t.Fatalf("read embedded deep-research skill: %v", err)
+	}
+	content := string(data)
+	for _, want := range []string{"Cross-check", "Confidence", "Safety", "no MCP servers or API keys"} {
+		if !strings.Contains(content, want) {
+			t.Errorf("deep-research skill is missing %q", want)
+		}
+	}
+	for _, unwanted := range []string{"firecrawl", "web_search_exa"} {
+		if strings.Contains(content, unwanted) {
+			t.Errorf("deep-research must not require %q", unwanted)
 		}
 	}
 }
