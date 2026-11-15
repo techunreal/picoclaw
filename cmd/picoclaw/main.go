@@ -31,6 +31,7 @@ import (
 	"github.com/sipeed/picoclaw/cmd/picoclaw/internal/version"
 	"github.com/sipeed/picoclaw/pkg/config"
 	"github.com/sipeed/picoclaw/pkg/updater"
+	"github.com/sipeed/picoclaw/pkg/utils"
 )
 
 var rootNoColor bool
@@ -168,6 +169,9 @@ const (
 )
 
 func main() {
+	// Point office skills at the bundled Python runtime when present.
+	utils.EnsureOfficePythonEnv()
+
 	// Initialize Termux SSL certificate detection before anything else
 	initTermuxSSL()
 

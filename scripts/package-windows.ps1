@@ -2,7 +2,9 @@ param(
     [string]$BuildDir = "build",
     [string]$DistDir = "",
     [string]$Version = "dev",
-    [switch]$SkipFetchAgentBrowser
+    [switch]$SkipFetchAgentBrowser,
+    [switch]$SkipOfficeRuntime,
+    [string]$OfficeRuntimeDir = "build/office-runtime"
 )
 
 $ErrorActionPreference = "Stop"
@@ -50,6 +52,49 @@ if (Test-Path $agentBrowserLicense) {
     Copy-Item $agentBrowserLicense (Join-Path $stage "agent-browser-LICENSE")
 }
 
+if (-not $SkipOfficeRuntime) {
+    $runtime = if ([IO.Path]::IsPathRooted($OfficeRuntimeDir)) {
+        $OfficeRuntimeDir
+    } else {
+        Join-Path $root $OfficeRuntimeDir
+    }
+    if (-not (Test-Path (Join-Path $runtime "python.exe"))) {
+        Write-Host "Office runtime not found; preparing it now."
+        & (Join-Path $root "scripts/prepare-office-runtime.ps1") -Destination $runtime
+        if ($LASTEXITCODE -ne 0) {
+            throw "Office runtime preparation failed."
+        }
+    }
+    $stagePython = Join-Path $stage "tools/python"
+    New-Item -ItemType Directory -Force -Path $stagePython | Out-Null
+    Copy-Item (Join-Path $runtime "*") $stagePython -Recurse -Force
+
+    $officeNotes = @"
+PicoClaw Office Pack
+====================
+
+Word (.docx), Excel (.xlsx), PowerPoint (.pptx) ve PDF islemleri icin
+gerekli Python calisma zamani ve kutuphaneleri "tools\python" altindadir.
+Microsoft Office, Adobe Acrobat veya ayri bir Python kurulumu GEREKMEZ.
+
+Desteklenen islemler:
+- Word: olustur/oku, baslik/paragraf/liste/tablo
+- Excel: olustur/oku, formul/hucre/sayfa, CSV
+- PowerPoint: olustur/oku, slayt/not/gorsel
+- PDF: olustur, metin cikar, birlestir, bol, dondur, form doldur
+
+Kullanim: WebUI'da Agent > Skills bolumunde office-* skill'lerini acin ve
+sohbette "Word belgesi olustur", "Excel tablosu yap", "PDF birlestir" gibi
+isteklerde bulunun.
+
+Sinirlar:
+- OCR (taranmis PDF) icin Tesseract dahil degildir.
+- Karmasik Office sablonlari/animasyonlari sinirli duzenlenir.
+- Ofis islemi yalnizca istendiginde calisir; normal sohbette ek RAM kullanmaz.
+"@
+    Set-Content -Path (Join-Path $stage "OFFICE-PACK.txt") -Value $officeNotes -Encoding UTF8
+}
+
 foreach ($doc in @("LICENSE", "README.md")) {
     $source = Join-Path $root $doc
     if (Test-Path $source) {
@@ -73,6 +118,12 @@ Tarayici otomasyonu:
 - "agent-browser.exe" pakete dahildir; ayri kurulum gerekmez.
 - Tools > Browser'dan izinli siteleri ekleyip araci acin.
 - Chrome/Edge yoksa arayuzden "Download browser engine" ile indirebilirsiniz.
+
+Ofis paketi:
+- Word, Excel, PowerPoint ve PDF icin gerekli Python "tools\python" altindadir.
+- Microsoft Office veya ayri Python kurulumu gerekmez.
+- Agent > Skills bolumunde office-word, office-excel, office-powerpoint, office-pdf gorunur.
+- OCR (taranmis PDF) desteklenmez.
 
 Notlar:
 - "picoclaw.exe" arka planda calisan motordur; silme, tasima. Launcher onu ayni klasorde bulur.

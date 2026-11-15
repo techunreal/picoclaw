@@ -29,6 +29,7 @@ import (
 	"github.com/sipeed/picoclaw/pkg/config"
 	"github.com/sipeed/picoclaw/pkg/logger"
 	"github.com/sipeed/picoclaw/pkg/netbind"
+	pkgutils "github.com/sipeed/picoclaw/pkg/utils"
 	"github.com/sipeed/picoclaw/web/backend/api"
 	"github.com/sipeed/picoclaw/web/backend/dashboardauth"
 	"github.com/sipeed/picoclaw/web/backend/launcherconfig"
@@ -409,6 +410,8 @@ func newLauncherHTTPServer(handler http.Handler) *http.Server {
 }
 
 func main() {
+	pkgutils.EnsureOfficePythonEnv()
+
 	port := flag.String("port", "18800", "Port to listen on")
 	host := flag.String("host", "", "Host to listen on (overrides -public when set)")
 	public := flag.Bool("public", false, "Listen on all interfaces (dual-stack) instead of localhost only")

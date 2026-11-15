@@ -12,6 +12,10 @@ func TestOnboardWorkspaceShipsCuratedSkills(t *testing.T) {
 		"agent-browser",
 		"brainstorming",
 		"humanizer",
+		"office-excel",
+		"office-pdf",
+		"office-powerpoint",
+		"office-word",
 		"picoclaw-agent",
 		"repo-research",
 		"skill-creator",
@@ -70,6 +74,36 @@ func TestOnboardWorkspaceShipsNoOptionalSkills(t *testing.T) {
 	for _, name := range []string{"github", "hardware", "summarize", "tmux"} {
 		if _, err := fs.Stat(OnboardWorkspace, path.Join("workspace/skills", name)); err == nil {
 			t.Errorf("optional skill %q must stay out of the bundled workspace", name)
+		}
+	}
+}
+
+func TestOnboardWorkspaceShipsOfficeHelper(t *testing.T) {
+	data, err := fs.ReadFile(OnboardWorkspace, "workspace/tools/office_cli.py")
+	if err != nil {
+		t.Fatalf("read embedded office helper: %v", err)
+	}
+	for _, command := range []string{
+		"docx-create",
+		"xlsx-create",
+		"pptx-create",
+		"pdf-create",
+		"pdf-merge",
+		"pdf-fill",
+	} {
+		if !strings.Contains(string(data), command) {
+			t.Errorf("office helper is missing command %q", command)
+		}
+	}
+
+	for _, name := range []string{"office-word", "office-excel", "office-powerpoint", "office-pdf"} {
+		content, err := fs.ReadFile(OnboardWorkspace, path.Join("workspace/skills", name, "SKILL.md"))
+		if err != nil {
+			t.Errorf("read %s/SKILL.md: %v", name, err)
+			continue
+		}
+		if !strings.Contains(string(content), "PICOCLAW_OFFICE_PYTHON") {
+			t.Errorf("%s/SKILL.md does not document the bundled runtime", name)
 		}
 	}
 }
