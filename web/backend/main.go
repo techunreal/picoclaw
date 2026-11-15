@@ -583,10 +583,13 @@ func main() {
 	}
 	listeners := openResult.Listeners
 
-	dashboardSessionCookie, dashErr := middleware.NewLauncherDashboardSessionCookie()
+	sessionSecret, dashErr := middleware.LoadOrCreateLauncherDashboardSessionSecret(
+		filepath.Join(picoHome, "launcher-session.key"),
+	)
 	if dashErr != nil {
 		logger.Fatalf("Dashboard auth setup failed: %v", dashErr)
 	}
+	dashboardSessionCookie := sessionSecret.Token()
 
 	// Open the bcrypt password store (creates the DB file on first run).
 	authStore, authStoreErr := dashboardauth.New(picoHome)
@@ -652,6 +655,7 @@ func main() {
 
 	api.RegisterLauncherAuthRoutes(mux, api.LauncherAuthRouteOpts{
 		SessionCookie: dashboardSessionCookie,
+		SessionSecret: sessionSecret,
 		PasswordStore: passwordStore,
 		StoreError:    authStoreErr,
 	})
@@ -684,6 +688,7 @@ func main() {
 
 	dashAuth := middleware.LauncherDashboardAuth(middleware.LauncherDashboardAuthConfig{
 		ExpectedCookie: dashboardSessionCookie,
+		SessionSecret:  sessionSecret,
 		LocalAutoLogin: localAutoLogin,
 	}, accessControlledMux)
 

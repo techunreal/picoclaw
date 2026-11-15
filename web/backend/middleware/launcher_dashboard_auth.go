@@ -46,10 +46,20 @@ func randomURLToken(n int) (string, error) {
 // LauncherDashboardAuthConfig holds runtime material for dashboard access checks.
 type LauncherDashboardAuthConfig struct {
 	ExpectedCookie string
+	// SessionSecret, when set, overrides ExpectedCookie with a persistent
+	// secret that survives restarts and can be rotated.
+	SessionSecret *LauncherDashboardSessionSecret
 	// LocalAutoLogin enables one-shot startup auto-login.
 	LocalAutoLogin *LauncherDashboardLocalAutoLogin
 	// SecureCookie sets the session cookie's Secure flag. If nil, DefaultLauncherDashboardSecureCookie is used.
 	SecureCookie func(*http.Request) bool
+}
+
+func (cfg LauncherDashboardAuthConfig) sessionToken() string {
+	if cfg.SessionSecret != nil {
+		return cfg.SessionSecret.Token()
+	}
+	return cfg.ExpectedCookie
 }
 
 // LauncherDashboardLocalAutoLogin is an in-memory, one-shot startup grant.
@@ -168,7 +178,7 @@ func handleLauncherLocalAutoLogin(w http.ResponseWriter, r *http.Request, cfg La
 		return
 	}
 	if cfg.LocalAutoLogin != nil && cfg.LocalAutoLogin.consume(r.URL.Query().Get("nonce")) {
-		SetLauncherDashboardSessionCookie(w, r, cfg.ExpectedCookie, cfg.SecureCookie)
+		SetLauncherDashboardSessionCookie(w, r, cfg.sessionToken(), cfg.SecureCookie)
 		http.Redirect(w, r, "/", http.StatusSeeOther)
 		return
 	}
@@ -288,8 +298,12 @@ func isPublicLauncherDashboardStatic(method, p string) bool {
 }
 
 func validLauncherDashboardAuth(r *http.Request, cfg LauncherDashboardAuthConfig) bool {
+	expected := cfg.sessionToken()
+	if expected == "" {
+		return false
+	}
 	if c, err := r.Cookie(LauncherDashboardCookieName); err == nil {
-		if subtle.ConstantTimeCompare([]byte(c.Value), []byte(cfg.ExpectedCookie)) == 1 {
+		if subtle.ConstantTimeCompare([]byte(c.Value), []byte(expected)) == 1 {
 			return true
 		}
 	}

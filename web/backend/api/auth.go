@@ -24,6 +24,9 @@ type PasswordStore interface {
 // LauncherAuthRouteOpts configures dashboard auth handlers.
 type LauncherAuthRouteOpts struct {
 	SessionCookie string
+	// SessionSecret, when set, is the persistent/rotatable session token source.
+	// It takes precedence over SessionCookie.
+	SessionSecret *middleware.LauncherDashboardSessionSecret
 	SecureCookie  func(*http.Request) bool
 	// PasswordStore enables password login. It must be non-nil for auth to work.
 	PasswordStore PasswordStore
@@ -55,6 +58,7 @@ func RegisterLauncherAuthRoutes(mux *http.ServeMux, opts LauncherAuthRouteOpts) 
 	}
 	h := &launcherAuthHandlers{
 		sessionCookie: opts.SessionCookie,
+		sessionSecret: opts.SessionSecret,
 		secureCookie:  secure,
 		store:         opts.PasswordStore,
 		storeErr:      opts.StoreError,
@@ -68,10 +72,42 @@ func RegisterLauncherAuthRoutes(mux *http.ServeMux, opts LauncherAuthRouteOpts) 
 
 type launcherAuthHandlers struct {
 	sessionCookie string
+	sessionSecret *middleware.LauncherDashboardSessionSecret
 	secureCookie  func(*http.Request) bool
 	store         PasswordStore
 	storeErr      error // set when the store failed to open; drives recovery messages
 	loginLimit    *loginRateLimiter
+}
+
+// currentSessionCookie returns the token that should be present in the cookie.
+func (h *launcherAuthHandlers) currentSessionCookie() string {
+	if h.sessionSecret != nil {
+		return h.sessionSecret.Token()
+	}
+	return h.sessionCookie
+}
+
+// isAuthenticated reports whether the request carries the current session token.
+func (h *launcherAuthHandlers) isAuthenticated(r *http.Request) bool {
+	expected := h.currentSessionCookie()
+	if expected == "" {
+		return false
+	}
+	cookie, err := r.Cookie(middleware.LauncherDashboardCookieName)
+	if err != nil {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(cookie.Value), []byte(expected)) == 1
+}
+
+// rotateSession invalidates every issued session cookie, including the
+// caller's, and returns the new token. When no persistent secret is
+// configured it is a no-op and the static cookie value is returned.
+func (h *launcherAuthHandlers) rotateSession() (string, error) {
+	if h.sessionSecret == nil {
+		return h.sessionCookie, nil
+	}
+	return h.sessionSecret.Rotate()
 }
 
 // isStoreInitialized safely queries the store.
@@ -184,7 +220,7 @@ func (h *launcherAuthHandlers) handleLogin(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	middleware.SetLauncherDashboardSessionCookie(w, r, h.sessionCookie, h.secureCookie)
+	middleware.SetLauncherDashboardSessionCookie(w, r, h.currentSessionCookie(), h.secureCookie)
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte(`{"status":"ok"}`))
 }
@@ -214,17 +250,29 @@ func (h *launcherAuthHandlers) handleLogout(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	// Rotate the persistent session secret so signing out also invalidates
+	// sessions on other devices. Only a caller that actually holds the current
+	// session may invalidate everyone; anonymous logout just clears the cookie.
+	var rotateErr error
+	if h.isAuthenticated(r) {
+		if _, err := h.rotateSession(); err != nil {
+			rotateErr = err
+		}
+	}
+
 	middleware.ClearLauncherDashboardSessionCookie(w, r, h.secureCookie)
+	if rotateErr != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		writeErrorf(w, "signed out locally, but could not invalidate other sessions: %v", rotateErr)
+		return
+	}
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte(`{"status":"ok"}`))
 }
 
 func (h *launcherAuthHandlers) handleStatus(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	authed := false
-	if c, err := r.Cookie(middleware.LauncherDashboardCookieName); err == nil {
-		authed = subtle.ConstantTimeCompare([]byte(c.Value), []byte(h.sessionCookie)) == 1
-	}
+	authed := h.isAuthenticated(r)
 	initialized, initErr := h.isStoreInitialized(r.Context())
 	if initErr != nil {
 		w.WriteHeader(http.StatusServiceUnavailable)
@@ -277,16 +325,10 @@ func (h *launcherAuthHandlers) handleSetup(w http.ResponseWriter, r *http.Reques
 	}
 
 	// If already initialized, require an active session (change-password flow).
-	if initialized {
-		authed := false
-		if c, err := r.Cookie(middleware.LauncherDashboardCookieName); err == nil {
-			authed = subtle.ConstantTimeCompare([]byte(c.Value), []byte(h.sessionCookie)) == 1
-		}
-		if !authed {
-			w.WriteHeader(http.StatusUnauthorized)
-			_, _ = w.Write([]byte(`{"error":"must be authenticated to change password"}`))
-			return
-		}
+	if initialized && !h.isAuthenticated(r) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"error":"must be authenticated to change password"}`))
+		return
 	}
 
 	var body launcherAuthSetupBody
@@ -318,6 +360,16 @@ func (h *launcherAuthHandlers) handleSetup(w http.ResponseWriter, r *http.Reques
 		writeErrorf(w, "failed to save password: %v", err)
 		return
 	}
+
+	// Changing the password invalidates every existing session, then keeps the
+	// caller signed in with the new token.
+	newToken, err := h.rotateSession()
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		writeErrorf(w, "password changed, but failed to rotate the session secret: %v", err)
+		return
+	}
+	middleware.SetLauncherDashboardSessionCookie(w, r, newToken, h.secureCookie)
 
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte(`{"status":"ok"}`))
