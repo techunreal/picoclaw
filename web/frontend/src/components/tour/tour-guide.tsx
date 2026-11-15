@@ -3,7 +3,9 @@ import {
   IconChevronLeft,
   IconChevronRight,
 } from "@tabler/icons-react"
+import { useRouterState } from "@tanstack/react-router"
 import { useAtom } from "jotai"
+import { useEffect, useRef } from "react"
 import { useTranslation } from "react-i18next"
 
 import { Button } from "@/components/ui/button"
@@ -31,6 +33,24 @@ export function TourGuide() {
   const [, setCurrentStep] = useAtom(tourCurrentStepAtom)
   const [, setIsActive] = useAtom(tourIsActiveAtom)
   const { goToNextStep, goToPrevStep } = useTourActions()
+  const pathname = useRouterState({
+    select: (state) => state.location.pathname,
+  })
+  const tourStartPathRef = useRef(pathname)
+
+  // End the tour when the user navigates to another page, so its decorative
+  // backdrop never lingers over a page it was not opened on.
+  useEffect(() => {
+    if (!tourState.isActive) {
+      tourStartPathRef.current = pathname
+      return
+    }
+    if (pathname !== tourStartPathRef.current) {
+      tourStartPathRef.current = pathname
+      setCurrentStep("completed")
+      setIsActive(false)
+    }
+  }, [pathname, tourState.isActive, setCurrentStep, setIsActive])
 
   if (!tourState.isActive || tourState.currentStep === "completed") {
     return null
@@ -172,7 +192,7 @@ export function TourGuide() {
           }}
         />
       ) : (
-        <div className="fixed inset-0 z-[100] bg-black/20 backdrop-blur-[2px]" />
+        <div className="pointer-events-none fixed inset-0 z-[100] bg-black/20 backdrop-blur-[2px]" />
       )}
 
       {targetElement && (
