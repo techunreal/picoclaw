@@ -741,6 +741,10 @@ func TestShellTool_CustomAllowPatterns(t *testing.T) {
 
 // TestShellTool_URLsNotBlocked verifies that commands containing URLs are not
 // incorrectly blocked by the workspace restriction safety guard (issue #1203).
+//
+// The guard is exercised directly instead of executing the commands: spawning
+// network clients (git clone/curl/wget) made this test hang for minutes on
+// Windows because the child process outlives the command context.
 func TestShellTool_URLsNotBlocked(t *testing.T) {
 	tmpDir := t.TempDir()
 	tool, err := NewExecTool(tmpDir, true)
@@ -761,11 +765,8 @@ func TestShellTool_URLsNotBlocked(t *testing.T) {
 	}
 
 	for _, cmd := range commands {
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		result := tool.Execute(ctx, map[string]any{"action": "run", "command": cmd})
-		cancel()
-		if result.IsError && strings.Contains(result.ForLLM, "path outside working dir") {
-			t.Errorf("command with URL should not be blocked by workspace check: %s\n  error: %s", cmd, result.ForLLM)
+		if blocked := tool.guardCommand(cmd, tmpDir); strings.Contains(blocked, "path outside working dir") {
+			t.Errorf("command with URL should not be blocked by workspace check: %s\n  error: %s", cmd, blocked)
 		}
 	}
 }

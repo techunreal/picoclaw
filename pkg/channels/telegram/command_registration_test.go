@@ -38,31 +38,37 @@ func TestStartCommandRegistration_RetriesUntilSuccessThenStops(t *testing.T) {
 	defer cancel()
 
 	var attempts atomic.Int32
+	succeeded := make(chan struct{}, 1)
 	ch.registerFunc = func(context.Context, []commands.Definition) error {
 		n := attempts.Add(1)
 		if n < 3 {
 			return errors.New("temporary failure")
+		}
+		select {
+		case succeeded <- struct{}{}:
+		default:
 		}
 		return nil
 	}
 
 	ch.startCommandRegistration(ctx, []commands.Definition{{Name: "help", Description: "Help"}})
 
-	deadline := time.Now().Add(250 * time.Millisecond)
-	for time.Now().Before(deadline) {
-		if attempts.Load() >= 3 {
-			break
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
-	if attempts.Load() < 3 {
-		t.Fatalf("expected at least 3 attempts, got %d", attempts.Load())
+	// Wait for an explicit success signal instead of polling a short deadline:
+	// a busy full test run can otherwise delay the three attempts past it.
+	select {
+	case <-succeeded:
+	case <-time.After(5 * time.Second):
+		t.Fatalf("registration did not succeed, attempts = %d", attempts.Load())
 	}
 
 	stable := attempts.Load()
-	time.Sleep(30 * time.Millisecond)
-	if attempts.Load() != stable {
-		t.Fatalf("expected retries to stop after success, got %d -> %d", stable, attempts.Load())
+	if stable < 3 {
+		t.Fatalf("expected at least 3 attempts, got %d", stable)
+	}
+	// Retries stop on success, so no further attempt should arrive.
+	time.Sleep(50 * time.Millisecond)
+	if got := attempts.Load(); got != stable {
+		t.Fatalf("expected retries to stop after success, got %d -> %d", stable, got)
 	}
 }
 
