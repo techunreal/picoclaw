@@ -26,6 +26,7 @@ import {
 import { ConfigChangeNotice } from "@/components/config-change-notice"
 import { PageHeader } from "@/components/page-header"
 import { Button } from "@/components/ui/button"
+import { Switch } from "@/components/ui/switch"
 import { showSaveSuccessOrRestartToast } from "@/lib/restart-required"
 import { refreshGatewayState } from "@/store/gateway"
 
@@ -481,6 +482,7 @@ export function ModelsPage() {
   const [catalogOpen, setCatalogOpen] = useState(false)
   const [defaultChainOpen, setDefaultChainOpen] = useState(false)
   const [defaultModelDraft, setDefaultModelDraft] = useState("")
+  const [hideUnconfigured, setHideUnconfigured] = useState(false)
   const [defaultModelBaseline, setDefaultModelBaseline] = useState("")
   const [fallbackChainDraft, setFallbackChainDraft] = useState<string[]>([])
   const [fallbackChainBaseline, setFallbackChainBaseline] = useState<string[]>(
@@ -881,6 +883,8 @@ export function ModelsPage() {
     }
   > = {}
   for (const model of models) {
+    if (model.is_virtual) continue
+    if (hideUnconfigured && model.status === "unconfigured") continue
     const providerKey = getCanonicalProviderKey(model.provider, providerOptions)
     const providerDef = providerKey ? providerMap.get(providerKey) : undefined
     if (!grouped[providerKey]) {
@@ -1030,6 +1034,19 @@ export function ModelsPage() {
           <p className="text-muted-foreground mt-1 text-sm">
             {t("models.description")}
           </p>
+          <div className="mt-2 flex items-center gap-2">
+            <Switch
+              id="hide-unconfigured-models"
+              checked={hideUnconfigured}
+              onCheckedChange={setHideUnconfigured}
+            />
+            <label
+              htmlFor="hide-unconfigured-models"
+              className="text-muted-foreground cursor-pointer text-xs"
+            >
+              {t("models.hideUnconfigured")}
+            </label>
+          </div>
           {!loading && (models.length > 0 || defaultModelDraft) && (
             <div className="bg-muted/30 mt-4 rounded-xl border px-4 py-3">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">

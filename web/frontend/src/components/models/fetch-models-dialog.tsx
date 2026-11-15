@@ -72,8 +72,8 @@ export function FetchModelsDialog({
         model_index: modelIndex,
       })
       setModels(res.models)
-      // Auto-select all by default
-      setSelected(new Set(res.models.map((m) => m.id)))
+      // Start with nothing selected: the user picks what to add.
+      setSelected(new Set())
     } catch (e) {
       setError(e instanceof Error ? e.message : t("models.fetch.failed"))
     } finally {

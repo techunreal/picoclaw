@@ -434,6 +434,8 @@
       "disabled": "Disabled"
     },
     "enableLabel": "Enabled",
+    "hideUnconfigured": "Hide not configured",
+    "keylessHint": "No API key",
     "toggleEnabledError": "Failed to update the model state",
     "enabledToast": "\"{{name}}\" enabled.",
     "disabledToast": "\"{{name}}\" disabled.",
