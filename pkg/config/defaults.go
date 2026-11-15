@@ -205,7 +205,7 @@ func DefaultConfig() *Config {
 				ModelName: "deepseek-v3",
 				Provider:  "shengsuanyun",
 				Model:     "deepseek-v3",
-				APIBase:   "https://api.shengsuanyun.com/v1",
+				APIBase:   "https://router.shengsuanyun.com/api/v1",
 			},
 
 			// Antigravity (Google Cloud Code Assist) - OAuth only
@@ -297,12 +297,12 @@ func DefaultConfig() *Config {
 			},
 
 			// Azure OpenAI - https://portal.azure.com
-			// model_name is a user-friendly alias; the model field's path after "azure/" is your deployment name
+			// Set the resource endpoint; the model field is your deployment name.
 			{
 				ModelName: "azure-gpt5",
 				Provider:  "azure",
-				Model:     "my-gpt5-deployment",
-				APIBase:   "https://your-resource.openai.azure.com",
+				Model:     "deployment-name",
+				APIBase:   "",
 			},
 		},
 		Gateway: GatewayConfig{
