@@ -1086,6 +1086,10 @@ func (h *Handler) updateModel(
 	cfg.ModelList[idx] = &mc.ModelConfig
 	normalizeStoredModelProviders(cfg)
 	normalizeDefaultChainReferences(cfg)
+	var agentReferenceRenames []string
+	if len(modelConfigsByName(cfg)[oldModelName]) == 0 {
+		agentReferenceRenames = renameAgentModelReferences(cfg, oldModelName, newModelName)
+	}
 
 	logger.Debugf("update model config: %#v", mc.ModelConfig)
 
@@ -1097,12 +1101,16 @@ func (h *Handler) updateModel(
 	w.Header().Set("Content-Type", "application/json")
 	response := map[string]any{"status": "ok"}
 	if oldModelName != "" && newModelName != "" && oldModelName != newModelName {
-		response["reference_rename"] = map[string]any{
+		rename := map[string]any{
 			"from":     oldModelName,
 			"to":       newModelName,
 			"default":  defaultReferenceRenamed,
 			"fallback": fallbackReferenceRenamed,
 		}
+		if len(agentReferenceRenames) > 0 {
+			rename["agents"] = agentReferenceRenames
+		}
+		response["reference_rename"] = rename
 	}
 	json.NewEncoder(w).Encode(response)
 }
@@ -1258,6 +1266,10 @@ func (h *Handler) deleteModel(
 		}
 	}
 	normalizeDefaultChainReferences(cfg)
+	var agentReferenceCleanup []string
+	if deletedModelName != "" && len(modelConfigsByName(cfg)[deletedModelName]) == 0 {
+		agentReferenceCleanup = removeAgentModelReferences(cfg, deletedModelName)
+	}
 
 	if err := config.SaveConfig(h.configPath, cfg); err != nil {
 		http.Error(w, fmt.Sprintf("Failed to save config: %v", err), http.StatusInternalServerError)
@@ -1265,7 +1277,14 @@ func (h *Handler) deleteModel(
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	response := map[string]any{"status": "ok"}
+	if deletedModelName != "" && len(agentReferenceCleanup) > 0 {
+		response["reference_cleanup"] = map[string]any{
+			"model":  deletedModelName,
+			"agents": agentReferenceCleanup,
+		}
+	}
+	json.NewEncoder(w).Encode(response)
 }
 
 func removeModelName(names []string, target string) []string {
@@ -1281,6 +1300,124 @@ func removeModelName(names []string, target string) []string {
 		filtered = append(filtered, name)
 	}
 	return filtered
+}
+
+// renameAgentModelReferences rewrites model references in every configured
+// agent (model primary/fallbacks and subagent model). It returns the IDs of the
+// agents that changed so the API caller can warn about the restart.
+func renameAgentModelReferences(cfg *config.Config, oldName, newName string) []string {
+	oldName = strings.TrimSpace(oldName)
+	newName = strings.TrimSpace(newName)
+	if cfg == nil || oldName == "" || newName == "" || oldName == newName {
+		return nil
+	}
+
+	var affected []string
+	for i := range cfg.Agents.List {
+		agent := &cfg.Agents.List[i]
+		changed := renameAgentModelConfig(agent.Model, oldName, newName)
+		if agent.Subagents != nil {
+			changed = renameAgentModelConfig(agent.Subagents.Model, oldName, newName) || changed
+		}
+		if changed {
+			affected = append(affected, agent.ID)
+		}
+	}
+	return affected
+}
+
+// removeAgentModelReferences drops a deleted model from every configured agent.
+// A primary reference falls back to the global default; fallback entries are
+// removed. It returns the IDs of the agents that changed.
+func removeAgentModelReferences(cfg *config.Config, modelName string) []string {
+	modelName = strings.TrimSpace(modelName)
+	if cfg == nil || modelName == "" {
+		return nil
+	}
+
+	var affected []string
+	for i := range cfg.Agents.List {
+		agent := &cfg.Agents.List[i]
+		changed := removeAgentModelConfig(agent.Model, modelName)
+		if changed && agent.Model != nil &&
+			strings.TrimSpace(agent.Model.Primary) == "" && len(agent.Model.Fallbacks) == 0 {
+			agent.Model = nil
+		}
+		if agent.Subagents != nil {
+			subChanged := removeAgentModelConfig(agent.Subagents.Model, modelName)
+			if subChanged && agent.Subagents.Model != nil &&
+				strings.TrimSpace(agent.Subagents.Model.Primary) == "" && len(agent.Subagents.Model.Fallbacks) == 0 {
+				agent.Subagents.Model = nil
+			}
+			changed = subChanged || changed
+		}
+		if changed {
+			affected = append(affected, agent.ID)
+		}
+	}
+	return affected
+}
+
+func renameAgentModelConfig(ref *config.AgentModelConfig, oldName, newName string) bool {
+	if ref == nil {
+		return false
+	}
+	changed := false
+	if strings.TrimSpace(ref.Primary) == oldName {
+		ref.Primary = newName
+		changed = true
+	}
+	if renamed, ok := replaceModelNameInList(ref.Fallbacks, oldName, newName); ok {
+		ref.Fallbacks = renamed
+		changed = true
+	}
+	return changed
+}
+
+func removeAgentModelConfig(ref *config.AgentModelConfig, modelName string) bool {
+	if ref == nil {
+		return false
+	}
+	changed := false
+	if strings.TrimSpace(ref.Primary) == modelName {
+		ref.Primary = ""
+		changed = true
+	}
+	if filtered, ok := removeModelNameFromList(ref.Fallbacks, modelName); ok {
+		ref.Fallbacks = filtered
+		changed = true
+	}
+	return changed
+}
+
+func replaceModelNameInList(names []string, oldName, newName string) ([]string, bool) {
+	changed := false
+	for i, name := range names {
+		if strings.TrimSpace(name) == oldName {
+			names[i] = newName
+			changed = true
+		}
+	}
+	return names, changed
+}
+
+func removeModelNameFromList(names []string, target string) ([]string, bool) {
+	if len(names) == 0 {
+		return names, false
+	}
+	filtered := make([]string, 0, len(names))
+	changed := false
+	for _, name := range names {
+		if strings.TrimSpace(name) == target {
+			changed = true
+			continue
+		}
+		filtered = append(filtered, name)
+	}
+	if !changed {
+		return names, false
+	}
+	return filtered, true
 }
 
 func replaceModelName(names []string, oldName string, newName string) []string {

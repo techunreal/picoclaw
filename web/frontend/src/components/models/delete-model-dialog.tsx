@@ -2,7 +2,11 @@ import { IconLoader2 } from "@tabler/icons-react"
 import { useState } from "react"
 import { useTranslation } from "react-i18next"
 
-import { type ModelInfo, deleteModelByName } from "@/api/models"
+import {
+  type ModelActionResponse,
+  type ModelInfo,
+  deleteModelByName,
+} from "@/api/models"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -18,7 +22,7 @@ interface DeleteModelDialogProps {
   model: ModelInfo | null
   isDefaultModel: boolean
   onClose: () => void
-  onDeleted: () => void
+  onDeleted: (response: ModelActionResponse) => void
   onMutationStarted: () => void
   onMutationSettled: () => void
 }
@@ -43,8 +47,8 @@ export function DeleteModelDialog({
     setDeleting(true)
     onMutationStarted()
     try {
-      await deleteModelByName(model.model_name)
-      onDeleted()
+      const response = await deleteModelByName(model.model_name)
+      onDeleted(response)
     } catch {
       // ignore, user can retry from list
     } finally {

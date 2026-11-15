@@ -73,6 +73,12 @@ export interface ModelReferenceRename {
   to: string
   default: boolean
   fallback: boolean
+  agents?: string[]
+}
+
+export interface ModelReferenceCleanup {
+  model: string
+  agents: string[]
 }
 
 export interface ModelActionResponse {
@@ -82,6 +88,7 @@ export interface ModelActionResponse {
   fallback_chain?: string[]
   enabled?: boolean
   reference_rename?: ModelReferenceRename
+  reference_cleanup?: ModelReferenceCleanup
   api_key_reused?: boolean
 }
 

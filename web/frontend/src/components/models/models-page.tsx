@@ -1141,6 +1141,16 @@ export function ModelsPage() {
         onUpdated={(referenceRename) => {
           if (referenceRename) {
             pendingReferenceRenames.current.push(referenceRename)
+            if (
+              referenceRename.agents &&
+              referenceRename.agents.length > 0
+            ) {
+              toast.warning(
+                t("models.referenceAgentsRename", {
+                  count: referenceRename.agents.length,
+                }),
+              )
+            }
           }
           void refreshAfterModelChange()
         }}
@@ -1170,7 +1180,16 @@ export function ModelsPage() {
           defaultModelEntryCount <= 1
         }
         onClose={() => setDeletingModel(null)}
-        onDeleted={() => {
+        onDeleted={(response) => {
+          const cleanup = response.reference_cleanup
+          if (cleanup && cleanup.agents.length > 0) {
+            toast.warning(
+              t("models.referenceAgentsCleanup", {
+                name: cleanup.model,
+                count: cleanup.agents.length,
+              }),
+            )
+          }
           void refreshAfterModelChange()
         }}
         onMutationStarted={beginModelMutation}

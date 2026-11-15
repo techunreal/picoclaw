@@ -437,6 +437,8 @@
     "toggleEnabledError": "Failed to update the model state",
     "enabledToast": "\"{{name}}\" enabled.",
     "disabledToast": "\"{{name}}\" disabled.",
+    "referenceAgentsRename": "Updated model references in {{count}} agent(s). Restart the gateway to apply the change.",
+    "referenceAgentsCleanup": "Removed {{name}} from {{count}} agent(s). Restart the gateway to apply the change.",
     "action": {
       "edit": "Edit API key",
       "setDefault": "Set as default",
