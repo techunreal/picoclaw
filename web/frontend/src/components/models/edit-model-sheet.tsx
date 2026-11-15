@@ -59,6 +59,7 @@ import {
 import { TestModelDialog } from "./test-model-dialog"
 
 interface EditForm {
+  modelName: string
   provider: string
   modelId: string
   apiBase: string
@@ -88,10 +89,12 @@ interface EditModelSheetProps {
   onUpdateStarted: () => void
   onUpdateSettled: () => void
   providerOptions?: ModelProviderOption[]
+  existingModelNames?: string[]
 }
 
 function buildInitialEditForm(model: ModelInfo): EditForm {
   return {
+    modelName: model.model_name,
     provider: getCanonicalProviderKey(model.provider),
     modelId: model.model,
     apiBase: model.api_base ?? "",
@@ -132,9 +135,11 @@ export function EditModelSheet({
   onUpdateStarted,
   onUpdateSettled,
   providerOptions,
+  existingModelNames = [],
 }: EditModelSheetProps) {
   const { t } = useTranslation()
   const [form, setForm] = useState<EditForm>({
+    modelName: "",
     provider: "",
     modelId: "",
     apiBase: "",
@@ -179,6 +184,16 @@ export function EditModelSheet({
     (JSON.stringify(form) !== JSON.stringify(initialForm) ||
       setAsDefault !== model.is_default ||
       keysDirty)
+  const trimmedModelName = form.modelName.trim()
+  const modelNameConflict =
+    trimmedModelName !== "" &&
+    trimmedModelName !== (model?.model_name ?? "") &&
+    existingModelNames.some((name) => name.trim() === trimmedModelName)
+  const modelNameError = !trimmedModelName
+    ? t("models.field.modelNameRequired")
+    : modelNameConflict
+      ? t("models.field.modelNameDuplicate")
+      : ""
 
   useEffect(() => {
     if (model) {
@@ -363,6 +378,14 @@ export function EditModelSheet({
 
   const handleSave = async () => {
     if (!model) return
+    if (!trimmedModelName) {
+      setError(t("models.field.modelNameRequired"))
+      return
+    }
+    if (modelNameConflict) {
+      setError(t("models.field.modelNameDuplicate"))
+      return
+    }
     if (!providerDef && !isCustomUnknownProvider) {
       setError(t("models.field.providerInvalid"))
       return
@@ -414,7 +437,7 @@ export function EditModelSheet({
         .map((key) => key.trim())
         .filter(Boolean)
       const response = await updateModelByName(model.model_name, {
-        model_name: model.model_name,
+        model_name: trimmedModelName,
         provider: provider,
         model: modelId,
         api_base: submittedApiBase,
@@ -442,13 +465,13 @@ export function EditModelSheet({
       })
       onUpdated(response.reference_rename)
       if (setAsDefault && !model.is_default) {
-        await setDefaultModel(model.model_name)
+        await setDefaultModel(trimmedModelName)
       }
       const gateway = await refreshGatewayState({ force: true })
       showSaveSuccessOrRestartToast(
         t,
         t("models.edit.saveSuccess"),
-        model.model_name,
+        trimmedModelName,
         gateway?.restartRequired === true,
       )
       onSaved()
@@ -489,6 +512,21 @@ export function EditModelSheet({
             ref={scrollContainerRef}
           >
             <div className="space-y-5 px-6 py-5">
+              <Field
+                label={t("models.field.modelName")}
+                hint={t("models.field.modelNameHint")}
+                error={modelNameError || undefined}
+                required
+              >
+                <Input
+                  value={form.modelName}
+                  onChange={setField("modelName")}
+                  placeholder={t("models.field.modelNamePlaceholder")}
+                  className="font-mono text-sm"
+                  aria-invalid={modelNameError !== ""}
+                />
+              </Field>
+
               <Field
                 label={t("models.field.provider")}
                 hint={t("models.field.providerHint")}
@@ -930,7 +968,10 @@ export function EditModelSheet({
             <Button
               onClick={handleSave}
               disabled={
-                !isDirty || saving || modelValidation?.level === "error"
+                !isDirty ||
+                saving ||
+                modelValidation?.level === "error" ||
+                modelNameError !== ""
               }
             >
               {saving && <IconLoader2 className="size-4 animate-spin" />}

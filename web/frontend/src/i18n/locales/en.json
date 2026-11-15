@@ -511,6 +511,11 @@
       "toggle": "Advanced options"
     },
     "field": {
+      "modelName": "Model name",
+      "modelNamePlaceholder": "my-model",
+      "modelNameHint": "Internal name used by agents, the fallback chain, and settings. Older usage records keep the previous name.",
+      "modelNameRequired": "Model name is required.",
+      "modelNameDuplicate": "Another model already uses this name.",
       "provider": "Provider",
       "providerPlaceholder": "Select a provider",
       "providerHint": "Choose a provider from the backend catalog; Model Identifier will be interpreted as that provider's canonical model ID.",

@@ -1159,6 +1159,7 @@ export function ModelsPage() {
         }}
         onUpdateSettled={finishModelMutation}
         providerOptions={providerOptions}
+        existingModelNames={models.map((model) => model.model_name)}
       />
 
       <AddModelSheet
