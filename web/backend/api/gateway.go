@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"reflect"
 	"runtime"
 	"sort"
@@ -372,6 +373,9 @@ func (h *Handler) gatewayStartReady() (bool, string, error) {
 	cfg, err := config.LoadConfig(h.configPath)
 	if err != nil {
 		return false, "", fmt.Errorf("failed to load config: %w", err)
+	}
+	if cfg == nil {
+		return false, "", errors.New("failed to load config: empty config")
 	}
 	normalizeStoredModelNames(cfg)
 
@@ -1466,7 +1470,17 @@ func (h *Handler) gatewayStatusData() map[string]any {
 	data := map[string]any{}
 	var configDefaultModel string
 	cfg, cfgErr := config.LoadConfig(h.configPath)
-	if cfgErr == nil && cfg != nil {
+	if cfgErr != nil || cfg == nil {
+		// The config may be unreadable (BOM, invalid JSON, permissions). Keep
+		// serving gateway status instead of dereferencing a nil config, and
+		// report the problem so the UI can surface it.
+		data["config_error"] = describeConfigLoadError(h.configPath, cfgErr)
+		logger.ErrorCF("gateway", "gateway status served without config", map[string]any{
+			"path":  h.configPath,
+			"error": config.DiagnosticSummary(cfgErr),
+		})
+		cfg = nil
+	} else {
 		configDefaultModel = strings.TrimSpace(cfg.Agents.Defaults.GetModelName())
 		if configDefaultModel != "" {
 			data["config_default_model"] = configDefaultModel
@@ -1512,6 +1526,14 @@ func (h *Handler) gatewayStatusData() map[string]any {
 	}
 
 	gatewayStatus, _ := data["gateway_status"].(string)
+	if cfg == nil {
+		// Without a valid config neither the restart signature nor the start
+		// readiness can be evaluated. Report the config error as the reason.
+		data["gateway_restart_required"] = false
+		data["gateway_start_allowed"] = false
+		data["gateway_start_reason"] = data["config_error"]
+		return data
+	}
 	currentConfigSignature := computeConfigSignature(cfg)
 	gateway.mu.Lock()
 	bootConfigSignature := gateway.bootConfigSignature
@@ -1535,6 +1557,37 @@ func (h *Handler) gatewayStatusData() map[string]any {
 	}
 
 	return data
+}
+
+// describeConfigLoadError returns a short, user-facing reason for a config load
+// failure. It never includes file contents; the full diagnostic preview stays in
+// the log via config.LoadConfig.
+func describeConfigLoadError(path string, err error) string {
+	name := filepath.Base(path)
+	if configFileHasUTF8BOM(path) {
+		return fmt.Sprintf("%s starts with a UTF-8 byte-order mark (BOM); save it as UTF-8 without BOM", name)
+	}
+	if err == nil {
+		return fmt.Sprintf("%s could not be loaded", name)
+	}
+	summary := config.DiagnosticSummary(err)
+	if summary == "" {
+		return fmt.Sprintf("%s could not be loaded", name)
+	}
+	return fmt.Sprintf("%s is invalid: %s", name, summary)
+}
+
+// configFileHasUTF8BOM reports whether the file starts with a UTF-8 BOM.
+func configFileHasUTF8BOM(path string) bool {
+	f, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+
+	var header [3]byte
+	n, _ := io.ReadFull(f, header[:])
+	return n == len(header) && header[0] == 0xEF && header[1] == 0xBB && header[2] == 0xBF
 }
 
 // handleGatewayLogs returns buffered gateway logs, optionally incrementally.
