@@ -1,5 +1,6 @@
 import {
   IconBook,
+  IconHelpCircle,
   IconLanguage,
   IconLoader2,
   IconLogout,
@@ -11,6 +12,7 @@ import {
   IconSun,
 } from "@tabler/icons-react"
 import { Link } from "@tanstack/react-router"
+import { useSetAtom } from "jotai"
 import * as React from "react"
 import { useTranslation } from "react-i18next"
 
@@ -41,10 +43,15 @@ import {
 } from "@/components/ui/tooltip"
 import { useGateway } from "@/hooks/use-gateway.ts"
 import { useTheme } from "@/hooks/use-theme.ts"
+import { tourAtom } from "@/store/tour"
 
 export function AppHeader() {
   const { i18n, t } = useTranslation()
   const { theme, toggleTheme } = useTheme()
+  const setTour = useSetAtom(tourAtom)
+  const restartTour = React.useCallback(() => {
+    setTour({ currentStep: "welcome", isActive: true })
+  }, [setTour])
   const {
     state: gwState,
     loading: gwLoading,
@@ -276,6 +283,22 @@ export function AppHeader() {
             <IconBook className="size-4.5" />
           </a>
         </Button>
+
+        {/* Restart tour */}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-8"
+              aria-label={t("tour.restart")}
+              onClick={restartTour}
+            >
+              <IconHelpCircle className="size-4.5" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>{t("tour.restart")}</TooltipContent>
+        </Tooltip>
 
         {/* Language Switcher */}
         <DropdownMenu>
