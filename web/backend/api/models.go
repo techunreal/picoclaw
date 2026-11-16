@@ -2105,6 +2105,14 @@ func (h *Handler) handleTestModel(w http.ResponseWriter, r *http.Request) {
 		"success":    available,
 		"latency_ms": latency,
 	}
+	if !available && allowsModelListingFallback(m) && endpointModelsReachable(m, client) {
+		// The endpoint answers /models but the configured model id is not listed
+		// (some OpenAI-compatible servers expose only deployment aliases). Chat
+		// still works, so report success with a warning instead of "unreachable".
+		available = true
+		result["success"] = true
+		result["warning"] = fmt.Sprintf("Endpoint reachable, but model %q is not listed in /models", m.Model)
+	}
 	if available {
 		result["status"] = modelStatusAvailable
 	} else {
@@ -2216,6 +2224,11 @@ func (h *Handler) handleTestInlineModel(w http.ResponseWriter, r *http.Request) 
 		"success":    available,
 		"latency_ms": latency,
 	}
+	if !available && allowsModelListingFallback(m) && endpointModelsReachable(m, client) {
+		available = true
+		result["success"] = true
+		result["warning"] = fmt.Sprintf("Endpoint reachable, but model %q is not listed in /models", m.Model)
+	}
 	if available {
 		result["status"] = modelStatusAvailable
 	} else {
@@ -2225,6 +2238,47 @@ func (h *Handler) handleTestInlineModel(w http.ResponseWriter, r *http.Request) 
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(result)
+}
+
+// allowsModelListingFallback reports whether an HTTP 200 from GET /models is
+// enough to treat the endpoint as reachable even when the configured model id is
+// missing from the listing. Providers with strict model catalogs (Anthropic,
+// Gemini, Ollama) must still fail in that case.
+func allowsModelListingFallback(m *config.ModelConfig) bool {
+	switch modelProtocol(m) {
+	case "anthropic", "anthropic-messages", "alibaba-coding-anthropic", "gemini", "ollama":
+		return false
+	default:
+		return true
+	}
+}
+
+// endpointModelsReachable reports whether GET <base>/models returns 200, even if
+// the configured model id is not present in the listing.
+func endpointModelsReachable(m *config.ModelConfig, client *http.Client) bool {
+	apiBase := strings.TrimRight(modelProbeAPIBase(m), "/")
+	if apiBase == "" {
+		return false
+	}
+	if client == nil {
+		client = &http.Client{}
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiBase+"/models", nil)
+	if err != nil {
+		return false
+	}
+	if key := strings.TrimSpace(m.APIKey()); key != "" {
+		req.Header.Set("Authorization", "Bearer "+key)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	return resp.StatusCode == http.StatusOK
 }
 
 // probeModelConnectivity performs a real network probe to verify model endpoint reachability.

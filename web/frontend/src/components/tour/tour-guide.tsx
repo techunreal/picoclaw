@@ -68,7 +68,7 @@ export function TourGuide() {
     agents: {
       title: t("tour.agents.title"),
       description: t("tour.agents.description"),
-      targetSelector: "[data-tour='agent-group']",
+      targetSelector: "[data-tour='chat-profiles']",
       position: "right",
     },
     settings: {

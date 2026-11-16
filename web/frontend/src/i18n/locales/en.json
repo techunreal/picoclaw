@@ -1468,8 +1468,8 @@
       "description": "Start here. Pick a model, attach files, and switch memory or incognito mode from the chat header."
     },
     "agents": {
-      "title": "Agents & workspace",
-      "description": "Agent opens memory and personality files, installed skills, tools, and subagent runs."
+      "title": "Agents & chats",
+      "description": "Each agent profile keeps its own chats here. Open Settings (gear) for agents, memory, skills, channels and tools."
     },
     "settings": {
       "title": "Settings",
