@@ -56,6 +56,7 @@ func MemoryAutoWriteEnabled() bool {
 
 type ContextBuilder struct {
 	workspace      string
+	sharedSkills   string
 	skillsLoader   *skills.SkillsLoader
 	memory         *MemoryStore
 	splitOnMarker  bool
@@ -132,6 +133,12 @@ func getGlobalConfigDir() string {
 }
 
 func NewContextBuilder(workspace string) *ContextBuilder {
+	return NewContextBuilderWithShared(workspace, "")
+}
+
+// NewContextBuilderWithShared adds a shared skills directory (the default
+// workspace's skills folder) that every agent can read.
+func NewContextBuilderWithShared(workspace, sharedSkills string) *ContextBuilder {
 	// builtin skills: skills directory in current project
 	// Use the skills/ directory under the current working directory
 	builtinSkillsDir := strings.TrimSpace(os.Getenv(config.EnvBuiltinSkills))
@@ -149,7 +156,8 @@ func NewContextBuilder(workspace string) *ContextBuilder {
 
 	return &ContextBuilder{
 		workspace:      workspace,
-		skillsLoader:   skills.NewSkillsLoader(workspace, globalSkillsDir, builtinSkillsDir),
+		sharedSkills:   sharedSkills,
+		skillsLoader:   skills.NewSkillsLoaderWithShared(workspace, sharedSkills, globalSkillsDir, builtinSkillsDir),
 		memory:         NewMemoryStore(workspace),
 		promptRegistry: NewPromptRegistry(),
 	}
@@ -203,8 +211,23 @@ func (cb *ContextBuilder) getIdentity(includeToolUseRule bool) string {
 			),
 		)
 	}
+	sharedSkills := strings.TrimSpace(cb.sharedSkills)
+	if sharedSkills != "" {
+		rules = append(
+			rules,
+			fmt.Sprintf(
+				"**Shared skills** - Read and create skills in %s so every agent can use them; keep agent-specific overrides in this workspace's skills folder.",
+				sharedSkills,
+			),
+		)
+	}
 	for i, rule := range rules {
 		rules[i] = fmt.Sprintf("%d. %s", i+1, rule)
+	}
+
+	sharedLine := ""
+	if sharedSkills != "" {
+		sharedLine = fmt.Sprintf("- Shared skills (all agents): %s/{skill-name}/SKILL.md\n", sharedSkills)
 	}
 
 	return fmt.Sprintf(
@@ -217,7 +240,7 @@ Your workspace is at: %s
 - Memory: %s/memory/MEMORY.md
 - Daily Notes: %s/memory/YYYYMM/YYYYMMDD.md
 - Skills: %s/skills/{skill-name}/SKILL.md
-
+%s
 ## Important Rules
 
 %s
@@ -227,6 +250,7 @@ Your workspace is at: %s
 		workspacePath,
 		workspacePath,
 		workspacePath,
+		sharedLine,
 		strings.Join(rules, "\n\n"),
 	)
 }

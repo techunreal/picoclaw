@@ -553,6 +553,8 @@ func resolveAgentFileTarget(cfg *config.Config, id, workspace, agentID string) (
 		case "workspace":
 			root = filepath.Join(workspace, "skills")
 			editable = true
+		case "shared":
+			root = filepath.Join(cfg.WorkspacePath(), "skills")
 		case "global":
 			root = filepath.Join(globalConfigDir(), "skills")
 		case "builtin":
@@ -663,7 +665,7 @@ func buildAgentFileGroups(cfg *config.Config, workspace, agentID string) ([]agen
 		)
 	}
 
-	loader := newSkillsLoader(workspace)
+	loader := newAgentSkillsLoader(cfg, workspace)
 	for _, skill := range loader.ListSkills() {
 		dir := filepath.Base(filepath.Dir(skill.Path))
 		id := "skill:" + skill.Source + ":" + dir

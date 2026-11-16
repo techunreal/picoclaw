@@ -60,14 +60,15 @@ func (info SkillInfo) validate() error {
 type SkillsLoader struct {
 	workspace       string
 	workspaceSkills string // workspace skills (project-level)
+	sharedSkills    string // shared skills (default workspace, read by every agent)
 	globalSkills    string // global skills (~/.picoclaw/skills)
 	builtinSkills   string // builtin skills
 }
 
 // SkillRoots returns all unique skill root directories used by this loader.
-// The order follows resolution priority: workspace > global > builtin.
+// The order follows resolution priority: workspace > shared > global > builtin.
 func (sl *SkillsLoader) SkillRoots() []string {
-	roots := []string{sl.workspaceSkills, sl.globalSkills, sl.builtinSkills}
+	roots := []string{sl.workspaceSkills, sl.sharedSkills, sl.globalSkills, sl.builtinSkills}
 	seen := make(map[string]struct{}, len(roots))
 	out := make([]string, 0, len(roots))
 
@@ -88,9 +89,23 @@ func (sl *SkillsLoader) SkillRoots() []string {
 }
 
 func NewSkillsLoader(workspace string, globalSkills string, builtinSkills string) *SkillsLoader {
+	return NewSkillsLoaderWithShared(workspace, "", globalSkills, builtinSkills)
+}
+
+// NewSkillsLoaderWithShared adds a shared skill root that is visible to every
+// agent. In PicoClaw this is the default workspace's skills directory, so the
+// standard skills are installed once instead of being copied into each agent
+// workspace.
+func NewSkillsLoaderWithShared(
+	workspace string,
+	sharedSkills string,
+	globalSkills string,
+	builtinSkills string,
+) *SkillsLoader {
 	return &SkillsLoader{
 		workspace:       workspace,
 		workspaceSkills: filepath.Join(workspace, "skills"),
+		sharedSkills:    sharedSkills, // expected to be a .../skills directory
 		globalSkills:    globalSkills, // ~/.picoclaw/skills
 		builtinSkills:   builtinSkills,
 	}
@@ -101,7 +116,7 @@ func (sl *SkillsLoader) ListSkills() []SkillInfo {
 	// A metadata name may appear more than once within one root (for example
 	// after installing two different skills that declare the same frontmatter
 	// name). Only shadow a name across roots, where the higher-priority root
-	// wins: workspace > global > builtin.
+	// wins: workspace > shared > global > builtin.
 	firstRoot := make(map[string]int)
 
 	addSkills := func(dir, source string, rootIndex int) {
@@ -143,10 +158,11 @@ func (sl *SkillsLoader) ListSkills() []SkillInfo {
 		}
 	}
 
-	// Priority: workspace > global > builtin
+	// Priority: workspace > shared > global > builtin
 	addSkills(sl.workspaceSkills, "workspace", 0)
-	addSkills(sl.globalSkills, "global", 1)
-	addSkills(sl.builtinSkills, "builtin", 2)
+	addSkills(sl.sharedSkills, "shared", 1)
+	addSkills(sl.globalSkills, "global", 2)
+	addSkills(sl.builtinSkills, "builtin", 3)
 
 	return skills
 }
@@ -171,7 +187,15 @@ func (sl *SkillsLoader) LoadSkill(name string) (string, bool) {
 		}
 	}
 
-	// 2. then load from global skills (~/.picoclaw/skills)
+	// 2. then load from the shared skills root (default workspace)
+	if sl.sharedSkills != "" {
+		skillFile := filepath.Join(sl.sharedSkills, name, "SKILL.md")
+		if content, err := os.ReadFile(skillFile); err == nil {
+			return sl.stripFrontmatter(string(content)), true
+		}
+	}
+
+	// 3. then load from global skills (~/.picoclaw/skills)
 	if sl.globalSkills != "" {
 		skillFile := filepath.Join(sl.globalSkills, name, "SKILL.md")
 		if content, err := os.ReadFile(skillFile); err == nil {
@@ -179,7 +203,7 @@ func (sl *SkillsLoader) LoadSkill(name string) (string, bool) {
 		}
 	}
 
-	// 3. finally load from builtin skills
+	// 4. then load from builtin skills
 	if sl.builtinSkills != "" {
 		skillFile := filepath.Join(sl.builtinSkills, name, "SKILL.md")
 		if content, err := os.ReadFile(skillFile); err == nil {
@@ -187,7 +211,7 @@ func (sl *SkillsLoader) LoadSkill(name string) (string, bool) {
 		}
 	}
 
-	// 4. Fallback: callers may pass the frontmatter name. Resolve it to the
+	// 5. Fallback: callers may pass the frontmatter name. Resolve it to the
 	// skill directory so loading stays consistent with ListSkills.
 	if err := ValidateSkillName(name); err == nil {
 		for _, skill := range sl.ListSkills() {

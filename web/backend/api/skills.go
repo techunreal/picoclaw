@@ -995,6 +995,24 @@ func newSkillsLoader(workspace string) *skills.SkillsLoader {
 	)
 }
 
+// newAgentSkillsLoader adds the default workspace's skills as a shared root so
+// named agents can use the standard skill set without per-agent copies.
+func newAgentSkillsLoader(cfg *config.Config, workspace string) *skills.SkillsLoader {
+	shared := ""
+	if cfg != nil {
+		shared = filepath.Join(cfg.WorkspacePath(), "skills")
+		if filepath.Clean(shared) == filepath.Clean(filepath.Join(workspace, "skills")) {
+			shared = ""
+		}
+	}
+	return skills.NewSkillsLoaderWithShared(
+		workspace,
+		shared,
+		filepath.Join(globalConfigDir(), "skills"),
+		builtinSkillsDir(),
+	)
+}
+
 func newSkillsRegistryManager(cfg *config.Config) *skills.RegistryManager {
 	return skills.NewRegistryManagerFromToolsConfig(cfg.Tools.Skills)
 }
@@ -1014,7 +1032,7 @@ func buildSkillSupportItems(cfg *config.Config) ([]skillSupportItem, error) {
 }
 
 func buildSkillSupportItemsForWorkspace(cfg *config.Config, workspace string) ([]skillSupportItem, error) {
-	rawSkills := newSkillsLoader(workspace).ListSkills()
+	rawSkills := newAgentSkillsLoader(cfg, workspace).ListSkills()
 	items := make([]skillSupportItem, 0, len(rawSkills))
 	for _, skill := range rawSkills {
 		item, err := enrichSkillInfo(cfg, skill)
@@ -1216,6 +1234,10 @@ func enrichSkillInfo(cfg *config.Config, skill skills.SkillInfo) (skillSupportIt
 
 	switch skill.Source {
 	case "builtin":
+		item.OriginKind = "builtin"
+	case "shared":
+		// Standard skills managed in the default workspace. Read-only for
+		// named agents; edit them from the main workspace Skills page.
 		item.OriginKind = "builtin"
 	case "global":
 		item.OriginKind = "builtin"

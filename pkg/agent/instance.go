@@ -103,6 +103,14 @@ func NewAgentInstance(
 	workspace := resolveAgentWorkspace(agentCfg, defaults)
 	os.MkdirAll(workspace, 0o755)
 
+	// The default workspace's skills directory is shared by every agent. It is
+	// read once instead of being copied into each agent workspace.
+	sharedWorkspace := expandHome(defaults.Workspace)
+	sharedSkills := filepath.Join(sharedWorkspace, "skills")
+	if filepath.Clean(sharedSkills) == filepath.Clean(filepath.Join(workspace, "skills")) {
+		sharedSkills = ""
+	}
+
 	definition := loadAgentDefinition(workspace)
 
 	model := resolveAgentModel(agentCfg, defaults, definition)
@@ -114,6 +122,12 @@ func NewAgentInstance(
 	// Compile path whitelist patterns from config.
 	allowReadPaths := buildAllowReadPatterns(cfg)
 	allowWritePaths := compilePatterns(cfg.Tools.AllowWritePaths)
+	if sharedSkills != "" {
+		// Agents may read and create shared skills so one agent can add a skill
+		// that every other agent sees.
+		allowReadPaths = appendPathPattern(allowReadPaths, sharedSkills)
+		allowWritePaths = appendPathPattern(allowWritePaths, sharedSkills)
+	}
 	agentToolAllowlist := resolveAgentToolAllowlist(definition)
 	agentMCPServerAllowlist := resolveAgentMCPServerAllowlist(definition)
 
@@ -176,7 +190,7 @@ func NewAgentInstance(
 	sessions := initSessionStore(sessionsDir)
 
 	mcpDiscoveryActive := agentHasDiscoverableMCPServers(cfg, agentMCPServerAllowlist)
-	contextBuilder := NewContextBuilder(workspace).
+	contextBuilder := NewContextBuilderWithShared(workspace, sharedSkills).
 		WithToolDiscovery(
 			mcpDiscoveryActive && cfg.Tools.MCP.Discovery.UseBM25,
 			mcpDiscoveryActive && cfg.Tools.MCP.Discovery.UseRegex,
@@ -721,6 +735,16 @@ func buildAllowReadPatterns(cfg *config.Config) []*regexp.Regexp {
 	}
 
 	return append(compiled, mediaDirPattern)
+}
+
+func appendPathPattern(patterns []*regexp.Regexp, dir string) []*regexp.Regexp {
+	dir = strings.TrimSpace(dir)
+	if dir == "" {
+		return patterns
+	}
+	sep := regexp.QuoteMeta(string(os.PathSeparator))
+	pattern := "^" + regexp.QuoteMeta(filepath.Clean(dir)) + "(?:" + sep + "|$)"
+	return append(patterns, compilePatterns([]string{pattern})...)
 }
 
 func mediaTempDirPattern() string {

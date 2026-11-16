@@ -115,6 +115,7 @@ func registerSharedTools(
 	provider providers.LLMProvider,
 ) {
 	allowReadPaths := buildAllowReadPatterns(cfg)
+	sharedSkillsWorkspace := expandHome(cfg.Agents.Defaults.Workspace)
 	var ttsProvider tts.TTSProvider
 	if cfg.Tools.IsToolEnabled("send_tts") {
 		ttsProvider = tts.DetectTTS(cfg)
@@ -283,7 +284,9 @@ func registerSharedTools(
 			}
 
 			if install_skills_enable {
-				agent.Tools.Register(tools.NewInstallSkillTool(registryMgr, agent.Workspace))
+				// Installs go to the default workspace so the skill is visible to
+				// every agent instead of only the agent that installed it.
+				agent.Tools.Register(tools.NewInstallSkillTool(registryMgr, sharedSkillsWorkspace))
 			}
 		}
 

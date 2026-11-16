@@ -166,14 +166,32 @@ func TestUpdateAgents_SeedsNewAgentWorkspace(t *testing.T) {
 	}
 
 	agentWorkspace := filepath.Join(root, "agents", "alpha")
-	if _, err := os.Stat(filepath.Join(agentWorkspace, "skills", "demo-skill", "SKILL.md")); err != nil {
-		t.Fatalf("seeded skill missing: %v", err)
+	if _, err := os.Stat(filepath.Join(agentWorkspace, "skills", "demo-skill", "SKILL.md")); !os.IsNotExist(err) {
+		t.Fatalf("standard skills must not be copied into the agent workspace: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(agentWorkspace, "tools", "office_cli.py")); err != nil {
 		t.Fatalf("seeded office helper missing: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(defaultsWorkspace, "skills", "demo-skill", "SKILL.md")); err != nil {
 		t.Fatalf("default workspace skill changed: %v", err)
+	}
+
+	updated, err := config.LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+	items, err := buildSkillSupportItemsForWorkspace(updated, agentWorkspace)
+	if err != nil {
+		t.Fatalf("buildSkillSupportItemsForWorkspace() error = %v", err)
+	}
+	found := false
+	for _, item := range items {
+		if item.Name == "demo-skill" && item.Source == "shared" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("agent does not see the shared skill: %#v", items)
 	}
 }
 
@@ -680,6 +698,68 @@ func TestListSkills_ScopedToAgentWorkspace(t *testing.T) {
 		if foundUnwanted {
 			t.Fatalf("agent %s leaked workspace skill %q", agentID, unwanted)
 		}
+	}
+}
+
+func TestListSkills_IncludesSharedSkills(t *testing.T) {
+	configPath, cleanup := setupOAuthTestEnv(t)
+	defer cleanup()
+
+	cfg, err := config.LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+	sharedDir := filepath.Join(cfg.WorkspacePath(), "skills", "shared-skill")
+	if err := os.MkdirAll(sharedDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	content := "---\nname: shared-skill\ndescription: shared skill\n---\n# shared\n"
+	if err := os.WriteFile(filepath.Join(sharedDir, "SKILL.md"), []byte(content), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	alphaWS := t.TempDir()
+	body, err := json.Marshal(agentsUpdateRequest{Agents: []config.AgentConfig{
+		{ID: "alpha", Default: true, Workspace: alphaWS},
+	}})
+	if err != nil {
+		t.Fatalf("Marshal() error = %v", err)
+	}
+	mux := agentsTestMux(t, configPath)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPut, "/api/agents", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("PUT status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/skills?agent=alpha", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET skills status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	var resp skillSupportResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+	found := false
+	for _, skill := range resp.Skills {
+		if skill.Name == "shared-skill" && skill.Source == "shared" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("shared skill missing from agent list: %#v", resp.Skills)
+	}
+
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/agent/files?agent=alpha", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET files status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "skill:shared:shared-skill") {
+		t.Fatalf("shared skill missing from agent files: %s", rec.Body.String())
 	}
 }
 

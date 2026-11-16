@@ -213,6 +213,68 @@ func TestListSkillsGlobalOverridesBuiltin(t *testing.T) {
 	assert.Equal(t, "global version", skills[0].Description)
 }
 
+func TestListSkillsSharedOverridesGlobal(t *testing.T) {
+	tmp := t.TempDir()
+	ws := filepath.Join(tmp, "agent-workspace")
+	shared := filepath.Join(tmp, "default-workspace", "skills")
+	global := filepath.Join(tmp, "global")
+
+	createSkillDir(t, shared, "my-skill", "my-skill", "shared version")
+	createSkillDir(t, global, "my-skill", "my-skill", "global version")
+
+	sl := NewSkillsLoaderWithShared(ws, shared, global, "")
+	skills := sl.ListSkills()
+
+	assert.Len(t, skills, 1)
+	assert.Equal(t, "shared", skills[0].Source)
+	assert.Equal(t, "shared version", skills[0].Description)
+}
+
+func TestListSkillsWorkspaceOverridesShared(t *testing.T) {
+	tmp := t.TempDir()
+	ws := filepath.Join(tmp, "agent-workspace")
+	shared := filepath.Join(tmp, "default-workspace", "skills")
+
+	createSkillDir(t, filepath.Join(ws, "skills"), "my-skill", "my-skill", "agent override")
+	createSkillDir(t, shared, "my-skill", "my-skill", "shared version")
+
+	sl := NewSkillsLoaderWithShared(ws, shared, "", "")
+	skills := sl.ListSkills()
+
+	assert.Len(t, skills, 1)
+	assert.Equal(t, "workspace", skills[0].Source)
+	assert.Equal(t, "agent override", skills[0].Description)
+}
+
+func TestLoadSkillFallsBackToShared(t *testing.T) {
+	tmp := t.TempDir()
+	ws := filepath.Join(tmp, "agent-workspace")
+	shared := filepath.Join(tmp, "default-workspace", "skills")
+	createSkillDir(t, shared, "shared-skill", "shared-skill", "from shared")
+
+	sl := NewSkillsLoaderWithShared(ws, shared, "", "")
+	content, ok := sl.LoadSkill("shared-skill")
+
+	assert.True(t, ok)
+	assert.Contains(t, content, "# shared-skill")
+}
+
+func TestSkillRootsIncludesShared(t *testing.T) {
+	tmp := t.TempDir()
+	ws := filepath.Join(tmp, "agent-workspace")
+	shared := filepath.Join(tmp, "default-workspace", "skills")
+	global := filepath.Join(tmp, "global")
+
+	sl := NewSkillsLoaderWithShared(ws, shared, global, "")
+	roots := sl.SkillRoots()
+
+	assert.Equal(t, []string{
+		filepath.Join(ws, "skills"),
+		shared,
+		global,
+	}, roots)
+}
+
 func TestListSkillsMetadataNameDedup(t *testing.T) {
 	tmp := t.TempDir()
 	ws := filepath.Join(tmp, "workspace")

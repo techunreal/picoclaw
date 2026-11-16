@@ -466,60 +466,18 @@ func derivedAgentWorkspace(cfg *config.Config, id string) string {
 	return filepath.Clean(filepath.Join(base, "..", "agents", id))
 }
 
-// seedAgentWorkspace copies the standard skill set and the Office helper into a
-// newly created agent workspace. The default ("main") workspace is the source,
-// so a fresh agent starts with the same capabilities as main without sharing
-// files with it.
+// seedAgentWorkspace copies the Office helper into a newly created agent
+// workspace. Standard skills are not copied: they live in the default
+// workspace's skills folder and are shared read-only by every agent.
 func seedAgentWorkspace(cfg *config.Config, workspace string) error {
 	defaultsWorkspace := expandHomePath(cfg.Agents.Defaults.Workspace)
 	if defaultsWorkspace == "" || filepath.Clean(defaultsWorkspace) == filepath.Clean(workspace) {
 		return nil
 	}
-	if err := copyMissingDir(
-		filepath.Join(defaultsWorkspace, "skills"),
-		filepath.Join(workspace, "skills"),
-	); err != nil {
-		return err
-	}
 	return copyMissingFile(
 		filepath.Join(defaultsWorkspace, "tools", "office_cli.py"),
 		filepath.Join(workspace, "tools", "office_cli.py"),
 	)
-}
-
-func copyMissingDir(src, dst string) error {
-	if _, err := os.Stat(dst); err == nil {
-		return nil
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-	srcInfo, err := os.Stat(src)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	if !srcInfo.IsDir() {
-		return nil
-	}
-	return filepath.WalkDir(src, func(path string, entry os.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		rel, err := filepath.Rel(src, path)
-		if err != nil {
-			return err
-		}
-		target := filepath.Join(dst, rel)
-		if entry.IsDir() {
-			return os.MkdirAll(target, 0o755)
-		}
-		if !entry.Type().IsRegular() {
-			return nil
-		}
-		return copyFileContents(path, target)
-	})
 }
 
 func copyMissingFile(src, dst string) error {
