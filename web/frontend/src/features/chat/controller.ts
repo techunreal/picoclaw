@@ -32,6 +32,7 @@ let wsRef: WebSocket | null = null
 let isConnecting = false
 let msgIdCounter = 0
 let activeSessionIdRef = getChatState().activeSessionId
+let chatAgentIdRef = ""
 let initialized = false
 let unsubscribeGateway: (() => void) | null = null
 let hydratePromise: Promise<void> | null = null
@@ -86,6 +87,16 @@ function needsActiveSessionHydration(): boolean {
 function setActiveSessionId(sessionId: string) {
   activeSessionIdRef = sessionId
   updateChatStore({ activeSessionId: sessionId })
+}
+
+// setChatAgent targets the next Pico WebSocket connections at a specific agent.
+export function setChatAgent(agentId: string) {
+  const next = agentId.trim()
+  if (next === chatAgentIdRef) return
+  chatAgentIdRef = next
+  if (shouldMaintainConnection) {
+    void connectChat()
+  }
 }
 
 function disconnectChatInternal({
@@ -149,7 +160,10 @@ export async function connectChat() {
     const memory =
       incognito || !isSessionMemoryEnabled(sessionId) ? "off" : "on"
     const incognitoParam = incognito ? "&incognito=1" : ""
-    const url = `${wsUrl}?session_id=${encodeURIComponent(sessionId)}&memory=${memory}${incognitoParam}`
+    const agentParam = chatAgentIdRef
+      ? `&agent=${encodeURIComponent(chatAgentIdRef)}`
+      : ""
+    const url = `${wsUrl}?session_id=${encodeURIComponent(sessionId)}&memory=${memory}${incognitoParam}${agentParam}`
     const socket = new WebSocket(url)
 
     if (generation !== connectionGeneration) {

@@ -184,11 +184,8 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   }, [isMobile, setOpenMobile])
 
   const agentGroups: AgentChatGroup[] = React.useMemo(() => {
-    const agents = agentsQuery.data?.agents
-    if (!agents || agents.length === 0) {
-      return [{ id: "main", label: "Pico", isDefault: true }]
-    }
-    return agents.map((agent) => ({
+    const agents = agentsQuery.data?.agents ?? []
+    const groups: AgentChatGroup[] = agents.map((agent) => ({
       id: agent.id,
       label:
         agent.name?.trim() ||
@@ -196,6 +193,14 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       isDefault: agent.default === true,
       avatar: agent.avatar,
     }))
+    if (!groups.some((group) => group.id === "main")) {
+      groups.unshift({
+        id: "main",
+        label: "Pico",
+        isDefault: !groups.some((group) => group.isDefault),
+      })
+    }
+    return groups
   }, [agentsQuery.data])
 
   const sessions = sessionsQuery.data ?? []
@@ -324,7 +329,9 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                   <SidebarMenu>
                     {agentGroups.map((agent) => {
                       const expanded = isExpanded(agent)
-                      const agentSessions = agent.isDefault ? sessions : []
+                      const agentSessions = sessions.filter(
+                        (session) => (session.agent_id || "main") === agent.id,
+                      )
                       return (
                         <React.Fragment key={agent.id}>
                           <SidebarMenuItem>

@@ -101,7 +101,7 @@ export function useAgentsPage() {
   const saveAgent = async (agent: AgentConfig): Promise<boolean> => {
     const normalized: AgentConfig = {
       ...agent,
-      default: agent.default || agents.length === 0,
+      default: Boolean(agent.default),
     }
     let next: AgentConfig[]
     if (editor?.mode === "create") {
@@ -116,8 +116,6 @@ export function useAgentsPage() {
         ...item,
         default: item.id === normalized.id,
       }))
-    } else if (!next.some((item) => item.default)) {
-      next = next.map((item, index) => ({ ...item, default: index === 0 }))
     }
     setSelectedId(normalized.id)
     try {
@@ -147,9 +145,6 @@ export function useAgentsPage() {
         }
         return config
       })
-    if (remaining.length > 0 && !remaining.some((agent) => agent.default)) {
-      remaining[0] = { ...remaining[0], default: true }
-    }
     const remainingRules = dispatch.rules.filter(
       (rule) => rule.agent !== deleteTarget.id,
     )
@@ -201,7 +196,7 @@ export function useAgentsPage() {
       saveMutation.reset()
       setEditor({
         mode: "create",
-        agent: { id: "", name: "", default: agents.length === 0 },
+        agent: { id: "", name: "", default: false },
       })
     },
     openEdit: (agent: AgentView) => {

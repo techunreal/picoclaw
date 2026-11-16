@@ -1227,6 +1227,9 @@
         "mcp": {
           "title": "MCP Servers",
           "description": "Connect Model Context Protocol servers over stdio, HTTP or SSE. Tools become available to the agent after a gateway restart.",
+          "quick_hint": "Quick add: name and URL. Headers, environment or local commands are under Advanced.",
+          "advanced": "Advanced",
+          "advanced_hint": "Transport, headers, environment, stdio command and discovery.",
           "add_server": "Add server",
           "enable": "Enable MCP",
           "enable_description": "Load configured MCP servers when the gateway starts.",
@@ -1283,9 +1286,12 @@
           "communication": "Communication",
           "skills": "Skills",
           "agents": "Agents",
+          "media": "Media",
           "hardware": "Hardware",
           "discovery": "Discovery"
         },
+        "show_advanced": "Show advanced",
+        "hide_advanced": "Hide advanced",
         "reasons": {
           "requires_linux": "This tool only works on Linux hosts with the required device files exposed.",
           "requires_serial_platform": "This tool currently supports Linux, macOS, and Windows hosts with accessible serial ports.",

@@ -1,10 +1,12 @@
 import dayjs from "dayjs"
 import { useAtomValue } from "jotai"
+import { useEffect } from "react"
 
 import {
   newChatSession,
   newIncognitoChatSession,
   sendChatMessage,
+  setChatAgent,
   switchChatSession,
 } from "@/features/chat/controller"
 import { chatAtom } from "@/store/chat"
@@ -55,9 +57,13 @@ export function formatMessageTime(dateRaw: number | string | Date): string {
   return date.format("ll LT")
 }
 
-export function usePicoChat() {
+export function usePicoChat(agentId?: string) {
   const { messages, connectionState, isTyping, activeSessionId, contextUsage } =
     useAtomValue(chatAtom)
+
+  useEffect(() => {
+    setChatAgent(agentId ?? "")
+  }, [agentId])
 
   return {
     messages,

@@ -41,6 +41,7 @@ import {
   hasFileTransfer,
 } from "@/features/chat/attachment-input"
 import { isIncognitoSession } from "@/features/chat/state"
+import { getSessions } from "@/api/sessions"
 import { useChatModels } from "@/hooks/use-chat-models"
 import { useGateway } from "@/hooks/use-gateway"
 import { usePicoChat } from "@/hooks/use-pico-chat"
@@ -49,6 +50,7 @@ import type { ConnectionState } from "@/store/chat"
 import type { ChatAttachment } from "@/store/chat"
 import {
   assistantDetailVisibilityAtom,
+  chatAtom,
   pendingSessionAtom,
   shouldShowAssistantMessage,
 } from "@/store/chat"
@@ -133,6 +135,16 @@ export function ChatPage() {
     { value: "all", label: t("chat.assistantDetailVisibility.all") },
   ]
 
+  const activeSessionIdForAgent = useAtomValue(chatAtom).activeSessionId
+  const sessionsQuery = useQuery({
+    queryKey: ["sidebar-sessions"],
+    queryFn: () => getSessions(0, 50),
+  })
+  const activeSessionAgent = sessionsQuery.data?.find(
+    (session) => session.id === activeSessionIdForAgent,
+  )?.agent_id
+  const chatAgentId = activeSessionAgent || "main"
+
   const {
     messages,
     connectionState,
@@ -143,17 +155,18 @@ export function ChatPage() {
     switchSession,
     newChat,
     newIncognitoChat,
-  } = usePicoChat()
+  } = usePicoChat(chatAgentId)
   const isIncognito = isIncognitoSession(activeSessionId)
 
   const agentsQuery = useQuery({
     queryKey: ["sidebar-agents"],
     queryFn: getAgents,
   })
-  const chatAgent =
-    agentsQuery.data?.agents.find((agent) => agent.default) ??
-    agentsQuery.data?.agents[0]
-  const chatAgentName = chatAgent?.name?.trim() || (chatAgent ? chatAgent.id : "Pico")
+  const chatAgent = agentsQuery.data?.agents.find(
+    (agent) => agent.id === chatAgentId,
+  )
+  const chatAgentName =
+    chatAgent?.name?.trim() || (chatAgentId === "main" ? "Pico" : chatAgentId)
 
   const pendingSessionId = useAtomValue(pendingSessionAtom)
   const setPendingSessionId = useSetAtom(pendingSessionAtom)

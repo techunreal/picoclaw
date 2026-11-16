@@ -107,7 +107,7 @@ function emptyEditor(): EditorState {
     payload: {
       enabled: true,
       deferred: null,
-      type: "stdio",
+      type: "http",
       command: "",
       args: [],
       env: {},
@@ -126,6 +126,7 @@ export function MCPTab() {
   const [envText, setEnvText] = useState("")
   const [headersText, setHeadersText] = useState("")
   const [deleteTarget, setDeleteTarget] = useState<MCPServer | null>(null)
+  const [showAdvanced, setShowAdvanced] = useState(false)
   const [testResults, setTestResults] = useState<Record<string, MCPTestResult>>(
     {},
   )
@@ -234,9 +235,22 @@ export function MCPTab() {
     },
   })
 
-  const openCreate = () => setEditor(emptyEditor())
-  const openEdit = (server: MCPServer) =>
-    setEditor({ name: server.name, payload: toPayload(server) })
+  const openCreate = () => {
+    setShowAdvanced(false)
+    setEditor(emptyEditor())
+  }
+  const openEdit = (server: MCPServer) => {
+    const payload = toPayload(server)
+    setShowAdvanced(
+      payload.type === "stdio" ||
+        payload.args.length > 0 ||
+        payload.env_file !== "" ||
+        Object.keys(payload.env).length > 0 ||
+        Object.keys(payload.headers).length > 0 ||
+        payload.deferred !== null,
+    )
+    setEditor({ name: server.name, payload })
+  }
 
   const handleSave = () => {
     if (!editor) return
@@ -519,146 +533,175 @@ export function MCPTab() {
                 />
               </div>
 
-              <div className="grid gap-2">
-                <Label>{t("pages.agent.tools.mcp.transport", "Transport")}</Label>
-                <Select
-                  value={editor.payload.type}
-                  onValueChange={(value) =>
-                    patchEditor({ type: value as MCPTransport })
-                  }
-                >
-                  <SelectTrigger className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="stdio">stdio</SelectItem>
-                    <SelectItem value="http">HTTP</SelectItem>
-                    <SelectItem value="sse">SSE</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+              {editor.payload.type !== "stdio" && (
+                <div className="grid gap-2">
+                  <Label htmlFor="mcp-url">
+                    {t("pages.agent.tools.mcp.url", "URL")}
+                  </Label>
+                  <Input
+                    id="mcp-url"
+                    value={editor.payload.url}
+                    onChange={(event) => patchEditor({ url: event.target.value })}
+                    placeholder="https://example.com/mcp"
+                    className="font-mono"
+                  />
+                  <p className="text-muted-foreground text-xs">
+                    {t(
+                      "pages.agent.tools.mcp.quick_hint",
+                      "Quick add: name and URL. Headers, environment or local commands are under Advanced.",
+                    )}
+                  </p>
+                </div>
+              )}
 
-              {editor.payload.type === "stdio" ? (
+              <label className="flex items-center justify-between gap-3 rounded-xl border p-3">
+                <span className="flex flex-col">
+                  <span className="text-sm font-medium">
+                    {t("pages.agent.tools.mcp.advanced", "Advanced")}
+                  </span>
+                  <span className="text-muted-foreground text-xs">
+                    {t(
+                      "pages.agent.tools.mcp.advanced_hint",
+                      "Transport, headers, environment, stdio command and discovery.",
+                    )}
+                  </span>
+                </span>
+                <Switch
+                  checked={showAdvanced}
+                  onCheckedChange={setShowAdvanced}
+                />
+              </label>
+
+              {showAdvanced && (
                 <>
                   <div className="grid gap-2">
-                    <Label htmlFor="mcp-command">
-                      {t("pages.agent.tools.mcp.command", "Command")}
-                    </Label>
-                    <Input
-                      id="mcp-command"
-                      value={editor.payload.command}
-                      onChange={(event) =>
-                        patchEditor({ command: event.target.value })
+                    <Label>{t("pages.agent.tools.mcp.transport", "Transport")}</Label>
+                    <Select
+                      value={editor.payload.type}
+                      onValueChange={(value) =>
+                        patchEditor({ type: value as MCPTransport })
                       }
-                      placeholder="npx"
-                      className="font-mono"
-                    />
+                    >
+                      <SelectTrigger className="w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="http">HTTP</SelectItem>
+                        <SelectItem value="sse">SSE</SelectItem>
+                        <SelectItem value="stdio">stdio (local command)</SelectItem>
+                      </SelectContent>
+                    </Select>
                   </div>
+
+                  {editor.payload.type === "stdio" ? (
+                    <>
+                      <div className="grid gap-2">
+                        <Label htmlFor="mcp-command">
+                          {t("pages.agent.tools.mcp.command", "Command")}
+                        </Label>
+                        <Input
+                          id="mcp-command"
+                          value={editor.payload.command}
+                          onChange={(event) =>
+                            patchEditor({ command: event.target.value })
+                          }
+                          placeholder="npx"
+                          className="font-mono"
+                        />
+                      </div>
+                      <div className="grid gap-2">
+                        <Label htmlFor="mcp-args">
+                          {t("pages.agent.tools.mcp.args", "Arguments (one per line)")}
+                        </Label>
+                        <Textarea
+                          id="mcp-args"
+                          value={argsText}
+                          onChange={(event) => setArgsText(event.target.value)}
+                          placeholder={"-y\n@modelcontextprotocol/server-filesystem\n."}
+                          rows={4}
+                          className="font-mono text-sm"
+                        />
+                      </div>
+                      <div className="grid gap-2">
+                        <Label htmlFor="mcp-env-file">
+                          {t("pages.agent.tools.mcp.env_file", "Environment file")}
+                        </Label>
+                        <Input
+                          id="mcp-env-file"
+                          value={editor.payload.env_file}
+                          onChange={(event) =>
+                            patchEditor({ env_file: event.target.value })
+                          }
+                          placeholder=".env.mcp"
+                          className="font-mono"
+                        />
+                      </div>
+                    </>
+                  ) : (
+                    <div className="grid gap-2">
+                      <Label htmlFor="mcp-headers">
+                        {t("pages.agent.tools.mcp.headers", "Headers (Key: Value)")}
+                      </Label>
+                      <Textarea
+                        id="mcp-headers"
+                        value={headersText}
+                        onChange={(event) => setHeadersText(event.target.value)}
+                        placeholder={"Authorization: Bearer ..."}
+                        rows={3}
+                        className="font-mono text-sm"
+                      />
+                    </div>
+                  )}
+
                   <div className="grid gap-2">
-                    <Label htmlFor="mcp-args">
-                      {t("pages.agent.tools.mcp.args", "Arguments (one per line)")}
+                    <Label htmlFor="mcp-env">
+                      {t("pages.agent.tools.mcp.env", "Environment (KEY=value)")}
                     </Label>
                     <Textarea
-                      id="mcp-args"
-                      value={argsText}
-                      onChange={(event) => setArgsText(event.target.value)}
-                      placeholder={"-y\n@modelcontextprotocol/server-filesystem\n."}
-                      rows={4}
-                      className="font-mono text-sm"
-                    />
-                  </div>
-                  <div className="grid gap-2">
-                    <Label htmlFor="mcp-env-file">
-                      {t("pages.agent.tools.mcp.env_file", "Environment file")}
-                    </Label>
-                    <Input
-                      id="mcp-env-file"
-                      value={editor.payload.env_file}
-                      onChange={(event) =>
-                        patchEditor({ env_file: event.target.value })
-                      }
-                      placeholder=".env.mcp"
-                      className="font-mono"
-                    />
-                  </div>
-                </>
-              ) : (
-                <>
-                  <div className="grid gap-2">
-                    <Label htmlFor="mcp-url">
-                      {t("pages.agent.tools.mcp.url", "URL")}
-                    </Label>
-                    <Input
-                      id="mcp-url"
-                      value={editor.payload.url}
-                      onChange={(event) => patchEditor({ url: event.target.value })}
-                      placeholder="http://127.0.0.1:8080/mcp"
-                      className="font-mono"
-                    />
-                  </div>
-                  <div className="grid gap-2">
-                    <Label htmlFor="mcp-headers">
-                      {t("pages.agent.tools.mcp.headers", "Headers (Key: Value)")}
-                    </Label>
-                    <Textarea
-                      id="mcp-headers"
-                      value={headersText}
-                      onChange={(event) => setHeadersText(event.target.value)}
-                      placeholder={"Authorization: Bearer ..."}
+                      id="mcp-env"
+                      value={envText}
+                      onChange={(event) => setEnvText(event.target.value)}
+                      placeholder="API_TOKEN=..."
                       rows={3}
                       className="font-mono text-sm"
                     />
                   </div>
+
+                  <div className="grid gap-2">
+                    <Label>{t("pages.agent.tools.mcp.deferred_title", "Discovery")}</Label>
+                    <Select
+                      value={
+                        editor.payload.deferred === true
+                          ? "on"
+                          : editor.payload.deferred === false
+                            ? "off"
+                            : "inherit"
+                      }
+                      onValueChange={(value) =>
+                        patchEditor({
+                          deferred:
+                            value === "on" ? true : value === "off" ? false : null,
+                        })
+                      }
+                    >
+                      <SelectTrigger className="w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="inherit">
+                          {t("pages.agent.tools.mcp.deferred_inherit", "Use global setting")}
+                        </SelectItem>
+                        <SelectItem value="on">
+                          {t("pages.agent.tools.mcp.deferred_on", "Deferred (search first)")}
+                        </SelectItem>
+                        <SelectItem value="off">
+                          {t("pages.agent.tools.mcp.deferred_off", "Load tools immediately")}
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </>
               )}
-
-              <div className="grid gap-2">
-                <Label htmlFor="mcp-env">
-                  {t("pages.agent.tools.mcp.env", "Environment (KEY=value)")}
-                </Label>
-                <Textarea
-                  id="mcp-env"
-                  value={envText}
-                  onChange={(event) => setEnvText(event.target.value)}
-                  placeholder="API_TOKEN=..."
-                  rows={3}
-                  className="font-mono text-sm"
-                />
-              </div>
-
-              <div className="grid gap-2">
-                <Label>{t("pages.agent.tools.mcp.deferred_title", "Discovery")}</Label>
-                <Select
-                  value={
-                    editor.payload.deferred === true
-                      ? "on"
-                      : editor.payload.deferred === false
-                        ? "off"
-                        : "inherit"
-                  }
-                  onValueChange={(value) =>
-                    patchEditor({
-                      deferred:
-                        value === "on" ? true : value === "off" ? false : null,
-                    })
-                  }
-                >
-                  <SelectTrigger className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="inherit">
-                      {t("pages.agent.tools.mcp.deferred_inherit", "Use global setting")}
-                    </SelectItem>
-                    <SelectItem value="on">
-                      {t("pages.agent.tools.mcp.deferred_on", "Deferred (search first)")}
-                    </SelectItem>
-                    <SelectItem value="off">
-                      {t("pages.agent.tools.mcp.deferred_off", "Load tools immediately")}
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
 
               <div className="flex items-center justify-between gap-4 rounded-xl border p-3">
                 <span className="text-sm font-medium">

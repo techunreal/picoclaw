@@ -1,4 +1,5 @@
 import { IconSearch, IconSettings } from "@tabler/icons-react"
+import { useState } from "react"
 import { useTranslation } from "react-i18next"
 
 import type { ToolSupportItem } from "@/api/tools"
@@ -49,6 +50,15 @@ export function ToolLibraryTab({
   onToggleTool,
 }: ToolLibraryTabProps) {
   const { t } = useTranslation()
+  const [showAdvanced, setShowAdvanced] = useState(false)
+  const advancedCategories = new Set(["hardware", "discovery"])
+  const hasAdvanced = groupedTools.some(([category]) =>
+    advancedCategories.has(category),
+  )
+  const visibleGroups =
+    showAdvanced || searchQuery.trim() !== ""
+      ? groupedTools
+      : groupedTools.filter(([category]) => !advancedCategories.has(category))
 
   return (
     <div className="animate-in fade-in slide-in-from-bottom-2 space-y-12 duration-500">
@@ -106,6 +116,20 @@ export function ToolLibraryTab({
               </SelectItem>
             </SelectContent>
           </Select>
+
+          {hasAdvanced && (
+            <Button
+              type="button"
+              variant={showAdvanced ? "secondary" : "outline"}
+              size="sm"
+              className="h-11 rounded-xl px-3 text-xs"
+              onClick={() => setShowAdvanced((value) => !value)}
+            >
+              {showAdvanced
+                ? t("pages.agent.tools.hide_advanced", "Hide advanced")
+                : t("pages.agent.tools.show_advanced", "Show advanced")}
+            </Button>
+          )}
         </div>
       </div>
 
@@ -120,15 +144,15 @@ export function ToolLibraryTab({
       ) : totalFilteredCount === 0 ? (
         <LibraryEmptyState allToolsCount={allTools.length} />
       ) : (
-        <div className="space-y-12">
-          {groupedTools.map(([category, items]) => (
-            <section key={category} className="space-y-6">
+        <div className="space-y-8">
+          {visibleGroups.map(([category, items]) => (
+            <section key={category} className="space-y-3">
               <div className="flex items-center">
-                <h3 className="text-foreground/90 text-lg font-semibold tracking-tight capitalize">
+                <h3 className="text-foreground/90 text-base font-semibold tracking-tight capitalize">
                   {t(`pages.agent.tools.categories.${category}`, category)}
                 </h3>
               </div>
-              <div className="grid gap-5 lg:grid-cols-2">
+              <div className="grid gap-3 lg:grid-cols-2">
                 {items.map((tool) => (
                   <ToolCard
                     key={tool.name}
@@ -170,16 +194,17 @@ function ToolCard({
 
   return (
     <Card
+      size="sm"
       className={cn(
-        "group bg-card border-border/40 flex flex-col shadow-none transition-all duration-300 sm:rounded-2xl",
+        "group bg-card border-border/40 flex flex-col shadow-none transition-all duration-300 sm:rounded-xl",
         isBlocked
           ? "border-amber-500/30 bg-amber-50/20 dark:border-amber-900/40 dark:bg-amber-950/20"
-          : "hover:border-border/80 hover:-translate-y-[2px] hover:shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] dark:hover:shadow-[0_4px_20px_-4px_rgba(255,255,255,0.02)]",
+          : "hover:border-border/80 hover:shadow-[0_2px_12px_-4px_rgba(0,0,0,0.05)] dark:hover:shadow-[0_2px_12px_-4px_rgba(255,255,255,0.02)]",
         isDisabled && "opacity-[0.80] hover:opacity-100",
       )}
     >
-      <CardContent className="flex h-full flex-col px-5 py-1">
-        <div className="mb-0.5 flex items-start justify-between gap-4">
+      <CardContent className="flex flex-col gap-2 px-4 py-3">
+        <div className="flex items-start justify-between gap-4">
           <div className="flex min-w-0 flex-1 items-center gap-3">
             <h4 className="text-foreground/90 min-w-0 font-mono text-sm font-semibold tracking-tight break-all">
               {tool.name}
@@ -214,15 +239,13 @@ function ToolCard({
           </div>
         </div>
 
-        <p className="text-muted-foreground/80 flex-1 text-[14px] leading-relaxed">
+        <p className="text-muted-foreground/80 line-clamp-2 text-[13px] leading-snug">
           {tool.description}
         </p>
 
         {reasonText && (
-          <div className="border-border/40 mt-4 border-t pt-4">
-            <div className="inline-flex rounded-lg border border-amber-200/50 bg-amber-50/80 px-3 py-2 text-[13px] font-medium text-amber-600 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-400">
-              {reasonText}
-            </div>
+          <div className="mt-1 inline-flex rounded-md border border-amber-200/50 bg-amber-50/80 px-2 py-1 text-[12px] font-medium text-amber-600 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-400">
+            {reasonText}
           </div>
         )}
       </CardContent>

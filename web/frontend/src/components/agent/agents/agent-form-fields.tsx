@@ -53,15 +53,6 @@ export function AgentWorkspaceField({
           disabled={disabled}
           aria-describedby={helpId}
         />
-        <Button
-          type="button"
-          variant="outline"
-          className="shrink-0"
-          onClick={() => onChange(effective)}
-          disabled={disabled || !defaultsWorkspace}
-        >
-          {t("agents.suggestWorkspace")}
-        </Button>
       </div>
       <p id={helpId} className="text-muted-foreground text-xs">
         {t("agents.workspaceHelp")}

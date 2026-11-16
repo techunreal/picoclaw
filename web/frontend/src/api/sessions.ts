@@ -2,6 +2,7 @@ import { launcherFetch } from "@/api/http"
 
 export interface SessionSummary {
   id: string
+  agent_id?: string
   title: string
   preview: string
   message_count: number

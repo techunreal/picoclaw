@@ -21,6 +21,7 @@ import {
   AgentWorkspaceField,
 } from "@/components/agent/agents/agent-form-fields"
 import { defaultSkillSelection } from "@/components/agent/agents/agent-form-utils"
+import { suggestAgentWorkspace } from "@/components/agent/agents/use-agents-page"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -63,6 +64,7 @@ export function AgentEditDialog({
   const queryClient = useQueryClient()
   const [form, setForm] = useState<AgentConfig>(initial)
   const [skillDefaultsApplied, setSkillDefaultsApplied] = useState(false)
+  const [workspaceTouched, setWorkspaceTouched] = useState(false)
   const [avatarBusy, setAvatarBusy] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [pendingAvatar, setPendingAvatar] = useState<{
@@ -74,6 +76,7 @@ export function AgentEditDialog({
     if (open) {
       setForm(initial)
       setSkillDefaultsApplied(false)
+      setWorkspaceTouched(false)
       setPendingAvatar(null)
       setSubmitting(false)
     }
@@ -215,7 +218,18 @@ export function AgentEditDialog({
                 id="agent-id"
                 name="agent_id"
                 value={form.id}
-                onChange={(event) => update({ id: event.target.value })}
+                onChange={(event) => {
+                  const id = event.target.value
+                  setForm((current) => ({
+                    ...current,
+                    id,
+                    workspace: workspaceTouched
+                      ? current.workspace
+                      : id.trim()
+                        ? suggestAgentWorkspace(defaults.workspace, id.trim())
+                        : "",
+                  }))
+                }}
                 placeholder="alpha"
                 pattern={mode === "create" ? agentIDPattern : undefined}
                 maxLength={64}
@@ -282,7 +296,10 @@ export function AgentEditDialog({
               defaultsWorkspace={defaults.workspace}
               agentId={form.id.trim()}
               value={form.workspace}
-              onChange={(workspace) => update({ workspace })}
+              onChange={(workspace) => {
+                setWorkspaceTouched(true)
+                update({ workspace })
+              }}
               disabled={busy}
             />
 
