@@ -505,6 +505,71 @@ func TestHandleSessions_JSONLScopeDiscovery(t *testing.T) {
 	}
 }
 
+func TestHandleSessions_IncludesAgentWorkspaces(t *testing.T) {
+	configPath, cleanup := setupOAuthTestEnv(t)
+	defer cleanup()
+
+	workspace := t.TempDir()
+	cfg, err := config.LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+	cfg.Agents.List = []config.AgentConfig{{ID: "alpha", Default: true, Workspace: workspace}}
+	if err := config.SaveConfig(configPath, cfg); err != nil {
+		t.Fatalf("SaveConfig() error = %v", err)
+	}
+
+	dir := filepath.Join(workspace, "sessions")
+	store, err := memory.NewJSONLStore(dir)
+	if err != nil {
+		t.Fatalf("NewJSONLStore() error = %v", err)
+	}
+	key := "sk_v1_agent_workspace"
+	if err := store.AddFullMessage(nil, key, providers.Message{Role: "user", Content: "agent workspace chat"}); err != nil {
+		t.Fatalf("AddFullMessage() error = %v", err)
+	}
+	scope, err := json.Marshal(session.SessionScope{
+		Version:    session.ScopeVersionV1,
+		AgentID:    "alpha",
+		Channel:    "pico",
+		Dimensions: []string{"sender"},
+		Values:     map[string]string{"sender": "pico:agent-sess"},
+	})
+	if err != nil {
+		t.Fatalf("Marshal(scope) error = %v", err)
+	}
+	if err := store.UpsertSessionMeta(nil, key, scope, nil); err != nil {
+		t.Fatalf("UpsertSessionMeta() error = %v", err)
+	}
+
+	mux := http.NewServeMux()
+	NewHandler(configPath).RegisterRoutes(mux)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/sessions", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	var items []sessionListItem
+	if err := json.Unmarshal(rec.Body.Bytes(), &items); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+	found := false
+	for _, item := range items {
+		if item.ID == "agent-sess" && item.AgentID == "alpha" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("agent workspace session missing: %#v", items)
+	}
+
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodDelete, "/api/sessions/agent-sess", nil))
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("DELETE status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestHandleUpdateSession_TitleAndPin(t *testing.T) {
 	configPath, cleanup := setupOAuthTestEnv(t)
 	defer cleanup()
