@@ -290,11 +290,12 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
               isActive={settingsMode}
               onClick={handleNavItemClick}
               data-tour="settings-gear"
-              className={`h-8 px-2.5 text-[13px] ${settingsMode ? "bg-accent/80 text-foreground font-medium" : "text-muted-foreground hover:bg-muted/60"}`}
+              title={t("navigation.settings")}
+              aria-label={t("navigation.settings")}
+              className={`h-8 w-8 justify-center px-0 text-[13px] ${settingsMode ? "bg-accent/80 text-foreground" : "text-muted-foreground hover:bg-muted/60"}`}
             >
-              <Link to="/config">
+              <Link to="/config" aria-label={t("navigation.settings")}>
                 <IconSettings className="size-4" />
-                <span>{t("navigation.settings")}</span>
               </Link>
             </SidebarMenuButton>
           </SidebarMenuItem>
