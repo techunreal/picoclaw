@@ -1,4 +1,4 @@
-import { IconGhost, IconPlus } from "@tabler/icons-react"
+import { IconCheck, IconChevronDown, IconGhost, IconPlus } from "@tabler/icons-react"
 import { useQuery } from "@tanstack/react-query"
 import { useAtom, useAtomValue, useSetAtom } from "jotai"
 import {
@@ -27,6 +27,12 @@ import { UserMessage } from "@/components/chat/user-message"
 import { PageHeader } from "@/components/page-header"
 import { Button } from "@/components/ui/button"
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -40,6 +46,7 @@ import {
   getTransferredFiles,
   hasFileTransfer,
 } from "@/features/chat/attachment-input"
+import { setChatAgent } from "@/features/chat/controller"
 import { isIncognitoSession } from "@/features/chat/state"
 import { getSessions } from "@/api/sessions"
 import { useChatModels } from "@/hooks/use-chat-models"
@@ -143,7 +150,11 @@ export function ChatPage() {
   const activeSessionAgent = sessionsQuery.data?.find(
     (session) => session.id === activeSessionIdForAgent,
   )?.agent_id
-  const chatAgentId = activeSessionAgent || "main"
+  const [selectedAgentId, setSelectedAgentId] = useState("main")
+  useEffect(() => {
+    if (activeSessionAgent) setSelectedAgentId(activeSessionAgent)
+  }, [activeSessionAgent])
+  const chatAgentId = activeSessionAgent || selectedAgentId
 
   const {
     messages,
@@ -168,13 +179,46 @@ export function ChatPage() {
   const chatAgentName =
     chatAgent?.name?.trim() || (chatAgentId === "main" ? "Pico" : chatAgentId)
 
+  const agentOptions = (() => {
+    const list = agentsQuery.data?.agents ?? []
+    const options = list.map((agent) => ({
+      id: agent.id,
+      name:
+        agent.name?.trim() || (agent.id === "main" ? "Pico" : agent.id),
+      avatar: agent.avatar,
+    }))
+    if (!options.some((agent) => agent.id === "main")) {
+      options.unshift({ id: "main", name: "Pico", avatar: undefined })
+    }
+    return options
+  })()
+
+  const handleAgentChange = (nextAgentId: string) => {
+    setSelectedAgentId(nextAgentId)
+    setChatAgent(nextAgentId)
+    const latest = sessionsQuery.data?.find(
+      (session) => (session.agent_id || "main") === nextAgentId,
+    )
+    if (latest) {
+      void switchSession(latest.id, nextAgentId)
+      return
+    }
+    void newChat(nextAgentId)
+  }
+
   const pendingSessionId = useAtomValue(pendingSessionAtom)
   const setPendingSessionId = useSetAtom(pendingSessionAtom)
   useEffect(() => {
     if (!pendingSessionId) return
-    switchSession(pendingSessionId)
+    const agent = sessionsQuery.data?.find(
+      (session) => session.id === pendingSessionId,
+    )?.agent_id
+    if (agent) {
+      setChatAgent(agent)
+    }
+    void switchSession(pendingSessionId, agent)
     setPendingSessionId(null)
-  }, [pendingSessionId, switchSession, setPendingSessionId])
+  }, [pendingSessionId, switchSession, setPendingSessionId, sessionsQuery.data])
 
   const { state: gwState } = useGateway()
   const isGatewayRunning = gwState === "running"
@@ -351,16 +395,47 @@ export function ChatPage() {
   return (
     <div className="bg-background/95 flex h-full flex-col">
       <PageHeader
-        title={t("navigation.chat")}
-        leading={
-          <AgentAvatar
-            agentId={chatAgent?.id ?? "main"}
-            avatar={chatAgent?.avatar}
-            name={chatAgentName}
-            fallback={chatAgent ? undefined : "🦞"}
-            size="md"
-            className="border-border/50 border"
-          />
+        title={
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                className="hover:bg-accent flex items-center gap-2 rounded-lg px-1.5 py-1"
+              >
+                <AgentAvatar
+                  agentId={chatAgentId}
+                  avatar={chatAgent?.avatar}
+                  name={chatAgentName}
+                  fallback={chatAgent ? undefined : "🦞"}
+                  size="md"
+                  className="border-border/50 border"
+                />
+                <span>{chatAgentName}</span>
+                <IconChevronDown className="size-4 opacity-60" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="min-w-56">
+              {agentOptions.map((option) => (
+                <DropdownMenuItem
+                  key={option.id}
+                  onSelect={() => handleAgentChange(option.id)}
+                  className="gap-2"
+                >
+                  <AgentAvatar
+                    agentId={option.id}
+                    avatar={option.avatar}
+                    name={option.name}
+                    fallback={option.id === "main" ? "🦞" : undefined}
+                    size="sm"
+                  />
+                  <span>{option.name}</span>
+                  {option.id === chatAgentId && (
+                    <IconCheck className="ml-auto size-4" />
+                  )}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
         }
         className={`transition-shadow ${
           hasScrolled ? "shadow-xs" : "shadow-none"
@@ -420,7 +495,7 @@ export function ChatPage() {
         <Button
           variant="secondary"
           size="sm"
-          onClick={newChat}
+          onClick={() => void newChat(selectedAgentId)}
           className="h-9 gap-2"
         >
           <IconPlus className="size-4" />
@@ -430,7 +505,7 @@ export function ChatPage() {
         <Button
           variant="outline"
           size="sm"
-          onClick={newIncognitoChat}
+          onClick={() => void newIncognitoChat(selectedAgentId)}
           title={t("chat.newIncognitoChat")}
           aria-label={t("chat.newIncognitoChat")}
           className="h-9 gap-2"

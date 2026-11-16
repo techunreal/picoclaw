@@ -5,7 +5,7 @@ import { SidebarTrigger } from "@/components/ui/sidebar"
 import { cn } from "@/lib/utils"
 
 interface PageHeaderProps {
-  title: string
+  title: ReactNode
   titleExtra?: ReactNode
   leading?: ReactNode
   children?: ReactNode

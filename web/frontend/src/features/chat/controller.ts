@@ -421,9 +421,21 @@ export function sendChatMessage({
   }
 }
 
-export async function switchChatSession(sessionId: string) {
+export async function switchChatSession(sessionId: string, agentId?: string) {
   if (sessionId === activeSessionIdRef) {
+    if (agentId !== undefined && agentId.trim() !== chatAgentIdRef) {
+      chatAgentIdRef = agentId.trim()
+      disconnectChatInternal({ clearDesiredConnection: false })
+      if (store.get(gatewayAtom).status === "running") {
+        shouldMaintainConnection = true
+        await connectChat()
+      }
+    }
     return
+  }
+
+  if (agentId !== undefined) {
+    chatAgentIdRef = agentId.trim()
   }
 
   try {
@@ -448,12 +460,19 @@ export async function switchChatSession(sessionId: string) {
   }
 }
 
-export async function newChatSession() {
+export async function newChatSession(agentId?: string) {
+  const targetAgent = agentId?.trim()
+  const agentChanged = Boolean(targetAgent && targetAgent !== chatAgentIdRef)
   if (
+    !agentChanged &&
     getChatState().messages.length === 0 &&
     !isIncognitoSession(activeSessionIdRef)
   ) {
     return
+  }
+
+  if (targetAgent) {
+    chatAgentIdRef = targetAgent
   }
 
   disconnectChatInternal({ clearDesiredConnection: false })
@@ -471,7 +490,10 @@ export async function newChatSession() {
   }
 }
 
-export async function newIncognitoChatSession() {
+export async function newIncognitoChatSession(agentId?: string) {
+  if (agentId !== undefined) {
+    chatAgentIdRef = agentId.trim()
+  }
   disconnectChatInternal({ clearDesiredConnection: false })
   const sessionId = generateSessionId()
   markIncognitoSession(sessionId)
