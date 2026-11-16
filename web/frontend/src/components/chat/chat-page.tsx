@@ -57,6 +57,7 @@ import type { ChatAttachment } from "@/store/chat"
 import {
   assistantDetailVisibilityAtom,
   chatAtom,
+  pendingAgentChatAtom,
   pendingSessionAtom,
   shouldShowAssistantMessage,
 } from "@/store/chat"
@@ -214,6 +215,15 @@ export function ChatPage() {
     void switchSession(pendingSessionId, agent)
     setPendingSessionId(null)
   }, [pendingSessionId, switchSession, setPendingSessionId, sessionsQuery.data])
+
+  const pendingAgentChat = useAtomValue(pendingAgentChatAtom)
+  const setPendingAgentChat = useSetAtom(pendingAgentChatAtom)
+  useEffect(() => {
+    if (!pendingAgentChat) return
+    setSelectedAgentId(pendingAgentChat)
+    void newChat(pendingAgentChat)
+    setPendingAgentChat(null)
+  }, [pendingAgentChat, newChat, setPendingAgentChat])
 
   const { state: gwState } = useGateway()
   const isGatewayRunning = gwState === "running"

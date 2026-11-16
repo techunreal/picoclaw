@@ -65,6 +65,7 @@ export interface AgentsResponse {
   agents: AgentView[]
   defaults: AgentDefaults
   dispatch?: DispatchConfig
+  hidden?: string[]
   implicit: boolean
   warnings?: string[]
 }
@@ -161,6 +162,24 @@ export function updateAgents(
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ agents, dispatch }),
+  })
+}
+
+export function updateAgentOrder(ids: string[]): Promise<{ status: string }> {
+  return request<{ status: string }>("/api/agents/order", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ids }),
+  })
+}
+
+export function updateHiddenAgents(
+  hidden: string[],
+): Promise<{ status: string; hidden: string[] }> {
+  return request<{ status: string; hidden: string[] }>("/api/agents/hidden", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ hidden }),
   })
 }
 

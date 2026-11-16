@@ -148,6 +148,69 @@ func TestUpdateAgents_AllowsNoDefault(t *testing.T) {
 	}
 }
 
+func TestAgentOrderAndHidden(t *testing.T) {
+	configPath, cleanup := setupOAuthTestEnv(t)
+	defer cleanup()
+
+	body, err := json.Marshal(agentsUpdateRequest{Agents: []config.AgentConfig{
+		{ID: "alpha", Workspace: t.TempDir()},
+		{ID: "beta", Workspace: t.TempDir()},
+		{ID: "gamma", Workspace: t.TempDir()},
+	}})
+	if err != nil {
+		t.Fatalf("Marshal() error = %v", err)
+	}
+	mux := agentsTestMux(t, configPath)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPut, "/api/agents", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("PUT agents status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+
+	orderBody, _ := json.Marshal(map[string]any{"ids": []string{"gamma", "alpha", "beta"}})
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPut, "/api/agents/order", bytes.NewReader(orderBody))
+	req.Header.Set("Content-Type", "application/json")
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("PUT order status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	cfg, err := config.LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+	gotOrder := []string{cfg.Agents.List[0].ID, cfg.Agents.List[1].ID, cfg.Agents.List[2].ID}
+	if gotOrder[0] != "gamma" || gotOrder[1] != "alpha" || gotOrder[2] != "beta" {
+		t.Fatalf("order = %v", gotOrder)
+	}
+
+	hiddenBody, _ := json.Marshal(map[string]any{"hidden": []string{"main", "beta", "beta"}})
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPut, "/api/agents/hidden", bytes.NewReader(hiddenBody))
+	req.Header.Set("Content-Type", "application/json")
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("PUT hidden status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/agents", nil))
+	resp := decodeAgentsResponse(t, rec)
+	if len(resp.Hidden) != 2 || resp.Hidden[0] != "main" || resp.Hidden[1] != "beta" {
+		t.Fatalf("hidden = %#v", resp.Hidden)
+	}
+
+	badOrder, _ := json.Marshal(map[string]any{"ids": []string{"alpha"}})
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPut, "/api/agents/order", bytes.NewReader(badOrder))
+	req.Header.Set("Content-Type", "application/json")
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("bad order status = %d, want 400", rec.Code)
+	}
+}
+
 func TestUpdateAgents_SeedsNewAgentWorkspace(t *testing.T) {
 	configPath, cleanup := setupOAuthTestEnv(t)
 	defer cleanup()

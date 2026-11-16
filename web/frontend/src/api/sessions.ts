@@ -5,6 +5,7 @@ export interface SessionSummary {
   agent_id?: string
   title: string
   preview: string
+  pinned?: boolean
   message_count: number
   created: string
   updated: string
@@ -73,4 +74,19 @@ export async function deleteSession(id: string): Promise<void> {
   if (!res.ok) {
     throw new Error(`Failed to delete session ${id}: ${res.status}`)
   }
+}
+
+export async function updateSession(
+  id: string,
+  values: { title?: string; pinned?: boolean },
+): Promise<{ status: string }> {
+  const res = await launcherFetch(`/api/sessions/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(values),
+  })
+  if (!res.ok) {
+    throw new Error(`Failed to update session ${id}: ${res.status}`)
+  }
+  return (await res.json()) as { status: string }
 }

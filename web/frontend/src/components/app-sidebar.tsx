@@ -1,30 +1,75 @@
 import {
   IconActivity,
   IconArchive,
+  IconArrowDown,
+  IconArrowUp,
   IconAtom,
   IconBroadcast,
   IconCalendarTime,
   IconChevronDown,
   IconChevronLeft,
   IconChevronRight,
+  IconDots,
+  IconEye,
   IconKey,
   IconListDetails,
   IconMessageCircle,
   IconNotebook,
+  IconPencil,
+  IconPin,
   IconSettings,
   IconSparkles,
   IconTools,
+  IconTrash,
   IconUsers,
 } from "@tabler/icons-react"
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router"
-import { useQuery } from "@tanstack/react-query"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useAtomValue, useSetAtom } from "jotai"
 import * as React from "react"
 import { useTranslation } from "react-i18next"
+import { toast } from "sonner"
 
-import { getAgents, type AgentAvatar as AgentAvatarData } from "@/api/agents"
-import { getSessions } from "@/api/sessions"
+import {
+  getAgents,
+  updateAgentOrder,
+  updateHiddenAgents,
+  type AgentAvatar as AgentAvatarData,
+} from "@/api/agents"
+import {
+  deleteSession,
+  getSessions,
+  updateSession,
+  type SessionSummary,
+} from "@/api/sessions"
 import { AgentAvatar } from "@/components/agent-avatar"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
+import { Button } from "@/components/ui/button"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import { Input } from "@/components/ui/input"
 import {
   Sidebar,
   SidebarContent,
@@ -38,7 +83,7 @@ import {
   SidebarRail,
   useSidebar,
 } from "@/components/ui/sidebar"
-import { chatAtom, pendingSessionAtom } from "@/store/chat"
+import { chatAtom, pendingAgentChatAtom, pendingSessionAtom } from "@/store/chat"
 
 interface NavItem {
   title: string
@@ -160,12 +205,21 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const { isMobile, setOpenMobile } = useSidebar()
   const currentPath = routerState.location.pathname
   const settingsMode = isSettingsPath(currentPath)
+  const queryClient = useQueryClient()
   const setPendingSession = useSetAtom(pendingSessionAtom)
+  const setPendingAgentChat = useSetAtom(pendingAgentChatAtom)
   const chatState = useAtomValue(chatAtom)
 
   const [expandedAgents, setExpandedAgents] = React.useState<
     Record<string, boolean>
   >({})
+  const [renameTarget, setRenameTarget] = React.useState<SessionSummary | null>(
+    null,
+  )
+  const [renameValue, setRenameValue] = React.useState("")
+  const [deleteTarget, setDeleteTarget] = React.useState<SessionSummary | null>(
+    null,
+  )
 
   const agentsQuery = useQuery({
     queryKey: ["sidebar-agents"],
@@ -177,6 +231,114 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     refetchOnWindowFocus: true,
   })
 
+  const allAgents = React.useMemo(
+    () => agentsQuery.data?.agents ?? [],
+    [agentsQuery.data],
+  )
+  const hiddenAgents = React.useMemo(
+    () => agentsQuery.data?.hidden ?? [],
+    [agentsQuery.data],
+  )
+  const sessions = sessionsQuery.data ?? []
+
+  const refreshAgents = React.useCallback(() => {
+    void queryClient.invalidateQueries({ queryKey: ["sidebar-agents"] })
+    void queryClient.invalidateQueries({ queryKey: ["agents"] })
+  }, [queryClient])
+  const refreshSessions = React.useCallback(() => {
+    void queryClient.invalidateQueries({ queryKey: ["sidebar-sessions"] })
+  }, [queryClient])
+
+  const startAgentChat = React.useCallback(
+    (agentId: string) => {
+      setPendingAgentChat(agentId)
+      void navigate({ to: "/" })
+      if (isMobile) setOpenMobile(false)
+    },
+    [navigate, setPendingAgentChat, isMobile, setOpenMobile],
+  )
+
+  const moveAgent = React.useCallback(
+    async (agentId: string, direction: -1 | 1) => {
+      const ids = allAgents.map((agent) => agent.id)
+      const index = ids.indexOf(agentId)
+      const target = index + direction
+      if (index < 0 || target < 0 || target >= ids.length) return
+      ;[ids[index], ids[target]] = [ids[target], ids[index]]
+      try {
+        await updateAgentOrder(ids)
+        refreshAgents()
+      } catch {
+        toast.error(t("agents.reorderFailed"))
+      }
+    },
+    [allAgents, refreshAgents, t],
+  )
+
+  const hideAgent = React.useCallback(
+    async (agentId: string) => {
+      try {
+        await updateHiddenAgents([...hiddenAgents, agentId])
+        refreshAgents()
+      } catch {
+        toast.error(t("agents.hideFailed"))
+      }
+    },
+    [hiddenAgents, refreshAgents, t],
+  )
+
+  const unhideAgent = React.useCallback(
+    async (agentId: string) => {
+      try {
+        await updateHiddenAgents(hiddenAgents.filter((id) => id !== agentId))
+        refreshAgents()
+      } catch {
+        toast.error(t("agents.hideFailed"))
+      }
+    },
+    [hiddenAgents, refreshAgents, t],
+  )
+
+  const toggleSessionPin = React.useCallback(
+    async (session: SessionSummary) => {
+      try {
+        await updateSession(session.id, { pinned: !session.pinned })
+        refreshSessions()
+      } catch {
+        toast.error(t("chat.pinFailed"))
+      }
+    },
+    [refreshSessions, t],
+  )
+
+  const openRename = (session: SessionSummary) => {
+    setRenameTarget(session)
+    setRenameValue(session.title)
+  }
+
+  const saveRename = async () => {
+    if (!renameTarget) return
+    try {
+      await updateSession(renameTarget.id, { title: renameValue.trim() })
+      setRenameTarget(null)
+      refreshSessions()
+    } catch {
+      toast.error(t("chat.renameFailed"))
+    }
+  }
+
+  const confirmDelete = async () => {
+    if (!deleteTarget) return
+    try {
+      await deleteSession(deleteTarget.id)
+      setDeleteTarget(null)
+      refreshSessions()
+      toast.success(t("chat.deleted"))
+    } catch {
+      toast.error(t("chat.deleteFailed"))
+    }
+  }
+
   const handleNavItemClick = React.useCallback(() => {
     if (isMobile) {
       setOpenMobile(false)
@@ -184,16 +346,20 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   }, [isMobile, setOpenMobile])
 
   const agentGroups: AgentChatGroup[] = React.useMemo(() => {
-    const agents = agentsQuery.data?.agents ?? []
-    const groups: AgentChatGroup[] = agents.map((agent) => ({
-      id: agent.id,
-      label:
-        agent.name?.trim() ||
-        (agent.id === "main" ? "Pico" : agent.id),
-      isDefault: agent.default === true,
-      avatar: agent.avatar,
-    }))
-    if (!groups.some((group) => group.id === "main")) {
+    const groups: AgentChatGroup[] = allAgents
+      .filter((agent) => !hiddenAgents.includes(agent.id))
+      .map((agent) => ({
+        id: agent.id,
+        label:
+          agent.name?.trim() ||
+          (agent.id === "main" ? "Pico" : agent.id),
+        isDefault: agent.default === true,
+        avatar: agent.avatar,
+      }))
+    if (
+      !groups.some((group) => group.id === "main") &&
+      !hiddenAgents.includes("main")
+    ) {
       groups.unshift({
         id: "main",
         label: "Pico",
@@ -201,9 +367,21 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       })
     }
     return groups
-  }, [agentsQuery.data])
+  }, [allAgents, hiddenAgents])
 
-  const sessions = sessionsQuery.data ?? []
+  const hiddenAgentGroups = React.useMemo(
+    () =>
+      hiddenAgents.map((id) => {
+        const agent = allAgents.find((item) => item.id === id)
+        return {
+          id,
+          label:
+            agent?.name?.trim() || (id === "main" ? "Pico" : id),
+          avatar: agent?.avatar,
+        }
+      }),
+    [allAgents, hiddenAgents],
+  )
 
   const openSession = React.useCallback(
     (sessionId: string) => {
@@ -319,12 +497,50 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
 
             <div className="flex min-h-0 flex-1 flex-col">
               <SidebarGroup className="px-2 py-0">
-                <SidebarGroupLabel
-                  className="text-muted-foreground/70 h-7 px-2.5 text-[10px] font-semibold tracking-wider uppercase"
-                  data-tour="chat-profiles"
-                >
-                  {t("navigation.chats")}
-                </SidebarGroupLabel>
+                <div className="group/chats flex items-center justify-between pr-2">
+                  <SidebarGroupLabel
+                    className="text-muted-foreground/70 h-7 px-2.5 text-[10px] font-semibold tracking-wider uppercase"
+                    data-tour="chat-profiles"
+                  >
+                    {t("navigation.chats")}
+                  </SidebarGroupLabel>
+                  {hiddenAgentGroups.length > 0 && (
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <button
+                          type="button"
+                          aria-label={t("agents.showHidden")}
+                          title={t("agents.showHidden")}
+                          className="text-muted-foreground hover:text-foreground rounded-md p-1 opacity-0 transition-opacity group-hover/chats:opacity-100 focus-visible:opacity-100"
+                        >
+                          <IconDots className="size-4" />
+                        </button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="min-w-48">
+                        <div className="text-muted-foreground px-2 py-1.5 text-xs font-medium">
+                          {t("agents.showHidden")}
+                        </div>
+                        {hiddenAgentGroups.map((hidden) => (
+                          <DropdownMenuItem
+                            key={hidden.id}
+                            onSelect={() => void unhideAgent(hidden.id)}
+                            className="gap-2"
+                          >
+                            <AgentAvatar
+                              agentId={hidden.id}
+                              avatar={hidden.avatar}
+                              name={hidden.label}
+                              fallback={hidden.id === "main" ? "🦞" : undefined}
+                              size="sm"
+                            />
+                            <span>{hidden.label}</span>
+                            <IconEye className="ml-auto size-4" />
+                          </DropdownMenuItem>
+                        ))}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  )}
+                </div>
                 <SidebarGroupContent>
                   <SidebarMenu>
                     {agentGroups.map((agent) => {
@@ -332,9 +548,12 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                       const agentSessions = sessions.filter(
                         (session) => (session.agent_id || "main") === agent.id,
                       )
+                      const agentIndex = allAgents.findIndex(
+                        (item) => item.id === agent.id,
+                      )
                       return (
                         <React.Fragment key={agent.id}>
-                          <SidebarMenuItem>
+                          <SidebarMenuItem className="group/agent relative">
                             <SidebarMenuButton
                               onClick={() =>
                                 setExpandedAgents((prev) => ({
@@ -342,7 +561,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                                   [agent.id]: !expanded,
                                 }))
                               }
-                              className="text-muted-foreground hover:bg-muted/60 h-8 px-2.5 text-[13px]"
+                              className="text-muted-foreground hover:bg-muted/60 h-8 px-2.5 pr-7 text-[13px]"
                             >
                               {expanded ? (
                                 <IconChevronDown className="size-3.5 shrink-0 opacity-60" />
@@ -358,6 +577,59 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                               />
                               <span className="truncate">{agent.label}</span>
                             </SidebarMenuButton>
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <button
+                                  type="button"
+                                  aria-label={t("agents.agentMenu")}
+                                  title={t("agents.agentMenu")}
+                                  onClick={(event) => event.stopPropagation()}
+                                  className="text-muted-foreground hover:bg-muted/70 hover:text-foreground absolute top-1.5 right-1 rounded-md p-0.5 opacity-0 transition-opacity group-hover/agent:opacity-100 focus-visible:opacity-100"
+                                >
+                                  <IconDots className="size-4" />
+                                </button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end" className="min-w-44">
+                                <DropdownMenuItem
+                                  onSelect={() => startAgentChat(agent.id)}
+                                  className="gap-2"
+                                >
+                                  <IconMessageCircle className="size-4" />
+                                  {t("agents.newChat")}
+                                </DropdownMenuItem>
+                                {agent.id !== "main" && (
+                                  <>
+                                    <DropdownMenuItem
+                                      disabled={agentIndex <= 0}
+                                      onSelect={() => void moveAgent(agent.id, -1)}
+                                      className="gap-2"
+                                    >
+                                      <IconArrowUp className="size-4" />
+                                      {t("agents.moveUp")}
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem
+                                      disabled={
+                                        agentIndex < 0 ||
+                                        agentIndex >= allAgents.length - 1
+                                      }
+                                      onSelect={() => void moveAgent(agent.id, 1)}
+                                      className="gap-2"
+                                    >
+                                      <IconArrowDown className="size-4" />
+                                      {t("agents.moveDown")}
+                                    </DropdownMenuItem>
+                                  </>
+                                )}
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem
+                                  onSelect={() => void hideAgent(agent.id)}
+                                  className="gap-2"
+                                >
+                                  <IconEye className="size-4" />
+                                  {t("agents.hide")}
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
                           </SidebarMenuItem>
                           {expanded && (
                             <div className="border-border/30 ml-4 border-l pl-1">
@@ -373,19 +645,64 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                                   session.title.trim() ||
                                   t("chat.untitledChat")
                                 return (
-                                  <button
+                                  <div
                                     key={session.id}
-                                    type="button"
-                                    onClick={() => openSession(session.id)}
-                                    title={title}
-                                    className={`block w-full truncate rounded-md px-2.5 py-1.5 text-left text-[12px] transition-colors ${
-                                      active
-                                        ? "bg-accent/70 text-foreground font-medium"
-                                        : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
-                                    }`}
+                                    className="group/session relative"
                                   >
-                                    {title}
-                                  </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => openSession(session.id)}
+                                      title={title}
+                                      className={`block w-full truncate rounded-md px-2.5 py-1.5 pr-7 text-left text-[12px] transition-colors ${
+                                        active
+                                          ? "bg-accent/70 text-foreground font-medium"
+                                          : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+                                      }`}
+                                    >
+                                      {session.pinned && (
+                                        <IconPin className="mr-1 inline size-3 -translate-y-px" />
+                                      )}
+                                      {title}
+                                    </button>
+                                    <DropdownMenu>
+                                      <DropdownMenuTrigger asChild>
+                                        <button
+                                          type="button"
+                                          aria-label={t("chat.sessionMenu")}
+                                          title={t("chat.sessionMenu")}
+                                          className="text-muted-foreground hover:bg-muted/70 hover:text-foreground absolute top-1 right-1 rounded-md p-0.5 opacity-0 transition-opacity group-hover/session:opacity-100 focus-visible:opacity-100"
+                                        >
+                                          <IconDots className="size-3.5" />
+                                        </button>
+                                      </DropdownMenuTrigger>
+                                      <DropdownMenuContent align="end" className="min-w-40">
+                                        <DropdownMenuItem
+                                          onSelect={() => void toggleSessionPin(session)}
+                                          className="gap-2"
+                                        >
+                                          <IconPin className="size-4" />
+                                          {session.pinned
+                                            ? t("chat.unpin")
+                                            : t("chat.pin")}
+                                        </DropdownMenuItem>
+                                        <DropdownMenuItem
+                                          onSelect={() => openRename(session)}
+                                          className="gap-2"
+                                        >
+                                          <IconPencil className="size-4" />
+                                          {t("chat.rename")}
+                                        </DropdownMenuItem>
+                                        <DropdownMenuSeparator />
+                                        <DropdownMenuItem
+                                          onSelect={() => setDeleteTarget(session)}
+                                          className="text-destructive gap-2"
+                                        >
+                                          <IconTrash className="size-4" />
+                                          {t("chat.delete")}
+                                        </DropdownMenuItem>
+                                      </DropdownMenuContent>
+                                    </DropdownMenu>
+                                  </div>
                                 )
                               })}
                             </div>
@@ -421,6 +738,73 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         </SidebarMenu>
       </SidebarFooter>
       <SidebarRail />
+
+      <Dialog
+        open={renameTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setRenameTarget(null)
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{t("chat.renameTitle")}</DialogTitle>
+            <DialogDescription>{t("chat.renameDescription")}</DialogDescription>
+          </DialogHeader>
+          <Input
+            value={renameValue}
+            onChange={(event) => setRenameValue(event.target.value)}
+            maxLength={60}
+            autoFocus
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault()
+                void saveRename()
+              }
+            }}
+          />
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setRenameTarget(null)}
+            >
+              {t("common.cancel")}
+            </Button>
+            <Button type="button" onClick={() => void saveRename()}>
+              {t("common.save")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog
+        open={deleteTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setDeleteTarget(null)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("chat.deleteTitle")}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("chat.deleteDescription", {
+                title: deleteTarget?.title ?? "",
+              })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(event) => {
+                event.preventDefault()
+                void confirmDelete()
+              }}
+            >
+              {t("chat.delete")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Sidebar>
   )
 }

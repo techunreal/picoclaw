@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -501,6 +502,77 @@ func TestHandleSessions_JSONLScopeDiscovery(t *testing.T) {
 	mux.ServeHTTP(deleteRec, deleteReq)
 	if deleteRec.Code != http.StatusNoContent {
 		t.Fatalf("delete status = %d, want %d, body=%s", deleteRec.Code, http.StatusNoContent, deleteRec.Body.String())
+	}
+}
+
+func TestHandleUpdateSession_TitleAndPin(t *testing.T) {
+	configPath, cleanup := setupOAuthTestEnv(t)
+	defer cleanup()
+
+	dir := sessionsTestDir(t, configPath)
+	store, err := memory.NewJSONLStore(dir)
+	if err != nil {
+		t.Fatalf("NewJSONLStore() error = %v", err)
+	}
+	for _, item := range []struct{ key, id string }{
+		{"sk_a", "sess-a"},
+		{"sk_b", "sess-b"},
+	} {
+		if err := store.AddFullMessage(nil, item.key, providers.Message{
+			Role:    "user",
+			Content: "hello " + item.id,
+		}); err != nil {
+			t.Fatalf("AddFullMessage() error = %v", err)
+		}
+		scope, err := json.Marshal(session.SessionScope{
+			Version:    session.ScopeVersionV1,
+			AgentID:    "main",
+			Channel:    "pico",
+			Dimensions: []string{"sender"},
+			Values:     map[string]string{"sender": "pico:" + item.id},
+		})
+		if err != nil {
+			t.Fatalf("Marshal(scope) error = %v", err)
+		}
+		if err := store.UpsertSessionMeta(nil, item.key, scope, nil); err != nil {
+			t.Fatalf("UpsertSessionMeta() error = %v", err)
+		}
+	}
+
+	mux := http.NewServeMux()
+	NewHandler(configPath).RegisterRoutes(mux)
+
+	body, _ := json.Marshal(map[string]any{"title": "Pinned chat", "pinned": true})
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPatch, "/api/sessions/sess-b", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("PATCH status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/sessions", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	var items []sessionListItem
+	if err := json.Unmarshal(rec.Body.Bytes(), &items); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+	if len(items) != 2 {
+		t.Fatalf("items = %d, want 2", len(items))
+	}
+	if items[0].ID != "sess-b" || !items[0].Pinned || items[0].Title != "Pinned chat" {
+		t.Fatalf("pinned item = %#v", items[0])
+	}
+
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPatch, "/api/sessions/sess-b", bytes.NewReader([]byte("{}")))
+	req.Header.Set("Content-Type", "application/json")
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("empty PATCH status = %d, want 400", rec.Code)
 	}
 }
 

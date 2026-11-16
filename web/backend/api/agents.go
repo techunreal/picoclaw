@@ -66,6 +66,7 @@ type agentsResponse struct {
 	Agents   []agentView            `json:"agents"`
 	Defaults agentsDefaultsView     `json:"defaults"`
 	Dispatch *config.DispatchConfig `json:"dispatch,omitempty"`
+	Hidden   []string               `json:"hidden,omitempty"`
 	Implicit bool                   `json:"implicit"`
 	Warnings []string               `json:"warnings,omitempty"`
 }
@@ -78,6 +79,8 @@ type agentsUpdateRequest struct {
 func (h *Handler) registerAgentRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/agents", h.handleListAgents)
 	mux.HandleFunc("PUT /api/agents", h.handleUpdateAgents)
+	mux.HandleFunc("PUT /api/agents/order", h.handleAgentOrder)
+	mux.HandleFunc("PUT /api/agents/hidden", h.handleAgentHidden)
 	mux.HandleFunc("GET /api/agents/{id}/avatar", h.handleGetAgentAvatar)
 	mux.HandleFunc("POST /api/agents/{id}/avatar", h.handleUploadAgentAvatar)
 	mux.HandleFunc("DELETE /api/agents/{id}/avatar", h.handleDeleteAgentAvatar)
@@ -170,6 +173,104 @@ func (h *Handler) handleUpdateAgents(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (h *Handler) handleAgentOrder(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		IDs []string `json:"ids"`
+	}
+	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))
+	if err := dec.Decode(&req); err != nil {
+		writeAgentsAPIError(w, http.StatusBadRequest, "invalid_json", err.Error())
+		return
+	}
+
+	h.configMu.Lock()
+	defer h.configMu.Unlock()
+
+	cfg, err := config.LoadConfig(h.configPath)
+	if err != nil {
+		writeAgentsAPIError(w, http.StatusInternalServerError, "config_load_failed", err.Error())
+		return
+	}
+	if len(req.IDs) != len(cfg.Agents.List) {
+		writeAgentsAPIError(w, http.StatusBadRequest, "invalid_order",
+			"order must include every agent exactly once")
+		return
+	}
+	byID := make(map[string]config.AgentConfig, len(cfg.Agents.List))
+	for _, agentCfg := range cfg.Agents.List {
+		byID[routing.NormalizeAgentID(strings.TrimSpace(agentCfg.ID))] = agentCfg
+	}
+	reordered := make([]config.AgentConfig, 0, len(req.IDs))
+	seen := make(map[string]struct{}, len(req.IDs))
+	for _, rawID := range req.IDs {
+		id := routing.NormalizeAgentID(strings.TrimSpace(rawID))
+		agentCfg, ok := byID[id]
+		if !ok {
+			writeAgentsAPIError(w, http.StatusBadRequest, "invalid_order",
+				fmt.Sprintf("unknown agent %q", rawID))
+			return
+		}
+		if _, duplicate := seen[id]; duplicate {
+			writeAgentsAPIError(w, http.StatusBadRequest, "invalid_order",
+				fmt.Sprintf("duplicate agent %q", rawID))
+			return
+		}
+		seen[id] = struct{}{}
+		reordered = append(reordered, agentCfg)
+	}
+	cfg.Agents.List = reordered
+	if err := config.SaveConfig(h.configPath, cfg); err != nil {
+		writeAgentsAPIError(w, http.StatusInternalServerError, "config_save_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"status": "ok"})
+}
+
+func (h *Handler) handleAgentHidden(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Hidden []string `json:"hidden"`
+	}
+	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))
+	if err := dec.Decode(&req); err != nil {
+		writeAgentsAPIError(w, http.StatusBadRequest, "invalid_json", err.Error())
+		return
+	}
+
+	h.configMu.Lock()
+	defer h.configMu.Unlock()
+
+	cfg, err := config.LoadConfig(h.configPath)
+	if err != nil {
+		writeAgentsAPIError(w, http.StatusInternalServerError, "config_load_failed", err.Error())
+		return
+	}
+	known := map[string]struct{}{routing.DefaultAgentID: {}}
+	for _, agentCfg := range cfg.Agents.List {
+		known[routing.NormalizeAgentID(strings.TrimSpace(agentCfg.ID))] = struct{}{}
+	}
+	hidden := make([]string, 0, len(req.Hidden))
+	seen := make(map[string]struct{}, len(req.Hidden))
+	for _, rawID := range req.Hidden {
+		id := routing.NormalizeAgentID(strings.TrimSpace(rawID))
+		if _, ok := known[id]; !ok {
+			writeAgentsAPIError(w, http.StatusBadRequest, "unknown_agent",
+				fmt.Sprintf("unknown agent %q", rawID))
+			return
+		}
+		if _, duplicate := seen[id]; duplicate {
+			continue
+		}
+		seen[id] = struct{}{}
+		hidden = append(hidden, id)
+	}
+	cfg.Agents.Hidden = hidden
+	if err := config.SaveConfig(h.configPath, cfg); err != nil {
+		writeAgentsAPIError(w, http.StatusInternalServerError, "config_save_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "hidden": hidden})
+}
+
 func buildAgentsResponse(cfg *config.Config) agentsResponse {
 	list := cfg.Agents.List
 	agents := make([]agentView, 0, len(list))
@@ -199,6 +300,7 @@ func buildAgentsResponse(cfg *config.Config) agentsResponse {
 			ModelName: cfg.Agents.Defaults.GetModelName(),
 		},
 		Dispatch: cfg.Agents.Dispatch,
+		Hidden:   append([]string(nil), cfg.Agents.Hidden...),
 		Implicit: len(list) == 0,
 		Warnings: agentWorkspaceWarnings(cfg),
 	}

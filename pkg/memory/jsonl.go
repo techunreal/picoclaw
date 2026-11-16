@@ -43,6 +43,8 @@ const (
 type SessionMeta struct {
 	Key           string          `json:"key"`
 	Summary       string          `json:"summary"`
+	Title         string          `json:"title,omitempty"`
+	Pinned        bool            `json:"pinned,omitempty"`
 	Skip          int             `json:"skip"`
 	Count         int             `json:"count"`
 	CreatedAt     time.Time       `json:"created_at"`
@@ -261,6 +263,34 @@ func (s *JSONLStore) UpsertSessionMeta(
 	}
 	meta.UpdatedAt = now
 
+	return s.writeMeta(sessionKey, meta)
+}
+
+// UpdateSessionMeta updates presentation fields without touching scope,
+// aliases or the updated-at sorting timestamp.
+func (s *JSONLStore) UpdateSessionMeta(
+	_ context.Context,
+	sessionKey string,
+	title *string,
+	pinned *bool,
+) error {
+	l := s.sessionLock(sessionKey)
+	l.Lock()
+	defer l.Unlock()
+
+	meta, err := s.readMeta(sessionKey)
+	if err != nil {
+		return err
+	}
+	if title != nil {
+		meta.Title = strings.TrimSpace(*title)
+	}
+	if pinned != nil {
+		meta.Pinned = *pinned
+	}
+	if meta.CreatedAt.IsZero() {
+		meta.CreatedAt = time.Now()
+	}
 	return s.writeMeta(sessionKey, meta)
 }
 

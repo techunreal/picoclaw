@@ -270,6 +270,8 @@ type AgentsConfig struct {
 	Defaults AgentDefaults   `json:"defaults"`
 	List     []AgentConfig   `json:"list,omitempty"`
 	Dispatch *DispatchConfig `json:"dispatch,omitempty"`
+	// Hidden lists agent IDs hidden from the chat sidebar. "main" hides Pico.
+	Hidden []string `json:"hidden,omitempty"`
 }
 
 // AgentModelConfig supports both string and structured model config.

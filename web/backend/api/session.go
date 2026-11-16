@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -24,6 +25,7 @@ import (
 func (h *Handler) registerSessionRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/sessions", h.handleListSessions)
 	mux.HandleFunc("GET /api/sessions/{id}", h.handleGetSession)
+	mux.HandleFunc("PATCH /api/sessions/{id}", h.handleUpdateSession)
 	mux.HandleFunc("DELETE /api/sessions/{id}", h.handleDeleteSession)
 }
 
@@ -31,6 +33,8 @@ func (h *Handler) registerSessionRoutes(mux *http.ServeMux) {
 type sessionFile struct {
 	Key      string              `json:"key"`
 	AgentID  string              `json:"agent_id,omitempty"`
+	Title    string              `json:"title,omitempty"`
+	Pinned   bool                `json:"pinned,omitempty"`
 	Messages []providers.Message `json:"messages"`
 	Summary  string              `json:"summary,omitempty"`
 	Created  time.Time           `json:"created"`
@@ -43,6 +47,7 @@ type sessionListItem struct {
 	AgentID      string `json:"agent_id,omitempty"`
 	Title        string `json:"title"`
 	Preview      string `json:"preview"`
+	Pinned       bool   `json:"pinned,omitempty"`
 	MessageCount int    `json:"message_count"`
 	Created      string `json:"created"`
 	Updated      string `json:"updated"`
@@ -215,6 +220,8 @@ func (h *Handler) readJSONLSession(dir, sessionKey string) (sessionFile, error) 
 	return sessionFile{
 		Key:      meta.Key,
 		AgentID:  agentID,
+		Title:    meta.Title,
+		Pinned:   meta.Pinned,
 		Messages: messages,
 		Summary:  meta.Summary,
 		Created:  created,
@@ -446,7 +453,10 @@ func buildSessionListItem(sessionID string, sess sessionFile, toolFeedbackMaxArg
 	if preview == "" {
 		preview = "(empty)"
 	}
-	title := preview
+	title := strings.TrimSpace(sess.Title)
+	if title == "" {
+		title = preview
+	}
 
 	agentID := strings.TrimSpace(sess.AgentID)
 	if agentID == "" {
@@ -458,6 +468,7 @@ func buildSessionListItem(sessionID string, sess sessionFile, toolFeedbackMaxArg
 		AgentID:      agentID,
 		Title:        title,
 		Preview:      preview,
+		Pinned:       sess.Pinned,
 		MessageCount: len(transcript),
 		Created:      sess.Created.Format(time.RFC3339),
 		Updated:      sess.Updated.Format(time.RFC3339),
@@ -881,8 +892,11 @@ func (h *Handler) handleListSessions(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Sort by updated descending (most recent first)
+	// Sort pinned sessions first, then by updated descending.
 	sort.Slice(items, func(i, j int) bool {
+		if items[i].Pinned != items[j].Pinned {
+			return items[i].Pinned
+		}
 		return items[i].Updated > items[j].Updated
 	})
 
@@ -975,6 +989,75 @@ func (h *Handler) handleGetSession(w http.ResponseWriter, r *http.Request) {
 		"created":  sess.Created.Format(time.RFC3339),
 		"updated":  sess.Updated.Format(time.RFC3339),
 	})
+}
+
+// handleUpdateSession renames or pins a session.
+//
+//	PATCH /api/sessions/{id}
+func (h *Handler) handleUpdateSession(w http.ResponseWriter, r *http.Request) {
+	sessionID := strings.TrimSpace(r.PathValue("id"))
+	if sessionID == "" {
+		http.Error(w, "missing session id", http.StatusBadRequest)
+		return
+	}
+
+	var req struct {
+		Title  *string `json:"title"`
+		Pinned *bool   `json:"pinned"`
+	}
+	dec := json.NewDecoder(io.LimitReader(r.Body, 1<<20))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&req); err != nil {
+		http.Error(w, "invalid JSON", http.StatusBadRequest)
+		return
+	}
+	if req.Title == nil && req.Pinned == nil {
+		http.Error(w, "title or pinned is required", http.StatusBadRequest)
+		return
+	}
+	if req.Title != nil {
+		title := strings.TrimSpace(*req.Title)
+		runes := []rune(title)
+		if len(runes) > maxSessionTitleRunes {
+			title = string(runes[:maxSessionTitleRunes])
+		}
+		req.Title = &title
+	}
+
+	dir, _, err := h.sessionRuntimeSettings()
+	if err != nil {
+		http.Error(w, "failed to resolve sessions directory", http.StatusInternalServerError)
+		return
+	}
+	refs, err := h.findPicoJSONLSessions(dir)
+	if err != nil {
+		http.Error(w, "failed to list sessions", http.StatusInternalServerError)
+		return
+	}
+	var key string
+	for _, ref := range refs {
+		if ref.ID == sessionID {
+			key = ref.Key
+			break
+		}
+	}
+	if key == "" {
+		http.Error(w, "session not found", http.StatusNotFound)
+		return
+	}
+
+	store, err := memory.NewJSONLStore(dir)
+	if err != nil {
+		http.Error(w, "failed to open session store", http.StatusInternalServerError)
+		return
+	}
+	if err := store.UpdateSessionMeta(r.Context(), key, req.Title, req.Pinned); err != nil {
+		http.Error(w, "failed to update session", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"status": "ok"})
 }
 
 // handleDeleteSession deletes a specific session.
