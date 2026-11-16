@@ -126,9 +126,20 @@ export function useAgentsPage() {
 
   const deleteAgent = () => {
     if (!deleteTarget) return
+    const removedID = deleteTarget.id
     const remaining = agents
-      .filter((agent) => agent.id !== deleteTarget.id)
-      .map(toAgentConfig)
+      .filter((agent) => agent.id !== removedID)
+      .map((agent) => {
+        const config = toAgentConfig(agent)
+        const allow = config.subagents?.allow_agents
+        if (allow && allow.includes(removedID)) {
+          config.subagents = {
+            ...config.subagents,
+            allow_agents: allow.filter((id) => id !== removedID),
+          }
+        }
+        return config
+      })
     if (remaining.length > 0 && !remaining.some((agent) => agent.default)) {
       remaining[0] = { ...remaining[0], default: true }
     }
