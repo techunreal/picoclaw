@@ -1,11 +1,11 @@
-# PicoClaw â€” Windows fork
+# PicoClaw Ã¢â‚¬â€ Windows fork
 
 A Windows-first, WebUI-centered fork of [PicoClaw](https://github.com/sipeed/picoclaw)
 by Sipeed. Upstream is MIT-licensed; this fork keeps the same license and adds
 desktop usability, security hardening, agent management, and local document
 tools.
 
-- **Version:** `0.1.1-fork`
+- **Version:** `0.1.2-fork`
 - **Upstream:** https://github.com/sipeed/picoclaw
 - **Fork:** https://github.com/techunreal/picoclaw
 - **License:** MIT (see `LICENSE` and `NOTICE.md`)
@@ -13,7 +13,17 @@ tools.
 > This is not an official Sipeed release. Report fork-specific issues on the
 > fork repository, not upstream.
 
-## What's new in 0.1.1-fork
+## What's new in 0.1.2-fork
+
+- **Context window auto-detection:** self-hosted/compatible endpoints advertise
+  their context length in `/models`; the chat budget now uses it instead of the
+  `4 x max_tokens` heuristic.
+- **Connection test tolerance:** an endpoint that answers `/models` no longer
+  fails with "unreachable" when the configured model id uses a deployment alias.
+- **Tour:** the agent step highlights profiles/chats and explains the settings
+  menu.
+- **Exec safety:** failing commands are redacted from tool output and logs.
+- Built with the GUI subsystem, so no console/terminal window is opened.
 
 - **Chats sidebar:** settings moved behind a gear; the sidebar lists agent
   profiles with their recent chats. History button removed.
@@ -60,7 +70,7 @@ tools.
 - Multiple agents with separate workspaces, models, skills, subagent
   permissions, and channel routing.
 - Subagent master switch, asynchronous `spawn`, live monitoring, cancel.
-- Per-agent personality files (`AGENT.md`, `SOUL.md`, â€¦) with revision history,
+- Per-agent personality files (`AGENT.md`, `SOUL.md`, Ã¢â‚¬Â¦) with revision history,
   backups, and conflict detection.
 - MCP server management and connection test.
 - Skills marketplace (ClawHub), GitHub URL install, security badges, updates,
@@ -98,14 +108,14 @@ Microsoft Office, Adobe Acrobat, or a system Python install.
 
 ## Quick start (Windows)
 
-1. Extract `PicoClaw-Windows-x86_64-0.1.1-fork.zip` to a folder such as
+1. Extract `PicoClaw-Windows-x86_64-0.1.2-fork.zip` to a folder such as
    `C:\Users\<you>\PicoClaw`.
 2. Run `picoclaw-launcher.exe`.
 3. Open `http://localhost:18800` if the browser does not open automatically.
 4. Create the dashboard password on first run.
 5. Add a model and API key in **Models**.
 6. Click **Start Gateway**.
-7. Chat. Open **Agent â†’ Skills** to see the bundled skills.
+7. Chat. Open **Agent Ã¢â€ â€™ Skills** to see the bundled skills.
 
 `picoclaw.exe` is the gateway/engine; keep it next to the launcher. The launcher
 finds it automatically.
@@ -147,13 +157,13 @@ go build -tags "goolm,stdjson" -o build/picoclaw-launcher.exe ./web/backend
 Release build with version metadata, Office runtime, ZIP, and SHA256:
 
 ```powershell
-powershell -File scripts/build-release.ps1 -Version 0.1.1-fork
+powershell -File scripts/build-release.ps1 -Version 0.1.2-fork
 ```
 
 Lean build without the Office runtime:
 
 ```powershell
-powershell -File scripts/build-release.ps1 -Version 0.1.1-fork -SkipOfficeRuntime
+powershell -File scripts/build-release.ps1 -Version 0.1.2-fork -SkipOfficeRuntime
 ```
 
 ## Tests
