@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query"
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
 
 import type { AgentConfig, AgentDefaults, AgentView } from "@/api/agents"
@@ -21,6 +21,7 @@ import { Switch } from "@/components/ui/switch"
 import { suggestAgentWorkspace } from "@/components/agent/agents/use-agents-page"
 
 const agentIDPattern = "^[a-z0-9][a-z0-9_-]{0,63}$"
+const lockedSkill = "picoclaw-agent"
 
 interface AgentEditDialogProps {
   open: boolean
@@ -48,11 +49,13 @@ export function AgentEditDialog({
   const { t } = useTranslation()
   const [form, setForm] = useState<AgentConfig>(initial)
   const [skillFilter, setSkillFilter] = useState("")
+  const [skillDefaultsApplied, setSkillDefaultsApplied] = useState(false)
 
   useEffect(() => {
     if (open) {
       setForm(initial)
       setSkillFilter("")
+      setSkillDefaultsApplied(false)
     }
   }, [open, initial])
 
@@ -68,20 +71,46 @@ export function AgentEditDialog({
   })
 
   const models = modelsQuery.data?.models ?? []
-  const skills = skillsQuery.data?.skills ?? []
+  const skills = useMemo(() => skillsQuery.data?.skills ?? [], [skillsQuery.data])
   const selectedSkills = form.skills ?? []
   const subagentsEnabled = form.subagents?.enabled !== false
   const allowAgents = form.subagents?.allow_agents ?? []
   const allowAll = allowAgents.includes("*")
 
+  useEffect(() => {
+    if (!open || skillDefaultsApplied || skillsQuery.isLoading) return
+    if (form.skills !== undefined) {
+      setSkillDefaultsApplied(true)
+      return
+    }
+    if (skills.length === 0) return
+    setForm((current) =>
+      current.skills === undefined
+        ? { ...current, skills: skills.map((skill) => skill.name) }
+        : current,
+    )
+    setSkillDefaultsApplied(true)
+  }, [open, skillDefaultsApplied, skillsQuery.isLoading, skills, form.skills])
+
   const update = (patch: Partial<AgentConfig>) => {
     setForm((current) => ({ ...current, ...patch }))
   }
   const toggleSkill = (name: string, checked: boolean) => {
+    if (name === lockedSkill && !checked) return
     const next = checked
       ? [...new Set([...selectedSkills, name])]
       : selectedSkills.filter((skill) => skill !== name)
     update({ skills: next })
+  }
+  const selectAllSkills = () => {
+    update({ skills: skills.map((skill) => skill.name) })
+  }
+  const clearAllSkills = () => {
+    update({
+      skills: skills
+        .filter((skill) => skill.name === lockedSkill)
+        .map((skill) => skill.name),
+    })
   }
   const toggleAllowAgent = (id: string, checked: boolean) => {
     const next = checked
@@ -118,7 +147,7 @@ export function AgentEditDialog({
               id: form.id.trim(),
               name: form.name?.trim(),
               workspace: form.workspace?.trim(),
-              skills: selectedSkills.length > 0 ? selectedSkills : undefined,
+              skills: form.skills,
             })
           }}
         >
@@ -270,23 +299,54 @@ export function AgentEditDialog({
                 autoComplete="off"
                 disabled={isSaving}
               />
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="text-muted-foreground text-xs">
+                  {t("agents.skillCount", { count: selectedSkills.length })}
+                </span>
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={selectAllSkills}
+                    disabled={isSaving || skills.length === 0}
+                  >
+                    {t("agents.selectAllSkills")}
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={clearAllSkills}
+                    disabled={isSaving || selectedSkills.length === 0}
+                  >
+                    {t("agents.clearAllSkills")}
+                  </Button>
+                </div>
+              </div>
               {selectedSkills.length > 0 && (
                 <div className="flex flex-wrap gap-1.5">
                   {selectedSkills.map((name) => (
                     <Badge key={name} variant="secondary" className="gap-1">
                       {name}
-                      <button
-                        type="button"
-                        className="text-muted-foreground hover:text-foreground"
-                        aria-label={t("agents.removeSkill", { name })}
-                        onClick={() =>
-                          update({
-                            skills: selectedSkills.filter((skill) => skill !== name),
-                          })
-                        }
-                      >
-                        ×
-                      </button>
+                      {name === lockedSkill ? (
+                        <span className="text-muted-foreground" title={t("agents.skillLockedHint")}>
+                          🔒
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          className="text-muted-foreground hover:text-foreground"
+                          aria-label={t("agents.removeSkill", { name })}
+                          onClick={() =>
+                            update({
+                              skills: selectedSkills.filter((skill) => skill !== name),
+                            })
+                          }
+                        >
+                          ×
+                        </button>
+                      )}
                     </Badge>
                   ))}
                 </div>
@@ -302,51 +362,65 @@ export function AgentEditDialog({
                   </p>
                 ) : (
                   <ul className="flex flex-col gap-2">
-                    {visibleSkills.map((skill) => (
-                      <li key={skill.id}>
-                        <label className="flex items-start gap-2 text-sm">
-                          <input
-                            type="checkbox"
-                            className="accent-primary mt-0.5 size-4"
-                            checked={selectedSkills.includes(skill.name)}
-                            onChange={(event) =>
-                              toggleSkill(skill.name, event.target.checked)
-                            }
-                            disabled={isSaving}
-                          />
-                          <span className="min-w-0">
-                            <span className="font-medium">{skill.name}</span>
-                            <span className="text-muted-foreground ml-2 text-xs">
-                              {skill.source}
+                    {visibleSkills.map((skill) => {
+                      const locked = skill.name === lockedSkill
+                      return (
+                        <li key={skill.id}>
+                          <label className="flex items-start gap-2 text-sm">
+                            <input
+                              type="checkbox"
+                              className="accent-primary mt-0.5 size-4"
+                              checked={selectedSkills.includes(skill.name)}
+                              onChange={(event) =>
+                                toggleSkill(skill.name, event.target.checked)
+                              }
+                              disabled={isSaving || locked}
+                            />
+                            <span className="min-w-0">
+                              <span className="font-medium">{skill.name}</span>
+                              <span className="text-muted-foreground ml-2 text-xs">
+                                {skill.source}
+                              </span>
+                              {locked && (
+                                <span className="text-muted-foreground ml-2 text-xs">
+                                  {t("agents.skillLocked")}
+                                </span>
+                              )}
+                              <span className="text-muted-foreground block text-xs">
+                                {skill.description}
+                              </span>
                             </span>
-                            <span className="text-muted-foreground block text-xs">
-                              {skill.description}
+                          </label>
+                        </li>
+                      )
+                    })}
+                    {selectedNotListed.map((name) => {
+                      const locked = name === lockedSkill
+                      return (
+                        <li key={name}>
+                          <label className="flex items-center gap-2 text-sm">
+                            <input
+                              type="checkbox"
+                              className="accent-primary size-4"
+                              checked
+                              onChange={() => {
+                                if (locked) return
+                                update({
+                                  skills: selectedSkills.filter((skill) => skill !== name),
+                                })
+                              }}
+                              disabled={isSaving || locked}
+                            />
+                            <span className="font-medium">{name}</span>
+                            <span className="text-muted-foreground text-xs">
+                              {locked
+                                ? t("agents.skillLocked")
+                                : t("agents.skillNotInWorkspace")}
                             </span>
-                          </span>
-                        </label>
-                      </li>
-                    ))}
-                    {selectedNotListed.map((name) => (
-                      <li key={name}>
-                        <label className="flex items-center gap-2 text-sm">
-                          <input
-                            type="checkbox"
-                            className="accent-primary size-4"
-                            checked
-                            onChange={() =>
-                              update({
-                                skills: selectedSkills.filter((skill) => skill !== name),
-                              })
-                            }
-                            disabled={isSaving}
-                          />
-                          <span className="font-medium">{name}</span>
-                          <span className="text-muted-foreground text-xs">
-                            {t("agents.skillNotInWorkspace")}
-                          </span>
-                        </label>
-                      </li>
-                    ))}
+                          </label>
+                        </li>
+                      )
+                    })}
                   </ul>
                 )}
               </div>

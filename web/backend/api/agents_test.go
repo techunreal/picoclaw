@@ -174,6 +174,54 @@ func TestUpdateAgents_SeedsNewAgentWorkspace(t *testing.T) {
 	}
 }
 
+func TestUpdateAgents_KeepsLockedSkill(t *testing.T) {
+	configPath, cleanup := setupOAuthTestEnv(t)
+	defer cleanup()
+
+	mux := agentsTestMux(t, configPath)
+	put := func(t *testing.T, agent config.AgentConfig) {
+		t.Helper()
+		body, err := json.Marshal(agentsUpdateRequest{Agents: []config.AgentConfig{agent}})
+		if err != nil {
+			t.Fatalf("Marshal() error = %v", err)
+		}
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPut, "/api/agents", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		mux.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("PUT status = %d, body = %s", rec.Code, rec.Body.String())
+		}
+	}
+
+	put(t, config.AgentConfig{
+		ID:        "alpha",
+		Default:   true,
+		Workspace: t.TempDir(),
+		Skills:    []string{"weather"},
+	})
+	cfg, err := config.LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+	if got := cfg.Agents.List[0].Skills; len(got) != 2 || got[0] != lockedAgentSkill || got[1] != "weather" {
+		t.Fatalf("skills = %#v, want [%s weather]", got, lockedAgentSkill)
+	}
+
+	put(t, config.AgentConfig{
+		ID:        "alpha",
+		Default:   true,
+		Workspace: cfg.Agents.List[0].Workspace,
+	})
+	cfg, err = config.LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+	if cfg.Agents.List[0].Skills != nil {
+		t.Fatalf("legacy nil skills became %#v", cfg.Agents.List[0].Skills)
+	}
+}
+
 func TestUpdateAgents_SavesValidConfig(t *testing.T) {
 	configPath, cleanup := setupOAuthTestEnv(t)
 	defer cleanup()

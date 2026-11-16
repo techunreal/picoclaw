@@ -21,6 +21,10 @@ const (
 	maxDispatchRules = 100
 	maxAgentSkills   = 100
 	maxAgentNameLen  = 120
+	// lockedAgentSkill is always present when an agent has an explicit skill
+	// list. It keeps the agent able to manage PicoClaw itself and guarantees
+	// that "Clear all" never produces an empty list.
+	lockedAgentSkill = "picoclaw-agent"
 )
 
 var agentIDPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`)
@@ -393,7 +397,11 @@ func validateAgentsConfig(
 		if len(agentCfg.Skills) > maxAgentSkills {
 			errs = append(errs, fmt.Sprintf("agent %q: too many skills (max %d)", rawID, maxAgentSkills))
 		}
-		agentCfg.Skills = normalizeStringList(agentCfg.Skills, maxAgentSkills)
+		// A nil list means "all skills" and is kept for legacy configs. An
+		// explicit list always keeps the locked picoclaw-agent skill.
+		if agentCfg.Skills != nil {
+			agentCfg.Skills = withLockedAgentSkill(normalizeStringList(agentCfg.Skills, maxAgentSkills))
+		}
 
 		if strings.TrimSpace(agentCfg.Workspace) != "" {
 			ws, err := validateAgentWorkspace(agentCfg.Workspace)
@@ -528,6 +536,19 @@ func workspaceKey(path string) string {
 func dispatchSelectorHasConstraint(sel config.DispatchSelector) bool {
 	return sel.Channel != "" || sel.Account != "" || sel.Space != "" ||
 		sel.Chat != "" || sel.Topic != "" || sel.Sender != "" || sel.Mentioned != nil
+}
+
+func withLockedAgentSkill(skills []string) []string {
+	for _, skill := range skills {
+		if strings.EqualFold(skill, lockedAgentSkill) {
+			return skills
+		}
+	}
+	locked := append([]string{lockedAgentSkill}, skills...)
+	if len(locked) > maxAgentSkills {
+		locked = locked[:maxAgentSkills]
+	}
+	return locked
 }
 
 func normalizeStringList(values []string, limit int) []string {
