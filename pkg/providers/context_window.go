@@ -61,13 +61,32 @@ func FindModelConfigForContext(cfg *config.Config, name string) *config.ModelCon
 	return nil
 }
 
+// SupportsContextWindowDetection limits automatic probing to self-hosted and
+// custom OpenAI-compatible providers. Cloud providers keep their documented
+// context windows and should not receive extra /models requests at startup.
+func SupportsContextWindowDetection(m *config.ModelConfig) bool {
+	if m == nil {
+		return false
+	}
+	protocol := strings.ToLower(strings.TrimSpace(m.Provider))
+	if prefix, _ := ExtractProtocol(m); strings.TrimSpace(prefix) != "" {
+		protocol = strings.ToLower(strings.TrimSpace(prefix))
+	}
+	switch protocol {
+	case "openai-compatible", "vllm", "lmstudio", "ollama", "llamacpp", "llama.cpp", "custom", "":
+		return true
+	default:
+		return false
+	}
+}
+
 // DetectModelContextWindow asks the model endpoint (/models) for the advertised
 // context length. OpenAI-compatible servers such as llama.cpp, vLLM, LM Studio
 // and Ollama expose this either as context_length, context_window,
 // max_model_len or max_context_length. When the value cannot be determined it
 // returns 0 so callers can fall back to their own heuristic.
 func DetectModelContextWindow(m *config.ModelConfig) int {
-	if m == nil {
+	if m == nil || !SupportsContextWindowDetection(m) {
 		return 0
 	}
 
