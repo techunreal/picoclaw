@@ -319,6 +319,15 @@ type AgentConfig struct {
 	Model     *AgentModelConfig `json:"model,omitempty"`
 	Skills    []string          `json:"skills,omitempty"`
 	Subagents *SubagentsConfig  `json:"subagents,omitempty"`
+	Avatar    *AgentAvatar      `json:"avatar,omitempty"`
+}
+
+// AgentAvatar holds optional presentation data for an agent. Emoji is a short
+// string (one or two graphemes) and Image is a file name served from the
+// agent's workspace avatar directory.
+type AgentAvatar struct {
+	Emoji string `json:"emoji,omitempty"`
+	Image string `json:"image,omitempty"`
 }
 
 type SubagentsConfig struct {

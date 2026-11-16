@@ -13,6 +13,7 @@ import { useTranslation } from "react-i18next"
 import { Link } from "@tanstack/react-router"
 
 import type { AgentView, DispatchRule } from "@/api/agents"
+import { AgentAvatar } from "@/components/agent-avatar"
 import { AgentEditDialog } from "@/components/agent/agents/agent-edit-dialog"
 import { RoutingRuleDialog } from "@/components/agent/agents/routing-rule-dialog"
 import {
@@ -102,6 +103,12 @@ export function AgentsPage() {
         }`}
       >
         <span className="flex items-center gap-2">
+          <AgentAvatar
+            agentId={agent.id}
+            avatar={agent.avatar}
+            name={agent.name || agent.id}
+            size="md"
+          />
           <span className="font-mono text-sm font-medium">{agent.id}</span>
           {agent.default && <Badge variant="secondary">{t("agents.defaultBadge")}</Badge>}
           {agent.subagents?.enabled === false && (
@@ -201,6 +208,12 @@ export function AgentsPage() {
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
+                          <AgentAvatar
+                            agentId={selectedAgent.id}
+                            avatar={selectedAgent.avatar}
+                            name={selectedAgent.name || selectedAgent.id}
+                            size="lg"
+                          />
                           <h2 className="font-mono text-base font-semibold">
                             {selectedAgent.id}
                           </h2>

@@ -2,11 +2,14 @@ package api
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/sipeed/picoclaw/pkg/config"
@@ -219,6 +222,196 @@ func TestUpdateAgents_KeepsLockedSkill(t *testing.T) {
 	}
 	if cfg.Agents.List[0].Skills != nil {
 		t.Fatalf("legacy nil skills became %#v", cfg.Agents.List[0].Skills)
+	}
+}
+
+func TestAgentAvatarLifecycle(t *testing.T) {
+	configPath, cleanup := setupOAuthTestEnv(t)
+	defer cleanup()
+
+	workspace := t.TempDir()
+	body, err := json.Marshal(agentsUpdateRequest{Agents: []config.AgentConfig{{
+		ID:        "alpha",
+		Default:   true,
+		Workspace: workspace,
+		Avatar:    &config.AgentAvatar{Emoji: "🦉"},
+	}}})
+	if err != nil {
+		t.Fatalf("Marshal() error = %v", err)
+	}
+	mux := agentsTestMux(t, configPath)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPut, "/api/agents", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("PUT status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+
+	upload := func(t *testing.T, payload []byte) *httptest.ResponseRecorder {
+		t.Helper()
+		var buf bytes.Buffer
+		writer := multipart.NewWriter(&buf)
+		part, err := writer.CreateFormFile("file", "avatar.png")
+		if err != nil {
+			t.Fatalf("CreateFormFile() error = %v", err)
+		}
+		if _, err := part.Write(payload); err != nil {
+			t.Fatalf("Write() error = %v", err)
+		}
+		if err := writer.Close(); err != nil {
+			t.Fatalf("Close() error = %v", err)
+		}
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/api/agents/alpha/avatar", &buf)
+		req.Header.Set("Content-Type", writer.FormDataContentType())
+		mux.ServeHTTP(rec, req)
+		return rec
+	}
+
+	pngBytes, err := base64.StdEncoding.DecodeString(
+		"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+	)
+	if err != nil {
+		t.Fatalf("DecodeString() error = %v", err)
+	}
+
+	rec = upload(t, pngBytes)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("upload status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	cfg, err := config.LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+	if cfg.Agents.List[0].Avatar == nil || cfg.Agents.List[0].Avatar.Image != "avatar.png" {
+		t.Fatalf("avatar not saved: %#v", cfg.Agents.List[0].Avatar)
+	}
+	if _, err := os.Stat(filepath.Join(workspace, "avatar", "avatar.png")); err != nil {
+		t.Fatalf("avatar file missing: %v", err)
+	}
+
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/agents/alpha/avatar", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	if contentType := rec.Header().Get("Content-Type"); contentType != "image/png" {
+		t.Fatalf("Content-Type = %q, want image/png", contentType)
+	}
+	if !bytes.Equal(rec.Body.Bytes(), pngBytes) {
+		t.Fatal("served avatar differs from upload")
+	}
+
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/agents", nil))
+	resp := decodeAgentsResponse(t, rec)
+	if resp.Agents[0].Avatar == nil || resp.Agents[0].Avatar.Image != "avatar.png" {
+		t.Fatalf("avatar missing from list response: %#v", resp.Agents[0].Avatar)
+	}
+
+	rec = upload(t, []byte("not an image"))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("invalid upload status = %d, want 400", rec.Code)
+	}
+
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodDelete, "/api/agents/alpha/avatar", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("DELETE status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	if _, err := os.Stat(filepath.Join(workspace, "avatar", "avatar.png")); !os.IsNotExist(err) {
+		t.Fatalf("avatar file still exists: %v", err)
+	}
+	cfg, err = config.LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+	if cfg.Agents.List[0].Avatar == nil || cfg.Agents.List[0].Avatar.Image != "" || cfg.Agents.List[0].Avatar.Emoji != "🦉" {
+		t.Fatalf("emoji should survive image deletion: %#v", cfg.Agents.List[0].Avatar)
+	}
+}
+
+func TestAgentAvatar_MainImplicit(t *testing.T) {
+	configPath, cleanup := setupOAuthTestEnv(t)
+	defer cleanup()
+
+	cfg, err := config.LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+	workspace := cfg.WorkspacePath()
+
+	pngBytes, err := base64.StdEncoding.DecodeString(
+		"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+	)
+	if err != nil {
+		t.Fatalf("DecodeString() error = %v", err)
+	}
+	var buf bytes.Buffer
+	writer := multipart.NewWriter(&buf)
+	part, err := writer.CreateFormFile("file", "avatar.png")
+	if err != nil {
+		t.Fatalf("CreateFormFile() error = %v", err)
+	}
+	if _, err := part.Write(pngBytes); err != nil {
+		t.Fatalf("Write() error = %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+
+	mux := agentsTestMux(t, configPath)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/agents/main/avatar", &buf)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("upload status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	if _, err := os.Stat(filepath.Join(workspace, "avatar", "avatar.png")); err != nil {
+		t.Fatalf("avatar file missing: %v", err)
+	}
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/agents/main/avatar", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestUpdateAgents_AvatarValidation(t *testing.T) {
+	configPath, cleanup := setupOAuthTestEnv(t)
+	defer cleanup()
+
+	tests := []struct {
+		name   string
+		avatar *config.AgentAvatar
+	}{
+		{name: "emoji too long", avatar: &config.AgentAvatar{Emoji: strings.Repeat("🦉", maxAvatarEmoji+1)}},
+		{name: "image path", avatar: &config.AgentAvatar{Image: "../avatar.png"}},
+		{name: "image extension", avatar: &config.AgentAvatar{Image: "avatar.svg"}},
+	}
+
+	mux := agentsTestMux(t, configPath)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			body, err := json.Marshal(agentsUpdateRequest{Agents: []config.AgentConfig{{
+				ID:        "alpha",
+				Default:   true,
+				Workspace: t.TempDir(),
+				Avatar:    tt.avatar,
+			}}})
+			if err != nil {
+				t.Fatalf("Marshal() error = %v", err)
+			}
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodPut, "/api/agents", bytes.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+			mux.ServeHTTP(rec, req)
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d, want 400, body = %s", rec.Code, rec.Body.String())
+			}
+		})
 	}
 }
 

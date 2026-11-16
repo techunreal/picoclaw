@@ -11,6 +11,8 @@ import (
 	"regexp"
 	"runtime"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/sipeed/picoclaw/pkg/config"
 	"github.com/sipeed/picoclaw/pkg/routing"
@@ -21,11 +23,15 @@ const (
 	maxDispatchRules = 100
 	maxAgentSkills   = 100
 	maxAgentNameLen  = 120
+	maxAvatarEmoji   = 16
+	maxAvatarBytes   = 1 << 20
 	// lockedAgentSkill is always present when an agent has an explicit skill
 	// list. It keeps the agent able to manage PicoClaw itself and guarantees
 	// that "Clear all" never produces an empty list.
 	lockedAgentSkill = "picoclaw-agent"
 )
+
+var avatarImagePattern = regexp.MustCompile(`(?i)^avatar\.(png|jpe?g|webp)$`)
 
 var agentIDPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`)
 
@@ -40,6 +46,13 @@ type agentView struct {
 	EffectiveModel     string                   `json:"effective_model,omitempty"`
 	Skills             []string                 `json:"skills,omitempty"`
 	Subagents          *config.SubagentsConfig  `json:"subagents,omitempty"`
+	Avatar             *agentAvatarView         `json:"avatar,omitempty"`
+}
+
+type agentAvatarView struct {
+	Emoji   string `json:"emoji,omitempty"`
+	Image   string `json:"image,omitempty"`
+	Version int64  `json:"version,omitempty"`
 }
 
 type agentsDefaultsView struct {
@@ -64,6 +77,9 @@ type agentsUpdateRequest struct {
 func (h *Handler) registerAgentRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/agents", h.handleListAgents)
 	mux.HandleFunc("PUT /api/agents", h.handleUpdateAgents)
+	mux.HandleFunc("GET /api/agents/{id}/avatar", h.handleGetAgentAvatar)
+	mux.HandleFunc("POST /api/agents/{id}/avatar", h.handleUploadAgentAvatar)
+	mux.HandleFunc("DELETE /api/agents/{id}/avatar", h.handleDeleteAgentAvatar)
 }
 
 func (h *Handler) handleListAgents(w http.ResponseWriter, r *http.Request) {
@@ -168,6 +184,7 @@ func buildAgentsResponse(cfg *config.Config) agentsResponse {
 			EffectiveModel:     effectiveAgentModel(cfg, agentCfg),
 			Skills:             agentCfg.Skills,
 			Subagents:          agentCfg.Subagents,
+			Avatar:             resolveAgentAvatarView(agentCfg, workspace),
 		}
 		agents = append(agents, view)
 	}
@@ -201,6 +218,229 @@ func agentWorkspaceWarnings(cfg *config.Config) []string {
 		seen[key] = agentCfg.ID
 	}
 	return warnings
+}
+
+func (h *Handler) handleGetAgentAvatar(w http.ResponseWriter, r *http.Request) {
+	cfg, err := config.LoadConfig(h.configPath)
+	if err != nil {
+		writeAgentsAPIError(w, http.StatusInternalServerError, "config_load_failed", err.Error())
+		return
+	}
+	workspace, err := resolveAgentWorkspaceForID(cfg, r.PathValue("id"))
+	if err != nil {
+		writeAgentsAPIError(w, http.StatusNotFound, "agent_not_found", err.Error())
+		return
+	}
+	path, ok := findAgentAvatarFile(workspace)
+	if !ok {
+		writeAgentsAPIError(w, http.StatusNotFound, "avatar_not_found", "no avatar image for this agent")
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	http.ServeFile(w, r, path)
+}
+
+func (h *Handler) handleUploadAgentAvatar(w http.ResponseWriter, r *http.Request) {
+	h.configMu.Lock()
+	defer h.configMu.Unlock()
+
+	cfg, err := config.LoadConfig(h.configPath)
+	if err != nil {
+		writeAgentsAPIError(w, http.StatusInternalServerError, "config_load_failed", err.Error())
+		return
+	}
+	agentID := r.PathValue("id")
+	workspace, err := resolveAgentWorkspaceForID(cfg, agentID)
+	if err != nil {
+		writeAgentsAPIError(w, http.StatusNotFound, "agent_not_found", err.Error())
+		return
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, maxAvatarBytes+512*1024)
+	if err := r.ParseMultipartForm(maxAvatarBytes); err != nil {
+		writeAgentsAPIError(w, http.StatusBadRequest, "invalid_upload", "expected a multipart image upload up to 1 MB")
+		return
+	}
+	file, _, err := r.FormFile("file")
+	if err != nil {
+		writeAgentsAPIError(w, http.StatusBadRequest, "missing_file", "form field \"file\" is required")
+		return
+	}
+	defer file.Close()
+
+	data, err := io.ReadAll(io.LimitReader(file, maxAvatarBytes+1))
+	if err != nil {
+		writeAgentsAPIError(w, http.StatusBadRequest, "invalid_upload", err.Error())
+		return
+	}
+	if len(data) == 0 {
+		writeAgentsAPIError(w, http.StatusBadRequest, "empty_file", "image is empty")
+		return
+	}
+	if len(data) > maxAvatarBytes {
+		writeAgentsAPIError(w, http.StatusBadRequest, "avatar_too_large", "image must be 1 MB or smaller")
+		return
+	}
+	ext, ok := avatarExtension(http.DetectContentType(data))
+	if !ok {
+		writeAgentsAPIError(w, http.StatusBadRequest, "unsupported_image", "use a PNG, JPEG or WebP image")
+		return
+	}
+
+	dir := agentAvatarDir(workspace)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		writeAgentsAPIError(w, http.StatusInternalServerError, "avatar_save_failed", err.Error())
+		return
+	}
+	removeAgentAvatarFiles(dir)
+	name := "avatar." + ext
+	if err := writeFileAtomic(filepath.Join(dir, name), data, 0o644); err != nil {
+		writeAgentsAPIError(w, http.StatusInternalServerError, "avatar_save_failed", err.Error())
+		return
+	}
+
+	updateAgentAvatarImage(cfg, agentID, name)
+	if err := config.SaveConfig(h.configPath, cfg); err != nil {
+		writeAgentsAPIError(w, http.StatusInternalServerError, "config_save_failed", err.Error())
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	version := int64(0)
+	if info, err := os.Stat(filepath.Join(dir, name)); err == nil {
+		version = info.ModTime().UnixNano()
+	}
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"status": "ok",
+		"avatar": agentAvatarView{
+			Emoji:   agentAvatarEmoji(cfg, agentID),
+			Image:   name,
+			Version: version,
+		},
+	})
+}
+
+func (h *Handler) handleDeleteAgentAvatar(w http.ResponseWriter, r *http.Request) {
+	h.configMu.Lock()
+	defer h.configMu.Unlock()
+
+	cfg, err := config.LoadConfig(h.configPath)
+	if err != nil {
+		writeAgentsAPIError(w, http.StatusInternalServerError, "config_load_failed", err.Error())
+		return
+	}
+	agentID := r.PathValue("id")
+	workspace, err := resolveAgentWorkspaceForID(cfg, agentID)
+	if err != nil {
+		writeAgentsAPIError(w, http.StatusNotFound, "agent_not_found", err.Error())
+		return
+	}
+	removeAgentAvatarFiles(agentAvatarDir(workspace))
+	updateAgentAvatarImage(cfg, agentID, "")
+	if err := config.SaveConfig(h.configPath, cfg); err != nil {
+		writeAgentsAPIError(w, http.StatusInternalServerError, "config_save_failed", err.Error())
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+}
+
+func agentAvatarDir(workspace string) string {
+	return filepath.Join(workspace, "avatar")
+}
+
+func findAgentAvatarFile(workspace string) (string, bool) {
+	for _, name := range []string{"avatar.png", "avatar.jpg", "avatar.jpeg", "avatar.webp"} {
+		path := filepath.Join(agentAvatarDir(workspace), name)
+		if info, err := os.Stat(path); err == nil && info.Mode().IsRegular() {
+			return path, true
+		}
+	}
+	return "", false
+}
+
+func removeAgentAvatarFiles(dir string) {
+	for _, name := range []string{"avatar.png", "avatar.jpg", "avatar.jpeg", "avatar.webp"} {
+		_ = os.Remove(filepath.Join(dir, name))
+	}
+}
+
+func avatarExtension(contentType string) (string, bool) {
+	switch contentType {
+	case "image/png":
+		return "png", true
+	case "image/jpeg":
+		return "jpg", true
+	case "image/webp":
+		return "webp", true
+	default:
+		return "", false
+	}
+}
+
+func resolveAgentAvatarView(agentCfg config.AgentConfig, workspace string) *agentAvatarView {
+	view := agentAvatarView{}
+	if agentCfg.Avatar != nil {
+		view.Emoji = agentCfg.Avatar.Emoji
+	}
+	if path, ok := findAgentAvatarFile(workspace); ok {
+		view.Image = filepath.Base(path)
+		if info, err := os.Stat(path); err == nil {
+			view.Version = info.ModTime().UnixNano()
+		}
+	}
+	if view.Image == "" && view.Emoji == "" {
+		return nil
+	}
+	return &view
+}
+
+func updateAgentAvatarImage(cfg *config.Config, agentID, image string) {
+	id := routing.NormalizeAgentID(strings.TrimSpace(agentID))
+	for i := range cfg.Agents.List {
+		if routing.NormalizeAgentID(strings.TrimSpace(cfg.Agents.List[i].ID)) != id {
+			continue
+		}
+		agent := &cfg.Agents.List[i]
+		if agent.Avatar == nil {
+			agent.Avatar = &config.AgentAvatar{}
+		}
+		agent.Avatar.Image = image
+		if agent.Avatar.Image == "" && agent.Avatar.Emoji == "" {
+			agent.Avatar = nil
+		}
+		return
+	}
+}
+
+func agentAvatarEmoji(cfg *config.Config, agentID string) string {
+	id := routing.NormalizeAgentID(strings.TrimSpace(agentID))
+	for i := range cfg.Agents.List {
+		if routing.NormalizeAgentID(strings.TrimSpace(cfg.Agents.List[i].ID)) == id && cfg.Agents.List[i].Avatar != nil {
+			return cfg.Agents.List[i].Avatar.Emoji
+		}
+	}
+	return ""
+}
+
+func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".avatar-*.tmp")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	defer os.Remove(tmpName)
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Chmod(tmpName, perm); err != nil {
+		return err
+	}
+	return os.Rename(tmpName, path)
 }
 
 func effectiveAgentWorkspace(cfg *config.Config, agentCfg config.AgentConfig) (string, string) {
@@ -401,6 +641,25 @@ func validateAgentsConfig(
 		// explicit list always keeps the locked picoclaw-agent skill.
 		if agentCfg.Skills != nil {
 			agentCfg.Skills = withLockedAgentSkill(normalizeStringList(agentCfg.Skills, maxAgentSkills))
+		}
+
+		if agentCfg.Avatar != nil {
+			emoji := strings.TrimSpace(agentCfg.Avatar.Emoji)
+			image := strings.TrimSpace(agentCfg.Avatar.Image)
+			if utf8.RuneCountInString(emoji) > maxAvatarEmoji {
+				errs = append(errs, fmt.Sprintf("agent %q: avatar emoji is too long", rawID))
+			}
+			if strings.ContainsFunc(emoji, unicode.IsControl) {
+				errs = append(errs, fmt.Sprintf("agent %q: avatar emoji contains control characters", rawID))
+			}
+			if image != "" && !avatarImagePattern.MatchString(image) {
+				errs = append(errs, fmt.Sprintf("agent %q: avatar image must be avatar.png, avatar.jpg or avatar.webp", rawID))
+			}
+			if emoji == "" && image == "" {
+				agentCfg.Avatar = nil
+			} else {
+				agentCfg.Avatar = &config.AgentAvatar{Emoji: emoji, Image: image}
+			}
 		}
 
 		if strings.TrimSpace(agentCfg.Workspace) != "" {

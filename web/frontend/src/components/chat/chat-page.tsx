@@ -1,4 +1,5 @@
 import { IconGhost, IconPlus } from "@tabler/icons-react"
+import { useQuery } from "@tanstack/react-query"
 import { useAtom, useAtomValue, useSetAtom } from "jotai"
 import {
   type ChangeEvent,
@@ -11,6 +12,8 @@ import {
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
 
+import { getAgents } from "@/api/agents"
+import { AgentAvatar } from "@/components/agent-avatar"
 import { AssistantMessage } from "@/components/chat/assistant-message"
 import {
   ChatComposer,
@@ -142,6 +145,15 @@ export function ChatPage() {
     newIncognitoChat,
   } = usePicoChat()
   const isIncognito = isIncognitoSession(activeSessionId)
+
+  const agentsQuery = useQuery({
+    queryKey: ["sidebar-agents"],
+    queryFn: getAgents,
+  })
+  const chatAgent =
+    agentsQuery.data?.agents.find((agent) => agent.default) ??
+    agentsQuery.data?.agents[0]
+  const chatAgentName = chatAgent?.name?.trim() || (chatAgent ? chatAgent.id : "Pico")
 
   const pendingSessionId = useAtomValue(pendingSessionAtom)
   const setPendingSessionId = useSetAtom(pendingSessionAtom)
@@ -327,6 +339,16 @@ export function ChatPage() {
     <div className="bg-background/95 flex h-full flex-col">
       <PageHeader
         title={t("navigation.chat")}
+        leading={
+          <AgentAvatar
+            agentId={chatAgent?.id ?? "main"}
+            avatar={chatAgent?.avatar}
+            name={chatAgentName}
+            fallback={chatAgent ? undefined : "🦞"}
+            size="md"
+            className="border-border/50 border"
+          />
+        }
         className={`transition-shadow ${
           hasScrolled ? "shadow-xs" : "shadow-none"
         }`}

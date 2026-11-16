@@ -1,10 +1,19 @@
-import { useQuery } from "@tanstack/react-query"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useEffect, useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
+import { toast } from "sonner"
 
-import type { AgentConfig, AgentDefaults, AgentView } from "@/api/agents"
+import {
+  deleteAgentAvatar,
+  uploadAgentAvatar,
+  type AgentAvatar as AgentAvatarData,
+  type AgentConfig,
+  type AgentDefaults,
+  type AgentView,
+} from "@/api/agents"
 import { getModels } from "@/api/models"
 import { getSkills } from "@/api/skills"
+import { AgentAvatar } from "@/components/agent-avatar"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -47,9 +56,11 @@ export function AgentEditDialog({
   onSave,
 }: AgentEditDialogProps) {
   const { t } = useTranslation()
+  const queryClient = useQueryClient()
   const [form, setForm] = useState<AgentConfig>(initial)
   const [skillFilter, setSkillFilter] = useState("")
   const [skillDefaultsApplied, setSkillDefaultsApplied] = useState(false)
+  const [avatarBusy, setAvatarBusy] = useState(false)
 
   useEffect(() => {
     if (open) {
@@ -111,6 +122,42 @@ export function AgentEditDialog({
         .filter((skill) => skill.name === lockedSkill)
         .map((skill) => skill.name),
     })
+  }
+
+  const refreshAgentQueries = () => {
+    void queryClient.invalidateQueries({ queryKey: ["agents"] })
+    void queryClient.invalidateQueries({ queryKey: ["sidebar-agents"] })
+  }
+
+  const handleAvatarFile = async (file: File) => {
+    if (mode !== "edit" || !form.id.trim()) return
+    setAvatarBusy(true)
+    try {
+      const result = await uploadAgentAvatar(form.id.trim(), file)
+      update({ avatar: { ...form.avatar, ...result.avatar } })
+      refreshAgentQueries()
+      toast.success(t("agents.avatarUploaded"))
+    } catch {
+      toast.error(t("agents.avatarUploadFailed"))
+    } finally {
+      setAvatarBusy(false)
+    }
+  }
+
+  const handleAvatarRemove = async () => {
+    if (mode !== "edit" || !form.id.trim()) return
+    setAvatarBusy(true)
+    try {
+      await deleteAgentAvatar(form.id.trim())
+      const nextAvatar: AgentAvatarData = { emoji: form.avatar?.emoji }
+      update({ avatar: nextAvatar })
+      refreshAgentQueries()
+      toast.success(t("agents.avatarRemoved"))
+    } catch {
+      toast.error(t("agents.avatarRemoveFailed"))
+    } finally {
+      setAvatarBusy(false)
+    }
   }
   const toggleAllowAgent = (id: string, checked: boolean) => {
     const next = checked
@@ -189,6 +236,75 @@ export function AgentEditDialog({
                 maxLength={120}
                 disabled={isSaving}
               />
+            </div>
+
+            <div className="grid gap-2">
+              <Label htmlFor="agent-avatar-emoji">{t("agents.avatarEmoji")}</Label>
+              <div className="flex items-center gap-2">
+                <AgentAvatar
+                  agentId={mode === "edit" ? form.id.trim() : undefined}
+                  avatar={form.avatar}
+                  name={form.name || form.id}
+                  size="md"
+                />
+                <Input
+                  id="agent-avatar-emoji"
+                  name="agent_avatar_emoji"
+                  value={form.avatar?.emoji ?? ""}
+                  onChange={(event) =>
+                    update({
+                      avatar: { ...form.avatar, emoji: event.target.value },
+                    })
+                  }
+                  placeholder="🦉"
+                  maxLength={16}
+                  autoComplete="off"
+                  disabled={isSaving}
+                />
+              </div>
+              <p className="text-muted-foreground text-xs">
+                {t("agents.avatarEmojiHelp")}
+              </p>
+            </div>
+
+            <div className="grid gap-2">
+              <Label htmlFor="agent-avatar-image">{t("agents.avatarImage")}</Label>
+              {mode === "edit" ? (
+                <>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <input
+                      id="agent-avatar-image"
+                      type="file"
+                      accept="image/png,image/jpeg,image/webp"
+                      className="text-muted-foreground file:border-border file:bg-background hover:file:bg-accent max-w-full text-xs file:mr-2 file:rounded-md file:border file:px-2 file:py-1 file:text-xs"
+                      onChange={(event) => {
+                        const file = event.target.files?.[0]
+                        event.target.value = ""
+                        if (file) void handleAvatarFile(file)
+                      }}
+                      disabled={isSaving || avatarBusy}
+                    />
+                    {form.avatar?.image && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => void handleAvatarRemove()}
+                        disabled={isSaving || avatarBusy}
+                      >
+                        {t("agents.avatarRemove")}
+                      </Button>
+                    )}
+                  </div>
+                  <p className="text-muted-foreground text-xs">
+                    {t("agents.avatarImageHelp")}
+                  </p>
+                </>
+              ) : (
+                <p className="text-muted-foreground text-xs">
+                  {t("agents.avatarImageAfterSave")}
+                </p>
+              )}
             </div>
 
             <label className="flex items-center justify-between gap-3 rounded-xl border p-3">

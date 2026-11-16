@@ -22,8 +22,9 @@ import { useAtomValue, useSetAtom } from "jotai"
 import * as React from "react"
 import { useTranslation } from "react-i18next"
 
-import { getAgents } from "@/api/agents"
+import { getAgents, type AgentAvatar as AgentAvatarData } from "@/api/agents"
 import { getSessions } from "@/api/sessions"
+import { AgentAvatar } from "@/components/agent-avatar"
 import {
   Sidebar,
   SidebarContent,
@@ -149,6 +150,7 @@ interface AgentChatGroup {
   id: string
   label: string
   isDefault: boolean
+  avatar?: AgentAvatarData | null
 }
 
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
@@ -192,6 +194,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         agent.name?.trim() ||
         (agent.id === "main" ? "Pico" : agent.id),
       isDefault: agent.default === true,
+      avatar: agent.avatar,
     }))
   }, [agentsQuery.data])
 
@@ -339,7 +342,13 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                               ) : (
                                 <IconChevronRight className="size-3.5 shrink-0 opacity-60" />
                               )}
-                              <IconUsers className="size-4 shrink-0 opacity-70" />
+                              <AgentAvatar
+                                agentId={agent.id}
+                                avatar={agent.avatar}
+                                name={agent.label}
+                                fallback={agent.id === "main" ? "🦞" : undefined}
+                                size="sm"
+                              />
                               <span className="truncate">{agent.label}</span>
                             </SidebarMenuButton>
                           </SidebarMenuItem>

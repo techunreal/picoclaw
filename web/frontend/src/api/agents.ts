@@ -11,6 +11,12 @@ export interface AgentSubagentsConfig {
   model?: AgentModelConfig
 }
 
+export interface AgentAvatar {
+  emoji?: string
+  image?: string
+  version?: number
+}
+
 export interface AgentConfig {
   id: string
   name?: string
@@ -19,6 +25,7 @@ export interface AgentConfig {
   model?: AgentModelConfig
   skills?: string[]
   subagents?: AgentSubagentsConfig
+  avatar?: AgentAvatar
 }
 
 export interface AgentView extends AgentConfig {
@@ -129,5 +136,30 @@ export function toAgentConfig(agent: AgentView): AgentConfig {
     model: agent.model,
     skills: agent.skills,
     subagents: agent.subagents,
+    avatar: agent.avatar,
   }
+}
+
+export function agentAvatarUrl(agentId: string, version?: number): string {
+  const base = `/api/agents/${encodeURIComponent(agentId)}/avatar`
+  return version ? `${base}?v=${version}` : base
+}
+
+export function uploadAgentAvatar(
+  agentId: string,
+  file: File,
+): Promise<{ status: string; avatar: AgentAvatar }> {
+  const body = new FormData()
+  body.append("file", file)
+  return request<{ status: string; avatar: AgentAvatar }>(
+    `/api/agents/${encodeURIComponent(agentId)}/avatar`,
+    { method: "POST", body },
+  )
+}
+
+export function deleteAgentAvatar(agentId: string): Promise<{ status: string }> {
+  return request<{ status: string }>(
+    `/api/agents/${encodeURIComponent(agentId)}/avatar`,
+    { method: "DELETE" },
+  )
 }
