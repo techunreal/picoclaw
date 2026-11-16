@@ -208,6 +208,7 @@ func TestShellTool_MissingCommand(t *testing.T) {
 
 // TestShellTool_StderrCapture verifies stderr is captured and included
 func TestShellTool_StderrCapture(t *testing.T) {
+	skipOnWindows(t)
 	tool, err := NewExecTool("", false)
 	if err != nil {
 		t.Errorf("unable to configure exec tool: %s", err)
@@ -641,6 +642,7 @@ func TestShellTool_SafePathsInWorkspaceRestriction(t *testing.T) {
 
 // TestShellTool_ExitCodeDetails verifies that exit codes are captured with details
 func TestShellTool_ExitCodeDetails(t *testing.T) {
+	skipOnWindows(t)
 	tool, err := NewExecTool("", false)
 	if err != nil {
 		t.Fatalf("unable to configure exec tool: %s", err)

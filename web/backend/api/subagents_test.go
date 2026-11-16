@@ -8,6 +8,7 @@ import (
 )
 
 func TestSubagentsProxy_UnavailableWithoutGateway(t *testing.T) {
+	resetGatewayProxyState(t)
 	mux := http.NewServeMux()
 	NewHandler(setupChatAttachmentTestEnv(t)).registerSubagentRoutes(mux)
 

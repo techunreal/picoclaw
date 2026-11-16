@@ -458,7 +458,7 @@ func (t *ExecTool) runSync(ctx context.Context, command, cwd string) *ToolResult
 
 	output := stdout.String()
 	if stderr.Len() > 0 {
-		output += "\nSTDERR:\n" + stderr.String()
+		output += "\nSTDERR:\n" + redactCommand(stderr.String(), command)
 	}
 
 	if err != nil {
@@ -512,6 +512,21 @@ func (t *ExecTool) runSync(ctx context.Context, command, cwd string) *ToolResult
 		ForUser: output,
 		IsError: false,
 	}
+}
+
+// redactCommand removes the executed command from tool output before it is
+// returned or logged. Shells echo the failing command in their error text, and
+// tool argument values must not end up in launcher logs.
+func redactCommand(text, command string) string {
+	trimmed := strings.TrimSpace(command)
+	if trimmed == "" {
+		return text
+	}
+	text = strings.ReplaceAll(text, command, "[command]")
+	if trimmed != command {
+		text = strings.ReplaceAll(text, trimmed, "[command]")
+	}
+	return text
 }
 
 func (t *ExecTool) runBackground(ctx context.Context, command, cwd string, ptyEnabled bool) *ToolResult {

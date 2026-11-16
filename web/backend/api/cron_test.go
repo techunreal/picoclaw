@@ -8,6 +8,7 @@ import (
 )
 
 func TestCronProxy_UnavailableWithoutGateway(t *testing.T) {
+	resetGatewayProxyState(t)
 	mux := http.NewServeMux()
 	NewHandler(setupChatAttachmentTestEnv(t)).registerCronRoutes(mux)
 
