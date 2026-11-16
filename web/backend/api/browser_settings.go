@@ -1,14 +1,17 @@
 package api
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/sipeed/picoclaw/pkg/browser"
 	"github.com/sipeed/picoclaw/pkg/config"
+	ppid "github.com/sipeed/picoclaw/pkg/pid"
 )
 
 type browserToolStatus struct {
@@ -31,6 +34,7 @@ type browserToolConfigResponse struct {
 	MaxOutput        int               `json:"max_output"`
 	TimeoutSeconds   int               `json:"timeout_seconds"`
 	AllowRemote      bool              `json:"allow_remote"`
+	RestartRequired  bool              `json:"restart_required"`
 	Status           browserToolStatus `json:"status"`
 }
 
@@ -154,7 +158,65 @@ func (h *Handler) handleUpdateBrowserConfig(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	writeBrowserSettingsJSON(w, http.StatusOK, buildBrowserConfigResponse(cfg, false))
+	restartRequired := false
+	if h.gatewayAvailableForProxy() {
+		// The browser tool and allowlist proxy are created at gateway startup and
+		// a runtime push did not reliably replace the permission policy, so apply
+		// the new restrictions by restarting the gateway now.
+		if _, err := h.RestartGateway(); err != nil {
+			restartRequired = true
+		}
+	}
+
+	response := buildBrowserConfigResponse(cfg, false)
+	response.RestartRequired = restartRequired
+	writeBrowserSettingsJSON(w, http.StatusOK, response)
+}
+
+// applyBrowserRuntimeSettings pushes allowlist and permission changes into the
+// running gateway so browser restrictions apply without a restart.
+func (h *Handler) applyBrowserRuntimeSettings(cfg *config.Config) error {
+	if !h.gatewayAvailableForProxy() {
+		return fmt.Errorf("gateway unavailable")
+	}
+	pidData := ppid.ReadPidFileWithCheck(globalConfigDir())
+	if pidData == nil || strings.TrimSpace(pidData.Token) == "" {
+		return fmt.Errorf("gateway token unavailable")
+	}
+	target := h.gatewayProxyURL()
+	if target == nil {
+		return fmt.Errorf("gateway URL unavailable")
+	}
+
+	settings := cfg.Tools.Browser
+	payload, err := json.Marshal(map[string]any{
+		"allowed_domains":   settings.AllowedDomains,
+		"allow_all_domains": settings.IsAllowAllDomains(),
+		"permission_policy": settings.UnknownDomainPolicy(),
+		"allow_remote":      settings.AllowRemote,
+	})
+	if err != nil {
+		return err
+	}
+
+	endpoint := strings.TrimRight(target.String(), "/") + "/browser/settings"
+	request, err := http.NewRequest(http.MethodPut, endpoint, bytes.NewReader(payload))
+	if err != nil {
+		return err
+	}
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Authorization", "Bearer "+pidData.Token)
+
+	client := &http.Client{Timeout: 3 * time.Second}
+	response, err := client.Do(request)
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return fmt.Errorf("gateway status %d", response.StatusCode)
+	}
+	return nil
 }
 
 func (h *Handler) handleInstallBrowserEngine(w http.ResponseWriter, r *http.Request) {

@@ -64,6 +64,7 @@ export interface BrowserToolConfig {
   max_output: number
   timeout_seconds: number
   allow_remote: boolean
+  restart_required?: boolean
   status: BrowserToolStatus
 }
 

@@ -127,7 +127,13 @@ func (t *BrowserTool) Parameters() map[string]any {
 
 func (t *BrowserTool) Execute(ctx context.Context, args map[string]any) *ToolResult {
 	channel := ToolChannel(ctx)
-	if !t.allowRemote && channel != "" && !constants.IsLocalCommandChannel(channel) {
+	allowRemote := t.allowRemote
+	policy := t.unknownPolicy
+	if runtimePolicy, runtimeAllowRemote, ok := browser.RuntimeSettings(); ok {
+		allowRemote = runtimeAllowRemote
+		policy = runtimePolicy
+	}
+	if !allowRemote && channel != "" && !constants.IsLocalCommandChannel(channel) {
 		return ErrorResult("browser is not allowed from remote channels; enable tools.browser.allow_remote explicitly")
 	}
 
@@ -145,7 +151,7 @@ func (t *BrowserTool) Execute(ctx context.Context, args map[string]any) *ToolRes
 			return ErrorResult(err.Error())
 		}
 		if !t.client.IsDomainAllowed(host) {
-			switch t.unknownPolicy {
+			switch policy {
 			case "allow":
 				// The client normally allows everything already; keep this for
 				// configs whose policy changed without a restart.

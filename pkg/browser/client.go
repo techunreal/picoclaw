@@ -190,6 +190,12 @@ func (c *Client) NavigationHost(raw string) (string, error) {
 
 // IsDomainAllowed reports whether the host is on the allowlist or was approved.
 func (c *Client) IsDomainAllowed(host string) bool {
+	if domains, allowAll, ok := runtimeDomainOverride(); ok {
+		if allowAll || HostAllowed(host, domains) {
+			return true
+		}
+		return DefaultApprovals().IsAlwaysAllowed(host)
+	}
 	if c.allowAll || HostAllowed(host, c.domains) {
 		return true
 	}

@@ -521,6 +521,7 @@ func setupAndStartServices(
 	registerSubagentsAPI(runningServices.ChannelManager, agentLoop, authToken)
 	registerUsageAPI(runningServices.ChannelManager, agentLoop, authToken, cfg)
 	registerMemoryAPI(runningServices.ChannelManager, authToken)
+	registerBrowserSettingsAPI(runningServices.ChannelManager, authToken)
 
 	if err = runningServices.ChannelManager.StartAll(context.Background()); err != nil {
 		return nil, fmt.Errorf("error starting channels: %w", err)
@@ -741,6 +742,7 @@ func restartServices(
 	registerSubagentsAPI(runningServices.ChannelManager, al, runningServices.authToken)
 	registerUsageAPI(runningServices.ChannelManager, al, runningServices.authToken, cfg)
 	registerMemoryAPI(runningServices.ChannelManager, runningServices.authToken)
+	registerBrowserSettingsAPI(runningServices.ChannelManager, runningServices.authToken)
 	fmt.Println("  ✓ Channels restarted.")
 
 	enabledChannels := runningServices.ChannelManager.GetEnabledChannels()

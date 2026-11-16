@@ -103,6 +103,16 @@ export function BrowserTab() {
       queryClient.setQueryData(queryKey, updated)
       setDraft(updated)
       const gateway = await refreshGatewayState({ force: true })
+      if (updated.restart_required) {
+        toast.warning(
+          t(
+            "pages.agent.tools.browser.restart_required",
+            "Saved. Restart the gateway to apply browser restrictions.",
+          ),
+        )
+        void queryClient.invalidateQueries({ queryKey: ["tools"] })
+        return
+      }
       showSaveSuccessOrRestartToast(
         t,
         t("pages.agent.tools.browser.save_success", "Browser settings saved"),
