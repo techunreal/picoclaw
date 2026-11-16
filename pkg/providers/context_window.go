@@ -22,48 +22,71 @@ var contextWindowCache sync.Map
 
 // FindModelConfigForContext resolves a model alias or raw model id to a model
 // entry that carries an API base, so context-window detection can query the
-// right endpoint. It falls back to scanning the model list by alias or model id.
+// right endpoint. Entries without an explicit api_base inherit their provider's
+// default endpoint instead of borrowing another provider's template.
 func FindModelConfigForContext(cfg *config.Config, name string) *config.ModelConfig {
 	if cfg == nil {
 		return nil
 	}
 
 	target := strings.ToLower(strings.TrimSpace(name))
-	if target != "" {
-		var fallback *config.ModelConfig
-		for _, item := range cfg.ModelList {
-			if item == nil {
-				continue
-			}
-			alias := strings.ToLower(strings.TrimSpace(item.ModelName))
-			modelID := strings.ToLower(strings.TrimSpace(item.Model))
-			if alias != target && modelID != target {
-				continue
-			}
-			if strings.TrimSpace(item.APIBase) == "" {
-				continue
-			}
-			if alias == target {
-				return item
-			}
-			if fallback == nil {
-				fallback = item
-			}
+	if target == "" {
+		return nil
+	}
+
+	var aliasMatch, modelMatch *config.ModelConfig
+	for _, item := range cfg.ModelList {
+		if item == nil || item.Disabled {
+			continue
 		}
-		if fallback != nil {
-			return fallback
+		if aliasMatch == nil && strings.ToLower(strings.TrimSpace(item.ModelName)) == target {
+			aliasMatch = item
+		}
+		if modelMatch == nil && strings.ToLower(strings.TrimSpace(item.Model)) == target {
+			modelMatch = item
+		}
+	}
+	for _, candidate := range []*config.ModelConfig{aliasMatch, modelMatch} {
+		if candidate == nil {
+			continue
+		}
+		if resolved := modelConfigWithAPIBase(candidate); resolved != nil {
+			return resolved
 		}
 	}
 
-	if resolved, err := ResolveModelConfig(cfg, name); err == nil && strings.TrimSpace(resolved.APIBase) != "" {
-		return resolved
+	// Fall back to the resolver for explicit "provider/model" references. A
+	// bare model id with no configured default provider must not fall back to
+	// the OpenAI template: that would probe the wrong endpoint.
+	if !strings.Contains(name, "/") && strings.TrimSpace(cfg.Agents.Defaults.Provider) == "" {
+		return nil
 	}
-	return nil
+	resolved, err := ResolveModelConfig(cfg, name)
+	if err != nil {
+		return nil
+	}
+	return modelConfigWithAPIBase(resolved)
 }
 
-// SupportsContextWindowDetection limits automatic probing to self-hosted and
-// custom OpenAI-compatible providers. Cloud providers keep their documented
-// context windows and should not receive extra /models requests at startup.
+// modelConfigWithAPIBase returns a copy of the model config with a usable API
+// base, deriving it from the provider metadata when the entry omits it.
+func modelConfigWithAPIBase(model *config.ModelConfig) *config.ModelConfig {
+	if model == nil {
+		return nil
+	}
+	clone := *model
+	if strings.TrimSpace(clone.APIBase) == "" {
+		clone.APIBase = ResolveAPIBase(&clone)
+	}
+	if strings.TrimSpace(clone.APIBase) == "" {
+		return nil
+	}
+	return &clone
+}
+
+// SupportsContextWindowDetection limits automatic probing to endpoints that
+// advertise context limits in their /models response. Self-hosted servers use
+// a variety of field names; OpenCode Go/Zen use limit.context.
 func SupportsContextWindowDetection(m *config.ModelConfig) bool {
 	if m == nil {
 		return false
@@ -73,7 +96,8 @@ func SupportsContextWindowDetection(m *config.ModelConfig) bool {
 		protocol = strings.ToLower(strings.TrimSpace(prefix))
 	}
 	switch protocol {
-	case "openai-compatible", "vllm", "lmstudio", "ollama", "llamacpp", "llama.cpp", "custom", "":
+	case "openai-compatible", "vllm", "lmstudio", "ollama", "llamacpp", "llama.cpp", "custom", "",
+		"opencode-go", "opencode-zen":
 		return true
 	default:
 		return false
@@ -143,7 +167,12 @@ func probeContextWindow(base, modelID, apiKey string) int {
 			ContextWindow    int    `json:"context_window"`
 			MaxModelLen      int    `json:"max_model_len"`
 			MaxContextLength int    `json:"max_context_length"`
-			Meta             struct {
+			Limit            struct {
+				Context int `json:"context"`
+				Input   int `json:"input"`
+				Output  int `json:"output"`
+			} `json:"limit"`
+			Meta struct {
 				Nctx int `json:"n_ctx"`
 			} `json:"meta"`
 		} `json:"data"`
@@ -155,6 +184,7 @@ func probeContextWindow(base, modelID, apiKey string) int {
 	best := 0
 	for _, item := range payload.Data {
 		value := firstPositive(
+			item.Limit.Context,
 			item.ContextLength,
 			item.ContextWindow,
 			item.MaxModelLen,
