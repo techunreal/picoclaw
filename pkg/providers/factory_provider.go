@@ -7,6 +7,8 @@ package providers
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"strings"
 	"time"
@@ -131,7 +133,7 @@ func CreateProviderFromConfig(cfg *config.ModelConfig) (LLMProvider, string, err
 			userAgent,
 			cfg.RequestTimeout,
 			cfg.ExtraBody,
-			cfg.CustomHeaders,
+			customHeadersForProtocol(protocol, cfg.CustomHeaders),
 		)
 		provider.SetProviderName(protocol)
 		return finalizeProviderFromConfig(provider, modelID, cfg)
@@ -221,7 +223,7 @@ func CreateProviderFromConfig(cfg *config.ModelConfig) (LLMProvider, string, err
 			userAgent,
 			cfg.RequestTimeout,
 			cfg.ExtraBody,
-			cfg.CustomHeaders,
+			customHeadersForProtocol(protocol, cfg.CustomHeaders),
 		)
 		provider.SetProviderName(protocol)
 		return finalizeProviderFromConfig(provider, modelID, cfg)
@@ -241,7 +243,7 @@ func CreateProviderFromConfig(cfg *config.ModelConfig) (LLMProvider, string, err
 			userAgent,
 			cfg.RequestTimeout,
 			cfg.ExtraBody,
-			cfg.CustomHeaders,
+			customHeadersForProtocol(protocol, cfg.CustomHeaders),
 		), modelID, cfg)
 
 	case "minimax":
@@ -268,7 +270,7 @@ func CreateProviderFromConfig(cfg *config.ModelConfig) (LLMProvider, string, err
 			userAgent,
 			cfg.RequestTimeout,
 			extraBody,
-			cfg.CustomHeaders,
+			customHeadersForProtocol(protocol, cfg.CustomHeaders),
 		)
 		provider.SetProviderName(protocol)
 		return finalizeProviderFromConfig(provider, modelID, cfg)
@@ -295,7 +297,7 @@ func CreateProviderFromConfig(cfg *config.ModelConfig) (LLMProvider, string, err
 			userAgent,
 			cfg.RequestTimeout,
 			cfg.ExtraBody,
-			cfg.CustomHeaders,
+			customHeadersForProtocol(protocol, cfg.CustomHeaders),
 		)
 		provider.SetProviderName(protocol)
 		return finalizeProviderFromConfig(provider, modelID, cfg)
@@ -376,7 +378,7 @@ func CreateProviderFromConfig(cfg *config.ModelConfig) (LLMProvider, string, err
 			userAgent,
 			cfg.RequestTimeout,
 			cfg.ExtraBody,
-			cfg.CustomHeaders,
+			customHeadersForProtocol(protocol, cfg.CustomHeaders),
 		)
 		provider.SetProviderName(protocol)
 		return finalizeProviderFromConfig(provider, modelID, cfg)
@@ -396,7 +398,7 @@ func CreateProviderFromConfig(cfg *config.ModelConfig) (LLMProvider, string, err
 			userAgent,
 			cfg.RequestTimeout,
 			cfg.ExtraBody,
-			cfg.CustomHeaders,
+			customHeadersForProtocol(protocol, cfg.CustomHeaders),
 		)
 		provider.SetProviderName(protocol)
 		return finalizeProviderFromConfig(provider, modelID, cfg)
@@ -451,4 +453,33 @@ func getDefaultAPIBase(protocol string) string {
 		return ""
 	}
 	return option.DefaultAPIBase
+}
+
+// customHeadersForProtocol returns per-provider HTTP headers. OpenCode Go/Zen
+// requires an x-opencode-session header for chat routing; PicoClaw does not
+// have a per-conversation value at this layer, so it uses a stable per-provider
+// session id for the lifetime of the provider instance.
+func customHeadersForProtocol(protocol string, headers map[string]string) map[string]string {
+	if !strings.HasPrefix(strings.ToLower(strings.TrimSpace(protocol)), "opencode-") {
+		return headers
+	}
+	cloned := make(map[string]string, len(headers)+1)
+	for key, value := range headers {
+		cloned[key] = value
+	}
+	for key := range cloned {
+		if strings.EqualFold(key, "x-opencode-session") {
+			return cloned
+		}
+	}
+	cloned["x-opencode-session"] = openCodeSessionID()
+	return cloned
+}
+
+func openCodeSessionID() string {
+	var buffer [16]byte
+	if _, err := rand.Read(buffer[:]); err == nil {
+		return "picoclaw-" + hex.EncodeToString(buffer[:])
+	}
+	return fmt.Sprintf("picoclaw-%d", time.Now().UnixNano())
 }

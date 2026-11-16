@@ -1,6 +1,7 @@
 package providers
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/sipeed/picoclaw/pkg/config"
@@ -37,6 +38,26 @@ func TestOpenCodeProviderCatalog(t *testing.T) {
 	}
 	if !IsSupportedModelProvider("opencode-zen") || !IsHTTPAPIProtocol("opencode-zen") {
 		t.Fatal("opencode-zen should be a supported HTTP API provider")
+	}
+}
+
+func TestOpenCodeSessionHeader(t *testing.T) {
+	for _, protocol := range []string{"opencode-go", "opencode-zen"} {
+		headers := customHeadersForProtocol(protocol, nil)
+		if strings.TrimSpace(headers["x-opencode-session"]) == "" {
+			t.Fatalf("%s: x-opencode-session header missing", protocol)
+		}
+	}
+	custom := map[string]string{"X-OpenCode-Session": "mine"}
+	headers := customHeadersForProtocol("opencode-go", custom)
+	if headers["X-OpenCode-Session"] != "mine" {
+		t.Fatalf("existing header was overwritten: %#v", headers)
+	}
+	if _, exists := headers["x-opencode-session"]; exists {
+		t.Fatalf("duplicate header added: %#v", headers)
+	}
+	if customHeadersForProtocol("openai", nil) != nil {
+		t.Fatal("non-OpenCode providers should not receive extra headers")
 	}
 }
 
