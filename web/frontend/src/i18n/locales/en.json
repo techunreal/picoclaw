@@ -212,7 +212,7 @@
     "editTitle": "Edit agent",
     "editDescription": "Changes are saved to config.json and require a gateway restart.",
     "id": "Agent ID",
-    "idHelp": "Lowercase letters, digits, dashes and underscores. The ID cannot be changed later.",
+    "idHelp": "Required. Lowercase letters, digits, dashes and underscores. The workspace is filled from the ID. The ID cannot be changed later.",
     "name": "Display name",
     "namePlaceholder": "Optional name",
     "avatarEmoji": "Avatar emoji",

@@ -73,6 +73,15 @@ export function AgentEditDialog({
   } | null>(null)
 
   useEffect(() => {
+    if (mode !== "create") return
+    if (form.id.trim() !== "") return
+    if (!form.workspace) return
+    setForm((current) =>
+      current.workspace ? { ...current, workspace: "" } : current,
+    )
+  }, [mode, form.id, form.workspace])
+
+  useEffect(() => {
     if (open) {
       setForm(initial)
       setSkillDefaultsApplied(false)

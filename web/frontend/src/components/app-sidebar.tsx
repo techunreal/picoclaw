@@ -215,7 +215,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   )
 
   const isExpanded = (agent: AgentChatGroup) =>
-    expandedAgents[agent.id] ?? agent.isDefault
+    expandedAgents[agent.id] ?? (agent.id === "main" || agent.isDefault)
 
   return (
     <Sidebar

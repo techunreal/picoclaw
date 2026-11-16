@@ -47,7 +47,7 @@ export function AgentWorkspaceField({
           id={inputId}
           value={value ?? ""}
           onChange={(event) => onChange(event.target.value)}
-          placeholder={defaultsWorkspace}
+          placeholder={agentId.trim() ? defaultsWorkspace : "agents/<id>"}
           autoComplete="off"
           spellCheck={false}
           disabled={disabled}
@@ -57,7 +57,7 @@ export function AgentWorkspaceField({
       <p id={helpId} className="text-muted-foreground text-xs">
         {t("agents.workspaceHelp")}
       </p>
-      {!value?.trim() && (
+      {!value?.trim() && agentId.trim() && (
         <p className="text-muted-foreground text-xs">
           {t("agents.workspaceEffective", { path: effective || defaultsWorkspace })}
         </p>
