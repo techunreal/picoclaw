@@ -19,7 +19,10 @@
     "config": "Config",
     "logs": "Logs",
     "cron": "Scheduled Tasks",
-    "backup": "Backup & Restore"
+    "backup": "Backup & Restore",
+    "settings": "Settings",
+    "general": "General",
+    "back_to_app": "Back to app"
   },
   "launcherLogin": {
     "title": "Sign in",
@@ -653,6 +656,9 @@
   },
   "channels": {
     "loadError": "Failed to load channels",
+    "overview_description": "Enable a channel and open it to configure credentials. The dot shows whether the channel is enabled in config.",
+    "overview_enabled": "Enabled",
+    "overview_disabled": "Disabled",
     "name": {
       "telegram": "Telegram",
       "discord": "Discord",
@@ -1453,9 +1459,21 @@
       "title": "Welcome to PicoClaw",
       "description": "PicoClaw is a powerful AI assistant platform. Let's take a few seconds to help you complete the basic setup."
     },
-    "models": {
-      "title": "Configure Models",
-      "description": "Click the \"Models\" menu on the left to configure API keys for AI providers. Only configured models can be used for chat."
+    "chat": {
+      "title": "Chat",
+      "description": "Start here. Pick a model, attach files, and switch memory or incognito mode from the chat header."
+    },
+    "agents": {
+      "title": "Agents & workspace",
+      "description": "Agent opens memory and personality files, installed skills, tools, and subagent runs."
+    },
+    "settings": {
+      "title": "Settings",
+      "description": "The gear at the bottom opens settings: models, credentials, agents, channels, tools, scheduled tasks, backups, and logs."
+    },
+    "composer": {
+      "title": "Message box",
+      "description": "Attach files with the paperclip, press Enter to send, and check the context ring on the right before long conversations."
     },
     "gateway": {
       "title": "Start Gateway",

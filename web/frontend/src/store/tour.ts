@@ -3,22 +3,22 @@ import { atomWithStorage } from "jotai/utils"
 
 export type TourStep =
   | "welcome"
-  | "models"
+  | "chat"
+  | "agents"
+  | "settings"
   | "gateway"
-  | "agentTools"
-  | "services"
-  | "usage"
+  | "composer"
   | "docs"
   | "completed"
 
 // TOUR_STEP_ORDER drives next/previous navigation and the progress counter.
 export const TOUR_STEP_ORDER: TourStep[] = [
   "welcome",
-  "models",
+  "chat",
+  "agents",
+  "settings",
   "gateway",
-  "agentTools",
-  "services",
-  "usage",
+  "composer",
   "docs",
   "completed",
 ]

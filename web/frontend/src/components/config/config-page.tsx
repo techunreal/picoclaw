@@ -710,7 +710,7 @@ export function ConfigPage() {
       showSaveSuccessOrRestartToast(
         t,
         t("pages.config.save_success"),
-        t("navigation.config"),
+        t("navigation.general"),
         gateway?.restartRequired === true,
       )
     } catch (err) {
@@ -771,7 +771,7 @@ export function ConfigPage() {
   return (
     <div className="flex h-full flex-col">
       <PageHeader
-        title={t("navigation.config")}
+        title={t("navigation.general")}
         titleExtra={
           versionInfo && (
             <Badge

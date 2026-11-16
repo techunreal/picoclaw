@@ -21,6 +21,7 @@ import { Route as BackupRouteImport } from './routes/backup'
 import { Route as AgentRouteImport } from './routes/agent'
 import { Route as ChannelsRouteRouteImport } from './routes/channels/route'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as ChannelsIndexRouteImport } from './routes/channels/index'
 import { Route as ConfigRawRouteImport } from './routes/config.raw'
 import { Route as ChannelsNameRouteImport } from './routes/channels/$name'
 import { Route as AgentToolsRouteImport } from './routes/agent/tools'
@@ -90,6 +91,11 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ChannelsIndexRoute = ChannelsIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => ChannelsRouteRoute,
+} as any)
 const ConfigRawRoute = ConfigRawRouteImport.update({
   id: '/raw',
   path: '/raw',
@@ -152,10 +158,10 @@ export interface FileRoutesByFullPath {
   '/agent/tools': typeof AgentToolsRoute
   '/channels/$name': typeof ChannelsNameRoute
   '/config/raw': typeof ConfigRawRoute
+  '/channels/': typeof ChannelsIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/channels': typeof ChannelsRouteRouteWithChildren
   '/agent': typeof AgentRouteWithChildren
   '/backup': typeof BackupRoute
   '/config': typeof ConfigRouteWithChildren
@@ -174,6 +180,7 @@ export interface FileRoutesByTo {
   '/agent/tools': typeof AgentToolsRoute
   '/channels/$name': typeof ChannelsNameRoute
   '/config/raw': typeof ConfigRawRoute
+  '/channels': typeof ChannelsIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -197,6 +204,7 @@ export interface FileRoutesById {
   '/agent/tools': typeof AgentToolsRoute
   '/channels/$name': typeof ChannelsNameRoute
   '/config/raw': typeof ConfigRawRoute
+  '/channels/': typeof ChannelsIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -221,10 +229,10 @@ export interface FileRouteTypes {
     | '/agent/tools'
     | '/channels/$name'
     | '/config/raw'
+    | '/channels/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
-    | '/channels'
     | '/agent'
     | '/backup'
     | '/config'
@@ -243,6 +251,7 @@ export interface FileRouteTypes {
     | '/agent/tools'
     | '/channels/$name'
     | '/config/raw'
+    | '/channels'
   id:
     | '__root__'
     | '/'
@@ -265,6 +274,7 @@ export interface FileRouteTypes {
     | '/agent/tools'
     | '/channels/$name'
     | '/config/raw'
+    | '/channels/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -368,6 +378,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/channels/': {
+      id: '/channels/'
+      path: '/'
+      fullPath: '/channels/'
+      preLoaderRoute: typeof ChannelsIndexRouteImport
+      parentRoute: typeof ChannelsRouteRoute
+    }
     '/config/raw': {
       id: '/config/raw'
       path: '/raw'
@@ -429,10 +446,12 @@ declare module '@tanstack/react-router' {
 
 interface ChannelsRouteRouteChildren {
   ChannelsNameRoute: typeof ChannelsNameRoute
+  ChannelsIndexRoute: typeof ChannelsIndexRoute
 }
 
 const ChannelsRouteRouteChildren: ChannelsRouteRouteChildren = {
   ChannelsNameRoute: ChannelsNameRoute,
+  ChannelsIndexRoute: ChannelsIndexRoute,
 }
 
 const ChannelsRouteRouteWithChildren = ChannelsRouteRoute._addFileChildren(

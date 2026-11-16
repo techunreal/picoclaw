@@ -59,10 +59,22 @@ export function TourGuide() {
       description: t("tour.welcome.description"),
       position: "bottom",
     },
-    models: {
-      title: t("tour.models.title"),
-      description: t("tour.models.description"),
-      targetSelector: "[data-tour='models-nav']",
+    chat: {
+      title: t("tour.chat.title"),
+      description: t("tour.chat.description"),
+      targetSelector: "[data-tour='chat-nav']",
+      position: "right",
+    },
+    agents: {
+      title: t("tour.agents.title"),
+      description: t("tour.agents.description"),
+      targetSelector: "[data-tour='agent-group']",
+      position: "right",
+    },
+    settings: {
+      title: t("tour.settings.title"),
+      description: t("tour.settings.description"),
+      targetSelector: "[data-tour='settings-gear']",
       position: "right",
     },
     gateway: {
@@ -72,23 +84,11 @@ export function TourGuide() {
       position: "left",
       offsetY: 60,
     },
-    agentTools: {
-      title: t("tour.agentTools.title"),
-      description: t("tour.agentTools.description"),
-      targetSelector: "[data-tour='agent-group']",
-      position: "right",
-    },
-    services: {
-      title: t("tour.services.title"),
-      description: t("tour.services.description"),
-      targetSelector: "[data-tour='services-group']",
-      position: "right",
-    },
-    usage: {
-      title: t("tour.usage.title"),
-      description: t("tour.usage.description"),
-      targetSelector: "[data-tour='usage-nav']",
-      position: "right",
+    composer: {
+      title: t("tour.composer.title"),
+      description: t("tour.composer.description"),
+      targetSelector: "[data-tour='composer']",
+      position: "top",
     },
     docs: {
       title: t("tour.docs.title"),

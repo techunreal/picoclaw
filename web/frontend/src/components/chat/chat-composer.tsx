@@ -91,11 +91,12 @@ export function ChatComposer({
   }
 
   return (
-    <div className="before:bg-background pointer-events-none relative z-10 -mt-[24px] shrink-0 [scrollbar-gutter:stable] overflow-y-auto px-4 pb-[calc(1rem+env(safe-area-inset-bottom))] before:pointer-events-none before:absolute before:inset-x-0 before:top-[24px] before:bottom-0 before:content-[''] md:px-8 md:pb-8 lg:px-24 xl:px-48">
+    <div className="pointer-events-none relative z-10 shrink-0 px-4 pb-[calc(0.75rem+env(safe-area-inset-bottom))] md:px-8 lg:px-24 xl:px-48">
       <div className="pointer-events-auto mx-auto flex max-w-[1000px] flex-col items-end">
         <div
+          data-tour="composer"
           className={cn(
-            "bg-card border-border/60 relative flex w-full flex-col rounded-2xl border p-3 shadow-sm transition-colors",
+            "bg-card border-border/60 relative flex w-full flex-col rounded-2xl border p-2 shadow-sm transition-colors",
             isDragActive && "border-violet-400/70 bg-violet-500/5",
           )}
           onDragEnter={onDragEnter}
@@ -172,14 +173,14 @@ export function ChatComposer({
             disabled={!canInput}
             title={disabledMessage || undefined}
             className={cn(
-              "placeholder:text-muted-foreground/50 max-h-[200px] min-h-[64px] resize-none border-0 bg-transparent px-2 py-1 text-[15px] shadow-none transition-colors focus-visible:ring-0 focus-visible:outline-none dark:bg-transparent",
+              "placeholder:text-muted-foreground/50 max-h-[200px] resize-none border-0 bg-transparent px-2 py-1.5 text-[15px] leading-6 shadow-none transition-colors focus-visible:ring-0 focus-visible:outline-none dark:bg-transparent",
               !canInput && "cursor-not-allowed",
             )}
             minRows={1}
             maxRows={8}
           />
 
-          <div className="mt-2 flex items-center justify-between px-1">
+          <div className="mt-1 flex items-center justify-between px-1">
             <div className="flex items-center gap-1">
               <Button
                 type="button"
@@ -220,17 +221,15 @@ export function ChatComposer({
           </div>
         </div>
 
-        <div
-          aria-hidden={!hasInput}
-          className={cn(
-            "border-border/50 bg-muted/55 text-muted-foreground mt-2 inline-flex items-center rounded-md border px-3 py-1 text-[11px] shadow-sm transition-all duration-200 dark:bg-muted/45",
-            hasInput
-              ? "translate-y-0 opacity-100"
-              : "pointer-events-none -translate-y-1 opacity-0",
-          )}
-        >
-          {t("chat.composeHint")}
-        </div>
+        {hasInput && (
+          <div
+            className={cn(
+              "border-border/50 bg-muted/55 text-muted-foreground mt-1.5 inline-flex items-center rounded-md border px-3 py-1 text-[11px] shadow-sm transition-all duration-200 dark:bg-muted/45",
+            )}
+          >
+            {t("chat.composeHint")}
+          </div>
+        )}
       </div>
     </div>
   )

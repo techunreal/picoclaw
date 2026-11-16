@@ -1,4 +1,5 @@
 import { IconArrowRight } from "@tabler/icons-react"
+import { Link } from "@tanstack/react-router"
 import { useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 
@@ -90,6 +91,7 @@ export function ContextUsageRing({
     >
       <button
         type="button"
+        data-tour="context-usage"
         onTouchStart={handleTouchStart}
         className="relative flex h-6 w-6 cursor-pointer items-center justify-center transition-opacity hover:opacity-70"
       >
@@ -179,6 +181,13 @@ export function ContextUsageRing({
             {t("chat.contextDetail")}
             <IconArrowRight className="h-3 w-3" />
           </button>
+          <Link
+            to="/usage"
+            onClick={() => setIntent(false)}
+            className="text-muted-foreground hover:text-foreground mt-1.5 block text-[11px] underline-offset-2 hover:underline"
+          >
+            {t("navigation.usage")}
+          </Link>
         </div>
       )}
     </div>
