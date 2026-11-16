@@ -27,16 +27,16 @@ export function agentErrorMessage(error: unknown, fallback: string): string {
 export function suggestAgentWorkspace(
   defaultsWorkspace: string,
   id: string,
-  isDefault: boolean,
 ): string {
   const base = defaultsWorkspace.replace(/[\\/]+$/, "")
-  if (!id || isDefault) {
+  const agentID = id.trim()
+  if (!agentID || agentID.toLowerCase() === "main") {
     return base
   }
   const separator = base.includes("\\") ? "\\" : "/"
   const parentIndex = Math.max(base.lastIndexOf("\\"), base.lastIndexOf("/"))
   const parent = parentIndex > 0 ? base.slice(0, parentIndex) : base
-  return `${parent}${separator}workspace-${id}`
+  return `${parent}${separator}agents${separator}${agentID}`
 }
 
 export function useAgentsPage() {

@@ -2,7 +2,9 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -100,18 +102,36 @@ func (h *Handler) handleUpdateAgents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	previousList := append([]config.AgentConfig(nil), cfg.Agents.List...)
+
 	cfg.Agents.List = normalized
 	cfg.Agents.Dispatch = req.Dispatch
 	if cfg.Agents.Dispatch != nil && len(cfg.Agents.Dispatch.Rules) == 0 {
 		cfg.Agents.Dispatch = nil
 	}
 
+	previousAgents := make(map[string]struct{}, len(previousList))
+	for _, agentCfg := range previousList {
+		previousAgents[routing.NormalizeAgentID(strings.TrimSpace(agentCfg.ID))] = struct{}{}
+	}
+
 	for _, agentCfg := range normalized {
-		if strings.TrimSpace(agentCfg.Workspace) == "" {
+		workspace, source := effectiveAgentWorkspace(cfg, agentCfg)
+		if strings.TrimSpace(workspace) == "" {
 			continue
 		}
-		if err := os.MkdirAll(agentCfg.Workspace, 0o755); err != nil {
+		if err := os.MkdirAll(workspace, 0o755); err != nil {
 			writeAgentsAPIError(w, http.StatusBadRequest, "workspace_create_failed", err.Error())
+			return
+		}
+		if source == "default" {
+			continue
+		}
+		if _, existed := previousAgents[routing.NormalizeAgentID(strings.TrimSpace(agentCfg.ID))]; existed {
+			continue
+		}
+		if err := seedAgentWorkspace(cfg, workspace); err != nil {
+			writeAgentsAPIError(w, http.StatusInternalServerError, "workspace_seed_failed", err.Error())
 			return
 		}
 	}
@@ -184,11 +204,109 @@ func effectiveAgentWorkspace(cfg *config.Config, agentCfg config.AgentConfig) (s
 		return expandHomePath(ws), "config"
 	}
 	id := routing.NormalizeAgentID(agentCfg.ID)
-	if agentCfg.Default || id == routing.DefaultAgentID {
+	// The default ("main") agent keeps the shared compatibility workspace.
+	// Every other agent gets its own isolated workspace under agents/<id>,
+	// regardless of the default flag.
+	if id == routing.DefaultAgentID {
 		return expandHomePath(cfg.Agents.Defaults.Workspace), "default"
 	}
+	return derivedAgentWorkspace(cfg, id), "derived"
+}
+
+// derivedAgentWorkspace returns ~/.picoclaw/agents/<id> for a named agent.
+// It is derived from the defaults workspace (<home>/workspace) so custom
+// homes keep working.
+func derivedAgentWorkspace(cfg *config.Config, id string) string {
 	base := expandHomePath(cfg.Agents.Defaults.Workspace)
-	return filepath.Clean(filepath.Join(base, "..", "workspace-"+id)), "derived"
+	return filepath.Clean(filepath.Join(base, "..", "agents", id))
+}
+
+// seedAgentWorkspace copies the standard skill set and the Office helper into a
+// newly created agent workspace. The default ("main") workspace is the source,
+// so a fresh agent starts with the same capabilities as main without sharing
+// files with it.
+func seedAgentWorkspace(cfg *config.Config, workspace string) error {
+	defaultsWorkspace := expandHomePath(cfg.Agents.Defaults.Workspace)
+	if defaultsWorkspace == "" || filepath.Clean(defaultsWorkspace) == filepath.Clean(workspace) {
+		return nil
+	}
+	if err := copyMissingDir(
+		filepath.Join(defaultsWorkspace, "skills"),
+		filepath.Join(workspace, "skills"),
+	); err != nil {
+		return err
+	}
+	return copyMissingFile(
+		filepath.Join(defaultsWorkspace, "tools", "office_cli.py"),
+		filepath.Join(workspace, "tools", "office_cli.py"),
+	)
+}
+
+func copyMissingDir(src, dst string) error {
+	if _, err := os.Stat(dst); err == nil {
+		return nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	srcInfo, err := os.Stat(src)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if !srcInfo.IsDir() {
+		return nil
+	}
+	return filepath.WalkDir(src, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		rel, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(dst, rel)
+		if entry.IsDir() {
+			return os.MkdirAll(target, 0o755)
+		}
+		if !entry.Type().IsRegular() {
+			return nil
+		}
+		return copyFileContents(path, target)
+	})
+}
+
+func copyMissingFile(src, dst string) error {
+	if _, err := os.Stat(dst); err == nil {
+		return nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	if info, err := os.Stat(src); err != nil || info.IsDir() {
+		return nil
+	}
+	return copyFileContents(src, dst)
+}
+
+func copyFileContents(src, dst string) error {
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		return err
+	}
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		_ = out.Close()
+		return err
+	}
+	return out.Close()
 }
 
 func effectiveAgentModel(cfg *config.Config, agentCfg config.AgentConfig) string {

@@ -205,7 +205,6 @@ export function AgentEditDialog({
                       workspace: suggestAgentWorkspace(
                         defaults.workspace,
                         form.id.trim(),
-                        Boolean(form.default),
                       ),
                     })
                   }
@@ -224,7 +223,6 @@ export function AgentEditDialog({
                       suggestAgentWorkspace(
                         defaults.workspace,
                         form.id.trim(),
-                        Boolean(form.default),
                       ) || defaults.workspace,
                   })}
                 </p>

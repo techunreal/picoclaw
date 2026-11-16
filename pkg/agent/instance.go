@@ -625,14 +625,15 @@ func resolveAgentWorkspace(agentCfg *config.AgentConfig, defaults *config.AgentD
 	if agentCfg != nil && strings.TrimSpace(agentCfg.Workspace) != "" {
 		return expandHome(strings.TrimSpace(agentCfg.Workspace))
 	}
-	// Use the configured default workspace (respects PICOCLAW_HOME)
-	if agentCfg == nil || agentCfg.Default || agentCfg.ID == "" ||
-		routing.NormalizeAgentID(agentCfg.ID) == "main" {
+	// Use the configured default workspace (respects PICOCLAW_HOME) for main.
+	if agentCfg == nil || agentCfg.ID == "" ||
+		routing.NormalizeAgentID(agentCfg.ID) == routing.DefaultAgentID {
 		return expandHome(defaults.Workspace)
 	}
-	// For named agents without explicit workspace, use default workspace with agent ID suffix
+	// Named agents get an isolated workspace under agents/<id>, even when they
+	// are marked as the default agent.
 	id := routing.NormalizeAgentID(agentCfg.ID)
-	return filepath.Join(expandHome(defaults.Workspace), "..", "workspace-"+id)
+	return filepath.Join(expandHome(defaults.Workspace), "..", "agents", id)
 }
 
 // resolveAgentModel resolves the primary model for an agent.

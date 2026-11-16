@@ -65,6 +65,115 @@ func TestListAgents_ImplicitMain(t *testing.T) {
 	}
 }
 
+func TestEffectiveAgentWorkspace(t *testing.T) {
+	root := t.TempDir()
+	defaultsWorkspace := filepath.Join(root, "workspace")
+	cfg := config.DefaultConfig()
+	cfg.Agents.Defaults.Workspace = defaultsWorkspace
+
+	tests := []struct {
+		name       string
+		agent      config.AgentConfig
+		want       string
+		wantSource string
+	}{
+		{
+			name:       "main keeps the shared workspace",
+			agent:      config.AgentConfig{ID: "main", Default: true},
+			want:       defaultsWorkspace,
+			wantSource: "default",
+		},
+		{
+			name:       "named agent gets agents directory",
+			agent:      config.AgentConfig{ID: "alpha"},
+			want:       filepath.Join(root, "agents", "alpha"),
+			wantSource: "derived",
+		},
+		{
+			name:       "default flag does not share the workspace",
+			agent:      config.AgentConfig{ID: "alpha", Default: true},
+			want:       filepath.Join(root, "agents", "alpha"),
+			wantSource: "derived",
+		},
+		{
+			name:       "explicit workspace wins",
+			agent:      config.AgentConfig{ID: "alpha", Workspace: filepath.Join(root, "custom")},
+			want:       filepath.Join(root, "custom"),
+			wantSource: "config",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, source := effectiveAgentWorkspace(cfg, tt.agent)
+			if got != tt.want {
+				t.Fatalf("workspace = %q, want %q", got, tt.want)
+			}
+			if source != tt.wantSource {
+				t.Fatalf("source = %q, want %q", source, tt.wantSource)
+			}
+		})
+	}
+}
+
+func TestUpdateAgents_SeedsNewAgentWorkspace(t *testing.T) {
+	configPath, cleanup := setupOAuthTestEnv(t)
+	defer cleanup()
+
+	root := t.TempDir()
+	defaultsWorkspace := filepath.Join(root, "workspace")
+	skillDir := filepath.Join(defaultsWorkspace, "skills", "demo-skill")
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(skillDir) error = %v", err)
+	}
+	skillContent := "---\nname: demo-skill\ndescription: demo\n---\n# demo\n"
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(skillContent), 0o644); err != nil {
+		t.Fatalf("WriteFile(SKILL.md) error = %v", err)
+	}
+	toolsDir := filepath.Join(defaultsWorkspace, "tools")
+	if err := os.MkdirAll(toolsDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(toolsDir) error = %v", err)
+	}
+	officePath := filepath.Join(toolsDir, "office_cli.py")
+	if err := os.WriteFile(officePath, []byte("# office helper\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(office_cli.py) error = %v", err)
+	}
+
+	cfg, err := config.LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+	cfg.Agents.Defaults.Workspace = defaultsWorkspace
+	if err := config.SaveConfig(configPath, cfg); err != nil {
+		t.Fatalf("SaveConfig() error = %v", err)
+	}
+
+	body, err := json.Marshal(agentsUpdateRequest{Agents: []config.AgentConfig{
+		{ID: "alpha", Default: true},
+	}})
+	if err != nil {
+		t.Fatalf("Marshal() error = %v", err)
+	}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPut, "/api/agents", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	agentsTestMux(t, configPath).ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("PUT status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+
+	agentWorkspace := filepath.Join(root, "agents", "alpha")
+	if _, err := os.Stat(filepath.Join(agentWorkspace, "skills", "demo-skill", "SKILL.md")); err != nil {
+		t.Fatalf("seeded skill missing: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(agentWorkspace, "tools", "office_cli.py")); err != nil {
+		t.Fatalf("seeded office helper missing: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(defaultsWorkspace, "skills", "demo-skill", "SKILL.md")); err != nil {
+		t.Fatalf("default workspace skill changed: %v", err)
+	}
+}
+
 func TestUpdateAgents_SavesValidConfig(t *testing.T) {
 	configPath, cleanup := setupOAuthTestEnv(t)
 	defer cleanup()
