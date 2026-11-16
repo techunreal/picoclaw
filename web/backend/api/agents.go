@@ -80,6 +80,7 @@ func (h *Handler) registerAgentRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/agents/{id}/avatar", h.handleGetAgentAvatar)
 	mux.HandleFunc("POST /api/agents/{id}/avatar", h.handleUploadAgentAvatar)
 	mux.HandleFunc("DELETE /api/agents/{id}/avatar", h.handleDeleteAgentAvatar)
+	h.registerAgentImportRoutes(mux)
 }
 
 func (h *Handler) handleListAgents(w http.ResponseWriter, r *http.Request) {

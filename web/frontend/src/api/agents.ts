@@ -69,6 +69,43 @@ export interface AgentsResponse {
   warnings?: string[]
 }
 
+export interface ProfileIdentity {
+  name?: string
+  emoji?: string
+  vibe?: string
+}
+
+export interface ProfileFilePreview {
+  source: string
+  target: string
+  size: number
+  preview: string
+}
+
+export interface ProfilePreview {
+  root: string
+  files: ProfileFilePreview[]
+  identity: ProfileIdentity
+  suggested_id: string
+  combined: boolean
+  ignored: string[]
+  ignored_count: number
+  notes?: string[]
+}
+
+export interface ProfileUpload {
+  files?: File[]
+  zip?: File
+}
+
+export interface ProfileImportResult {
+  status: string
+  restart_required: boolean
+  agent: string
+  workspace: string
+  written: string[]
+}
+
 export class AgentApiError extends Error {
   code: string
   status: number
@@ -162,4 +199,48 @@ export function deleteAgentAvatar(agentId: string): Promise<{ status: string }> 
     `/api/agents/${encodeURIComponent(agentId)}/avatar`,
     { method: "DELETE" },
   )
+}
+
+function buildProfileFormData(upload: ProfileUpload): FormData {
+  const body = new FormData()
+  if (upload.zip) {
+    body.append("zip", upload.zip)
+    return body
+  }
+  for (const file of upload.files ?? []) {
+    body.append("files", file)
+    body.append(
+      "paths",
+      (file as File & { webkitRelativePath?: string }).webkitRelativePath ||
+        file.name,
+    )
+  }
+  return body
+}
+
+export function inspectAgentProfile(upload: ProfileUpload): Promise<ProfilePreview> {
+  return request<ProfilePreview>("/api/agents/import/inspect", {
+    method: "POST",
+    body: buildProfileFormData(upload),
+  })
+}
+
+export function importAgentProfile(
+  upload: ProfileUpload,
+  values: {
+    id: string
+    name?: string
+    emoji?: string
+    overwrite?: boolean
+  },
+): Promise<ProfileImportResult> {
+  const body = buildProfileFormData(upload)
+  body.append("id", values.id)
+  if (values.name) body.append("name", values.name)
+  if (values.emoji) body.append("emoji", values.emoji)
+  body.append("overwrite", values.overwrite ? "true" : "false")
+  return request<ProfileImportResult>("/api/agents/import", {
+    method: "POST",
+    body,
+  })
 }

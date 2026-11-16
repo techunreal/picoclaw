@@ -6,6 +6,7 @@ import {
   IconRefresh,
   IconRoute,
   IconTrash,
+  IconUpload,
   IconUsers,
 } from "@tabler/icons-react"
 import { useState } from "react"
@@ -15,6 +16,7 @@ import { Link } from "@tanstack/react-router"
 import type { AgentView, DispatchRule } from "@/api/agents"
 import { AgentAvatar } from "@/components/agent-avatar"
 import { AgentEditDialog } from "@/components/agent/agents/agent-edit-dialog"
+import { ProfileImportDialog } from "@/components/agent/agents/profile-import-dialog"
 import { RoutingRuleDialog } from "@/components/agent/agents/routing-rule-dialog"
 import {
   agentErrorMessage,
@@ -80,6 +82,7 @@ export function AgentsPage() {
   } = useAgentsPage()
 
   const [tab, setTab] = useState<PageTab>("overview")
+  const [importOpen, setImportOpen] = useState(false)
   const defaults = listQuery.data?.defaults
   const implicit = listQuery.data?.implicit ?? false
   const listError = listQuery.error
@@ -140,6 +143,16 @@ export function AgentsPage() {
             title={t("agents.refresh")}
           >
             <IconRefresh className="size-4" />
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="gap-1.5"
+            onClick={() => setImportOpen(true)}
+          >
+            <IconUpload className="size-4" />
+            {t("agents.importProfile")}
           </Button>
           <Button type="button" size="sm" className="gap-1.5" onClick={openCreate}>
             <IconPlus className="size-4" />
@@ -469,6 +482,8 @@ export function AgentsPage() {
           onSave={saveRule}
         />
       )}
+
+      <ProfileImportDialog open={importOpen} onOpenChange={setImportOpen} />
 
       <AlertDialog
         open={deleteTarget !== null}
