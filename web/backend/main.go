@@ -459,6 +459,9 @@ func main() {
 	defer panicFunc()
 
 	enableConsole := *console
+	if !enableConsole {
+		hideLauncherConsoleWindow()
+	}
 	fileLoggingEnabled := shouldEnableLauncherFileLogging(enableConsole, debug)
 	if fileLoggingEnabled {
 		// GUI mode writes launcher logs to file. Debug mode keeps file logging enabled in console mode too.
