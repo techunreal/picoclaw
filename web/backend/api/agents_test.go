@@ -243,6 +243,37 @@ func TestUpdateAgents_KeepsLockedSkill(t *testing.T) {
 	}
 }
 
+func TestListAgents_AssignsFallbackEmoji(t *testing.T) {
+	configPath, cleanup := setupOAuthTestEnv(t)
+	defer cleanup()
+
+	cfg, err := config.LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+	cfg.Agents.List = []config.AgentConfig{{
+		ID:        "alpha",
+		Default:   true,
+		Workspace: t.TempDir(),
+	}}
+	if err := config.SaveConfig(configPath, cfg); err != nil {
+		t.Fatalf("SaveConfig() error = %v", err)
+	}
+
+	rec := httptest.NewRecorder()
+	agentsTestMux(t, configPath).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/agents", nil))
+	resp := decodeAgentsResponse(t, rec)
+	if len(resp.Agents) != 1 {
+		t.Fatalf("agents = %d, want 1", len(resp.Agents))
+	}
+	if resp.Agents[0].Avatar == nil || resp.Agents[0].Avatar.Emoji == "" {
+		t.Fatalf("fallback emoji missing: %#v", resp.Agents[0].Avatar)
+	}
+	if resp.Agents[0].Avatar.Emoji != autoAgentEmoji("alpha") {
+		t.Fatalf("emoji = %q, want stable fallback", resp.Agents[0].Avatar.Emoji)
+	}
+}
+
 func TestAgentAvatarLifecycle(t *testing.T) {
 	configPath, cleanup := setupOAuthTestEnv(t)
 	defer cleanup()

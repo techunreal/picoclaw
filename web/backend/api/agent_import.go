@@ -16,7 +16,6 @@ import (
 	"sort"
 	"strings"
 	"time"
-	"unicode"
 	"unicode/utf8"
 
 	"github.com/sipeed/picoclaw/pkg/config"
@@ -59,13 +58,6 @@ type profilePreview struct {
 	targets      map[string][]byte
 }
 
-type profileImportPlan struct {
-	preview   *profilePreview
-	workspace string
-	agent     config.AgentConfig
-	existing  bool
-}
-
 func (h *Handler) registerAgentImportRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/agents/import/inspect", h.handleInspectAgentProfile)
 	mux.HandleFunc("POST /api/agents/import", h.handleImportAgentProfile)
@@ -100,20 +92,28 @@ func (h *Handler) handleImportAgentProfile(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	agentID := strings.TrimSpace(r.FormValue("id"))
+	var incoming config.AgentConfig
+	if raw := strings.TrimSpace(r.FormValue("agent")); raw != "" {
+		if err := json.Unmarshal([]byte(raw), &incoming); err != nil {
+			writeAgentsAPIError(w, http.StatusBadRequest, "invalid_agent", "agent settings are not valid JSON")
+			return
+		}
+	}
+	agentID := strings.TrimSpace(incoming.ID)
+	if agentID == "" {
+		agentID = strings.TrimSpace(r.FormValue("id"))
+	}
 	if !agentIDPattern.MatchString(agentID) {
 		writeAgentsAPIError(w, http.StatusBadRequest, "invalid_agent_id",
 			"agent id must match ^[a-z0-9][a-z0-9_-]{0,63}$")
 		return
 	}
-	name := strings.TrimSpace(r.FormValue("name"))
+	name := strings.TrimSpace(incoming.Name)
+	if name == "" {
+		name = preview.Identity.Name
+	}
 	if utf8.RuneCountInString(name) > maxAgentNameLen {
 		writeAgentsAPIError(w, http.StatusBadRequest, "invalid_agent_name", "agent name is too long")
-		return
-	}
-	emoji := strings.TrimSpace(r.FormValue("emoji"))
-	if utf8.RuneCountInString(emoji) > maxAvatarEmoji || strings.ContainsFunc(emoji, unicode.IsControl) {
-		writeAgentsAPIError(w, http.StatusBadRequest, "invalid_avatar", "avatar emoji is invalid")
 		return
 	}
 	overwrite := strings.EqualFold(strings.TrimSpace(r.FormValue("overwrite")), "true")
@@ -124,13 +124,80 @@ func (h *Handler) handleImportAgentProfile(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	plan, err := buildProfileImportPlan(cfg, agentID, preview)
-	if err != nil {
-		writeAgentsAPIError(w, http.StatusBadRequest, "import_failed", err.Error())
+	candidates := append([]config.AgentConfig(nil), cfg.Agents.List...)
+	isNew := true
+	for i := range candidates {
+		if routing.NormalizeAgentID(strings.TrimSpace(candidates[i].ID)) !=
+			routing.NormalizeAgentID(agentID) {
+			continue
+		}
+		isNew = false
+		existing := candidates[i]
+		existing.ID = agentID
+		if name != "" {
+			existing.Name = name
+		}
+		existing.Workspace = strings.TrimSpace(incoming.Workspace)
+		existing.Model = incoming.Model
+		if incoming.Skills != nil {
+			existing.Skills = incoming.Skills
+		}
+		if incoming.Subagents != nil {
+			existing.Subagents = incoming.Subagents
+		}
+		existing.Avatar = mergeProfileAvatar(existing.Avatar, preview.Identity.Emoji)
+		candidates[i] = existing
+		break
+	}
+	if isNew {
+		created := incoming
+		created.ID = agentID
+		created.Name = name
+		created.Workspace = strings.TrimSpace(incoming.Workspace)
+		created.Default = len(candidates) == 0
+		created.Avatar = mergeProfileAvatar(incoming.Avatar, preview.Identity.Emoji)
+		candidates = append(candidates, created)
+	}
+
+	normalized, validationErrs := validateAgentsConfig(cfg, candidates, nil)
+	if len(validationErrs) > 0 {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"code":   "invalid_agents",
+			"error":  strings.Join(validationErrs, "; "),
+			"errors": validationErrs,
+		})
 		return
 	}
 
-	conflicts := profileConflicts(plan.workspace, preview.targets)
+	var target *config.AgentConfig
+	for i := range normalized {
+		if routing.NormalizeAgentID(strings.TrimSpace(normalized[i].ID)) ==
+			routing.NormalizeAgentID(agentID) {
+			target = &normalized[i]
+			break
+		}
+	}
+	if target == nil {
+		writeAgentsAPIError(w, http.StatusBadRequest, "import_failed", "imported agent was not found")
+		return
+	}
+	workspace, _ := effectiveAgentWorkspace(cfg, *target)
+
+	if isNew && target.Skills == nil {
+		if items, err := buildSkillSupportItemsForWorkspace(cfg, workspace); err == nil {
+			names := make([]string, 0, len(items))
+			for _, item := range items {
+				names = append(names, item.Name)
+			}
+			if len(names) > 0 {
+				target.Skills = withLockedAgentSkill(normalizeStringList(names, maxAgentSkills))
+			}
+		}
+	}
+
+	conflicts := profileConflicts(workspace, preview.targets)
 	if len(conflicts) > 0 && !overwrite {
 		writeJSON(w, http.StatusConflict, map[string]any{
 			"code":               "profile_conflict",
@@ -142,35 +209,35 @@ func (h *Handler) handleImportAgentProfile(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	if err := os.MkdirAll(plan.workspace, 0o755); err != nil {
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
 		writeAgentsAPIError(w, http.StatusInternalServerError, "workspace_create_failed", err.Error())
 		return
 	}
-	if !plan.existing {
-		if err := seedAgentWorkspace(cfg, plan.workspace); err != nil {
+	if isNew {
+		if err := seedAgentWorkspace(cfg, workspace); err != nil {
 			writeAgentsAPIError(w, http.StatusInternalServerError, "workspace_seed_failed", err.Error())
 			return
 		}
 	}
 
 	written := make([]string, 0, len(preview.targets))
-	for _, target := range []string{"AGENT.md", "SOUL.md", "IDENTITY.md"} {
-		data, ok := preview.targets[target]
+	for _, targetFile := range []string{"AGENT.md", "SOUL.md", "IDENTITY.md"} {
+		data, ok := preview.targets[targetFile]
 		if !ok {
 			continue
 		}
-		if err := backupProfileTarget(agentID, plan.workspace, target); err != nil {
+		if err := backupProfileTarget(agentID, workspace, targetFile); err != nil {
 			writeAgentsAPIError(w, http.StatusInternalServerError, "backup_failed", err.Error())
 			return
 		}
-		if err := writeFileAtomic(filepath.Join(plan.workspace, target), data, 0o644); err != nil {
+		if err := writeFileAtomic(filepath.Join(workspace, targetFile), data, 0o644); err != nil {
 			writeAgentsAPIError(w, http.StatusInternalServerError, "profile_write_failed", err.Error())
 			return
 		}
-		written = append(written, target)
+		written = append(written, targetFile)
 	}
 
-	updateImportedAgentConfig(cfg, plan, agentID, name, emoji)
+	cfg.Agents.List = normalized
 	if err := config.SaveConfig(h.configPath, cfg); err != nil {
 		writeAgentsAPIError(w, http.StatusInternalServerError, "config_save_failed", err.Error())
 		return
@@ -180,80 +247,23 @@ func (h *Handler) handleImportAgentProfile(w http.ResponseWriter, r *http.Reques
 		"status":           "ok",
 		"restart_required": true,
 		"agent":            agentID,
-		"workspace":        plan.workspace,
+		"workspace":        workspace,
 		"written":          written,
 	})
 }
 
-func buildProfileImportPlan(cfg *config.Config, agentID string, preview *profilePreview) (*profileImportPlan, error) {
-	plan := &profileImportPlan{preview: preview, agent: config.AgentConfig{ID: agentID}}
-	id := routing.NormalizeAgentID(agentID)
-	for i := range cfg.Agents.List {
-		agentCfg := cfg.Agents.List[i]
-		if routing.NormalizeAgentID(strings.TrimSpace(agentCfg.ID)) != id {
-			continue
-		}
-		workspace, _ := effectiveAgentWorkspace(cfg, agentCfg)
-		plan.workspace = workspace
-		plan.agent = agentCfg
-		plan.existing = true
-		return plan, nil
+func mergeProfileAvatar(existing *config.AgentAvatar, emoji string) *config.AgentAvatar {
+	avatar := config.AgentAvatar{}
+	if existing != nil {
+		avatar = *existing
 	}
-	if id == routing.DefaultAgentID {
-		plan.workspace = expandHomePath(cfg.Agents.Defaults.Workspace)
-		return plan, nil
+	if emoji = strings.TrimSpace(emoji); emoji != "" {
+		avatar.Emoji = emoji
 	}
-	plan.workspace = derivedAgentWorkspace(cfg, id)
-	return plan, nil
-}
-
-func updateImportedAgentConfig(
-	cfg *config.Config,
-	plan *profileImportPlan,
-	agentID, name, emoji string,
-) {
-	if name == "" {
-		name = plan.preview.Identity.Name
+	if avatar.Emoji == "" && avatar.Image == "" {
+		return nil
 	}
-	avatar := config.AgentAvatar{Emoji: emoji}
-	if plan.existing {
-		for i := range cfg.Agents.List {
-			agentCfg := &cfg.Agents.List[i]
-			if routing.NormalizeAgentID(strings.TrimSpace(agentCfg.ID)) != routing.NormalizeAgentID(agentID) {
-				continue
-			}
-			if name != "" {
-				agentCfg.Name = name
-			}
-			if avatar.Emoji != "" {
-				if agentCfg.Avatar == nil {
-					agentCfg.Avatar = &config.AgentAvatar{}
-				}
-				agentCfg.Avatar.Emoji = avatar.Emoji
-			}
-			return
-		}
-		return
-	}
-
-	agentCfg := config.AgentConfig{
-		ID:      agentID,
-		Name:    name,
-		Default: len(cfg.Agents.List) == 0,
-	}
-	if avatar.Emoji != "" {
-		agentCfg.Avatar = &avatar
-	}
-	if items, err := buildSkillSupportItemsForWorkspace(cfg, plan.workspace); err == nil {
-		names := make([]string, 0, len(items))
-		for _, item := range items {
-			names = append(names, item.Name)
-		}
-		if len(names) > 0 {
-			agentCfg.Skills = withLockedAgentSkill(normalizeStringList(names, maxAgentSkills))
-		}
-	}
-	cfg.Agents.List = append(cfg.Agents.List, agentCfg)
+	return &avatar
 }
 
 func profileConflicts(workspace string, targets map[string][]byte) []string {

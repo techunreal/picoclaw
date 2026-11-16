@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"io"
 	"net/http"
 	"os"
@@ -391,9 +392,22 @@ func resolveAgentAvatarView(agentCfg config.AgentConfig, workspace string) *agen
 		}
 	}
 	if view.Image == "" && view.Emoji == "" {
-		return nil
+		// No image or configured emoji: assign a stable, pseudo-random emoji so
+		// every agent has a visible avatar.
+		view.Emoji = autoAgentEmoji(agentCfg.ID)
 	}
 	return &view
+}
+
+var autoAgentEmojis = []string{
+	"🦉", "🦊", "🐼", "🐸", "🐙", "🦁", "🐧", "🦄",
+	"🐻", "🐨", "🦋", "🐬", "🐢", "🦖", "🐳", "🦜",
+}
+
+func autoAgentEmoji(id string) string {
+	hasher := fnv.New32a()
+	_, _ = hasher.Write([]byte(strings.ToLower(strings.TrimSpace(id))))
+	return autoAgentEmojis[int(hasher.Sum32())%len(autoAgentEmojis)]
 }
 
 func updateAgentAvatarImage(cfg *config.Config, agentID, image string) {

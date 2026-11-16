@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -187,7 +188,9 @@ func TestImportAgentProfile_Folder(t *testing.T) {
 		t.Fatalf("preview = %#v", preview)
 	}
 
-	fields := map[string]string{"id": "socrates", "name": "Sokrates", "emoji": "🦉"}
+	fields := map[string]string{
+		"agent": `{"id":"socrates","name":"Sokrates"}`,
+	}
 	body, contentType = profileMultipartBody(t, fields, files)
 	rec = httptest.NewRecorder()
 	req = httptest.NewRequest(http.MethodPost, "/api/agents/import", body)
@@ -248,6 +251,50 @@ func TestImportAgentProfile_Folder(t *testing.T) {
 	entries, err := os.ReadDir(backups)
 	if err != nil || len(entries) == 0 {
 		t.Fatalf("backups missing: %v", err)
+	}
+}
+
+func TestImportAgentProfile_AppliesAgentSettings(t *testing.T) {
+	configPath, cleanup := setupOAuthTestEnv(t)
+	defer cleanup()
+
+	workspace := t.TempDir()
+	agentJSON := fmt.Sprintf(
+		`{"id":"socrates","name":"Sokrates","workspace":%q,"model":{"primary":"custom-default"},"skills":["weather"],"subagents":{"enabled":false}}`,
+		workspace,
+	)
+	fields := map[string]string{"agent": agentJSON}
+	body, contentType := profileMultipartBody(t, fields, exampleProfileFiles())
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/agents/import", body)
+	req.Header.Set("Content-Type", contentType)
+	agentsTestMux(t, configPath).ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("import status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+
+	cfg, err := config.LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+	if len(cfg.Agents.List) != 1 {
+		t.Fatalf("agents = %d, want 1", len(cfg.Agents.List))
+	}
+	agent := cfg.Agents.List[0]
+	if agent.Workspace != workspace {
+		t.Fatalf("workspace = %q, want %q", agent.Workspace, workspace)
+	}
+	if agent.Model == nil || agent.Model.Primary != "custom-default" {
+		t.Fatalf("model = %#v", agent.Model)
+	}
+	if len(agent.Skills) != 2 || agent.Skills[0] != lockedAgentSkill || agent.Skills[1] != "weather" {
+		t.Fatalf("skills = %#v", agent.Skills)
+	}
+	if agent.Subagents == nil || agent.Subagents.IsEnabled() {
+		t.Fatalf("subagents = %#v, want disabled", agent.Subagents)
+	}
+	if _, err := os.Stat(filepath.Join(workspace, "AGENT.md")); err != nil {
+		t.Fatalf("AGENT.md missing: %v", err)
 	}
 }
 
