@@ -46,7 +46,6 @@ import {
   getTransferredFiles,
   hasFileTransfer,
 } from "@/features/chat/attachment-input"
-import { setChatAgent } from "@/features/chat/controller"
 import { isIncognitoSession } from "@/features/chat/state"
 import { getSessions } from "@/api/sessions"
 import { useChatModels } from "@/hooks/use-chat-models"
@@ -195,7 +194,6 @@ export function ChatPage() {
 
   const handleAgentChange = (nextAgentId: string) => {
     setSelectedAgentId(nextAgentId)
-    setChatAgent(nextAgentId)
     const latest = sessionsQuery.data?.find(
       (session) => (session.agent_id || "main") === nextAgentId,
     )
@@ -213,9 +211,6 @@ export function ChatPage() {
     const agent = sessionsQuery.data?.find(
       (session) => session.id === pendingSessionId,
     )?.agent_id
-    if (agent) {
-      setChatAgent(agent)
-    }
     void switchSession(pendingSessionId, agent)
     setPendingSessionId(null)
   }, [pendingSessionId, switchSession, setPendingSessionId, sessionsQuery.data])
