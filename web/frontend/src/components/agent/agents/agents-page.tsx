@@ -483,7 +483,12 @@ export function AgentsPage() {
         />
       )}
 
-      <ProfileImportDialog open={importOpen} onOpenChange={setImportOpen} />
+      <ProfileImportDialog
+        open={importOpen}
+        agents={agents}
+        defaults={defaults ?? { workspace: "", provider: "", model_name: "" }}
+        onOpenChange={setImportOpen}
+      />
 
       <AlertDialog
         open={deleteTarget !== null}

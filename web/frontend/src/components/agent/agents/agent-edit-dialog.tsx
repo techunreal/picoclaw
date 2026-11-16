@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query"
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useState, type FormEvent } from "react"
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
 
@@ -13,8 +13,14 @@ import {
 } from "@/api/agents"
 import { getModels } from "@/api/models"
 import { getSkills } from "@/api/skills"
-import { AgentAvatar } from "@/components/agent-avatar"
-import { Badge } from "@/components/ui/badge"
+import {
+  AgentAvatarPicker,
+  AgentModelField,
+  AgentSkillsField,
+  AgentSubagentsField,
+  AgentWorkspaceField,
+} from "@/components/agent/agents/agent-form-fields"
+import { defaultSkillSelection } from "@/components/agent/agents/agent-form-utils"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -27,10 +33,8 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
-import { suggestAgentWorkspace } from "@/components/agent/agents/use-agents-page"
 
 const agentIDPattern = "^[a-z0-9][a-z0-9_-]{0,63}$"
-const lockedSkill = "picoclaw-agent"
 
 interface AgentEditDialogProps {
   open: boolean
@@ -41,7 +45,7 @@ interface AgentEditDialogProps {
   isSaving: boolean
   error: string | null
   onOpenChange: (open: boolean) => void
-  onSave: (agent: AgentConfig) => void
+  onSave: (agent: AgentConfig) => Promise<boolean> | boolean
 }
 
 export function AgentEditDialog({
@@ -58,17 +62,28 @@ export function AgentEditDialog({
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const [form, setForm] = useState<AgentConfig>(initial)
-  const [skillFilter, setSkillFilter] = useState("")
   const [skillDefaultsApplied, setSkillDefaultsApplied] = useState(false)
   const [avatarBusy, setAvatarBusy] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
+  const [pendingAvatar, setPendingAvatar] = useState<{
+    file: File
+    previewUrl: string
+  } | null>(null)
 
   useEffect(() => {
     if (open) {
       setForm(initial)
-      setSkillFilter("")
       setSkillDefaultsApplied(false)
+      setPendingAvatar(null)
+      setSubmitting(false)
     }
   }, [open, initial])
+
+  useEffect(() => {
+    return () => {
+      if (pendingAvatar) URL.revokeObjectURL(pendingAvatar.previewUrl)
+    }
+  }, [pendingAvatar])
 
   const modelsQuery = useQuery({
     queryKey: ["models"],
@@ -84,9 +99,6 @@ export function AgentEditDialog({
   const models = modelsQuery.data?.models ?? []
   const skills = useMemo(() => skillsQuery.data?.skills ?? [], [skillsQuery.data])
   const selectedSkills = form.skills ?? []
-  const subagentsEnabled = form.subagents?.enabled !== false
-  const allowAgents = form.subagents?.allow_agents ?? []
-  const allowAll = allowAgents.includes("*")
 
   useEffect(() => {
     if (!open || skillDefaultsApplied || skillsQuery.isLoading) return
@@ -97,7 +109,7 @@ export function AgentEditDialog({
     if (skills.length === 0) return
     setForm((current) =>
       current.skills === undefined
-        ? { ...current, skills: skills.map((skill) => skill.name) }
+        ? { ...current, skills: defaultSkillSelection(skills) }
         : current,
     )
     setSkillDefaultsApplied(true)
@@ -106,23 +118,6 @@ export function AgentEditDialog({
   const update = (patch: Partial<AgentConfig>) => {
     setForm((current) => ({ ...current, ...patch }))
   }
-  const toggleSkill = (name: string, checked: boolean) => {
-    if (name === lockedSkill && !checked) return
-    const next = checked
-      ? [...new Set([...selectedSkills, name])]
-      : selectedSkills.filter((skill) => skill !== name)
-    update({ skills: next })
-  }
-  const selectAllSkills = () => {
-    update({ skills: skills.map((skill) => skill.name) })
-  }
-  const clearAllSkills = () => {
-    update({
-      skills: skills
-        .filter((skill) => skill.name === lockedSkill)
-        .map((skill) => skill.name),
-    })
-  }
 
   const refreshAgentQueries = () => {
     void queryClient.invalidateQueries({ queryKey: ["agents"] })
@@ -130,7 +125,12 @@ export function AgentEditDialog({
   }
 
   const handleAvatarFile = async (file: File) => {
-    if (mode !== "edit" || !form.id.trim()) return
+    if (mode === "create") {
+      const previewUrl = URL.createObjectURL(file)
+      setPendingAvatar({ file, previewUrl })
+      return
+    }
+    if (!form.id.trim()) return
     setAvatarBusy(true)
     try {
       const result = await uploadAgentAvatar(form.id.trim(), file)
@@ -145,7 +145,11 @@ export function AgentEditDialog({
   }
 
   const handleAvatarRemove = async () => {
-    if (mode !== "edit" || !form.id.trim()) return
+    if (mode === "create") {
+      setPendingAvatar(null)
+      return
+    }
+    if (!form.id.trim()) return
     setAvatarBusy(true)
     try {
       await deleteAgentAvatar(form.id.trim())
@@ -159,21 +163,35 @@ export function AgentEditDialog({
       setAvatarBusy(false)
     }
   }
-  const toggleAllowAgent = (id: string, checked: boolean) => {
-    const next = checked
-      ? [...new Set([...allowAgents, id])]
-      : allowAgents.filter((item) => item !== id)
-    update({
-      subagents: { ...form.subagents, enabled: subagentsEnabled, allow_agents: next },
-    })
-  }
 
-  const visibleSkills = skills.filter((skill) =>
-    skill.name.toLowerCase().includes(skillFilter.trim().toLowerCase()),
-  )
-  const selectedNotListed = selectedSkills.filter(
-    (name) => !skills.some((skill) => skill.name === name),
-  )
+  const busy = isSaving || submitting
+
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const agent: AgentConfig = {
+      ...form,
+      id: form.id.trim(),
+      name: form.name?.trim(),
+      workspace: form.workspace?.trim(),
+      skills: form.skills,
+    }
+    setSubmitting(true)
+    try {
+      const success = await onSave(agent)
+      if (!success) return
+      if (mode === "create" && pendingAvatar) {
+        try {
+          await uploadAgentAvatar(agent.id, pendingAvatar.file)
+          refreshAgentQueries()
+          toast.success(t("agents.avatarUploaded"))
+        } catch {
+          toast.error(t("agents.avatarUploadFailed"))
+        }
+      }
+    } finally {
+      setSubmitting(false)
+    }
+  }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -185,19 +203,7 @@ export function AgentEditDialog({
           <DialogDescription>{t("agents.editDescription")}</DialogDescription>
         </DialogHeader>
 
-        <form
-          className="flex flex-col gap-6"
-          onSubmit={(event) => {
-            event.preventDefault()
-            onSave({
-              ...form,
-              id: form.id.trim(),
-              name: form.name?.trim(),
-              workspace: form.workspace?.trim(),
-              skills: form.skills,
-            })
-          }}
-        >
+        <form className="flex flex-col gap-6" onSubmit={handleSubmit}>
           <fieldset className="flex flex-col gap-4">
             <legend className="mb-1 text-sm font-semibold">
               {t("agents.sectionIdentity")}
@@ -216,7 +222,7 @@ export function AgentEditDialog({
                 autoComplete="off"
                 autoCapitalize="none"
                 spellCheck={false}
-                disabled={mode === "edit" || isSaving}
+                disabled={mode === "edit" || busy}
                 required
                 aria-describedby="agent-id-help"
               />
@@ -234,78 +240,22 @@ export function AgentEditDialog({
                 onChange={(event) => update({ name: event.target.value })}
                 placeholder={t("agents.namePlaceholder")}
                 maxLength={120}
-                disabled={isSaving}
+                disabled={busy}
               />
             </div>
 
-            <div className="grid gap-2">
-              <Label htmlFor="agent-avatar-emoji">{t("agents.avatarEmoji")}</Label>
-              <div className="flex items-center gap-2">
-                <AgentAvatar
-                  agentId={mode === "edit" ? form.id.trim() : undefined}
-                  avatar={form.avatar}
-                  name={form.name || form.id}
-                  size="md"
-                />
-                <Input
-                  id="agent-avatar-emoji"
-                  name="agent_avatar_emoji"
-                  value={form.avatar?.emoji ?? ""}
-                  onChange={(event) =>
-                    update({
-                      avatar: { ...form.avatar, emoji: event.target.value },
-                    })
-                  }
-                  placeholder="🦉"
-                  maxLength={16}
-                  autoComplete="off"
-                  disabled={isSaving}
-                />
-              </div>
-              <p className="text-muted-foreground text-xs">
-                {t("agents.avatarEmojiHelp")}
-              </p>
-            </div>
-
-            <div className="grid gap-2">
-              <Label htmlFor="agent-avatar-image">{t("agents.avatarImage")}</Label>
-              {mode === "edit" ? (
-                <>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <input
-                      id="agent-avatar-image"
-                      type="file"
-                      accept="image/png,image/jpeg,image/webp"
-                      className="text-muted-foreground file:border-border file:bg-background hover:file:bg-accent max-w-full text-xs file:mr-2 file:rounded-md file:border file:px-2 file:py-1 file:text-xs"
-                      onChange={(event) => {
-                        const file = event.target.files?.[0]
-                        event.target.value = ""
-                        if (file) void handleAvatarFile(file)
-                      }}
-                      disabled={isSaving || avatarBusy}
-                    />
-                    {form.avatar?.image && (
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => void handleAvatarRemove()}
-                        disabled={isSaving || avatarBusy}
-                      >
-                        {t("agents.avatarRemove")}
-                      </Button>
-                    )}
-                  </div>
-                  <p className="text-muted-foreground text-xs">
-                    {t("agents.avatarImageHelp")}
-                  </p>
-                </>
-              ) : (
-                <p className="text-muted-foreground text-xs">
-                  {t("agents.avatarImageAfterSave")}
-                </p>
-              )}
-            </div>
+            <AgentAvatarPicker
+              agentId={mode === "edit" ? form.id.trim() : undefined}
+              avatar={form.avatar}
+              name={form.name || form.id}
+              previewUrl={pendingAvatar?.previewUrl}
+              disabled={busy || avatarBusy}
+              canRemove={
+                mode === "edit" ? Boolean(form.avatar?.image) : Boolean(pendingAvatar)
+              }
+              onSelectFile={(file) => void handleAvatarFile(file)}
+              onRemove={() => void handleAvatarRemove()}
+            />
 
             <label className="flex items-center justify-between gap-3 rounded-xl border p-3">
               <span className="flex flex-col">
@@ -317,7 +267,7 @@ export function AgentEditDialog({
               <Switch
                 checked={Boolean(form.default)}
                 onCheckedChange={(checked) => update({ default: checked })}
-                disabled={isSaving}
+                disabled={busy}
               />
             </label>
           </fieldset>
@@ -327,223 +277,34 @@ export function AgentEditDialog({
               {t("agents.sectionRuntime")}
             </legend>
 
-            <div className="grid gap-2">
-              <Label htmlFor="agent-workspace">{t("agents.workspace")}</Label>
-              <div className="flex flex-col gap-2 sm:flex-row">
-                <Input
-                  id="agent-workspace"
-                  name="agent_workspace"
-                  value={form.workspace ?? ""}
-                  onChange={(event) => update({ workspace: event.target.value })}
-                  placeholder={defaults.workspace}
-                  autoComplete="off"
-                  spellCheck={false}
-                  disabled={isSaving}
-                  aria-describedby="agent-workspace-help"
-                />
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="shrink-0"
-                  onClick={() =>
-                    update({
-                      workspace: suggestAgentWorkspace(
-                        defaults.workspace,
-                        form.id.trim(),
-                      ),
-                    })
-                  }
-                  disabled={isSaving || !defaults.workspace}
-                >
-                  {t("agents.suggestWorkspace")}
-                </Button>
-              </div>
-              <p id="agent-workspace-help" className="text-muted-foreground text-xs">
-                {t("agents.workspaceHelp")}
-              </p>
-              {form.workspace?.trim() ? null : (
-                <p className="text-muted-foreground text-xs">
-                  {t("agents.workspaceEffective", {
-                    path:
-                      suggestAgentWorkspace(
-                        defaults.workspace,
-                        form.id.trim(),
-                      ) || defaults.workspace,
-                  })}
-                </p>
-              )}
-            </div>
+            <AgentWorkspaceField
+              idPrefix="agent"
+              defaultsWorkspace={defaults.workspace}
+              agentId={form.id.trim()}
+              value={form.workspace}
+              onChange={(workspace) => update({ workspace })}
+              disabled={busy}
+            />
 
-            <div className="grid gap-2">
-              <Label htmlFor="agent-model">{t("agents.model")}</Label>
-              <select
-                id="agent-model"
-                name="agent_model"
-                value={form.model?.primary ?? ""}
-                onChange={(event) =>
-                  update({
-                    model: event.target.value
-                      ? { primary: event.target.value }
-                      : undefined,
-                  })
-                }
-                disabled={isSaving}
-                className="border-input bg-background h-9 rounded-md border px-3 text-sm shadow-xs"
-              >
-                <option value="">
-                  {t("agents.useDefaultModel", { model: defaults.model_name || "—" })}
-                </option>
-                {models.map((model) => (
-                  <option key={model.model_name} value={model.model_name}>
-                    {model.model_name}
-                    {model.enabled ? "" : ` (${t("agents.disabledModel")})`}
-                  </option>
-                ))}
-              </select>
-              <p className="text-muted-foreground text-xs">
-                {t("agents.modelOverrideHint")}
-              </p>
-            </div>
+            <AgentModelField
+              idPrefix="agent"
+              models={models}
+              value={form.model?.primary}
+              defaultModelName={defaults.model_name}
+              onChange={(primary) =>
+                update({ model: primary ? { primary } : undefined })
+              }
+              disabled={busy}
+            />
 
-            <div className="grid gap-2">
-              <Label htmlFor="agent-skill-filter">{t("agents.skills")}</Label>
-              <Input
-                id="agent-skill-filter"
-                value={skillFilter}
-                onChange={(event) => setSkillFilter(event.target.value)}
-                placeholder={t("agents.skillsFilterPlaceholder")}
-                autoComplete="off"
-                disabled={isSaving}
-              />
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <span className="text-muted-foreground text-xs">
-                  {t("agents.skillCount", { count: selectedSkills.length })}
-                </span>
-                <div className="flex gap-2">
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    onClick={selectAllSkills}
-                    disabled={isSaving || skills.length === 0}
-                  >
-                    {t("agents.selectAllSkills")}
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    onClick={clearAllSkills}
-                    disabled={isSaving || selectedSkills.length === 0}
-                  >
-                    {t("agents.clearAllSkills")}
-                  </Button>
-                </div>
-              </div>
-              {selectedSkills.length > 0 && (
-                <div className="flex flex-wrap gap-1.5">
-                  {selectedSkills.map((name) => (
-                    <Badge key={name} variant="secondary" className="gap-1">
-                      {name}
-                      {name === lockedSkill ? (
-                        <span className="text-muted-foreground" title={t("agents.skillLockedHint")}>
-                          🔒
-                        </span>
-                      ) : (
-                        <button
-                          type="button"
-                          className="text-muted-foreground hover:text-foreground"
-                          aria-label={t("agents.removeSkill", { name })}
-                          onClick={() =>
-                            update({
-                              skills: selectedSkills.filter((skill) => skill !== name),
-                            })
-                          }
-                        >
-                          ×
-                        </button>
-                      )}
-                    </Badge>
-                  ))}
-                </div>
-              )}
-              <div className="border-border/60 max-h-44 overflow-y-auto rounded-xl border p-3">
-                {skillsQuery.isLoading ? (
-                  <p className="text-muted-foreground text-xs">
-                    {t("agents.skillsLoading")}
-                  </p>
-                ) : visibleSkills.length === 0 && selectedNotListed.length === 0 ? (
-                  <p className="text-muted-foreground text-xs">
-                    {t("agents.skillsEmpty")}
-                  </p>
-                ) : (
-                  <ul className="flex flex-col gap-2">
-                    {visibleSkills.map((skill) => {
-                      const locked = skill.name === lockedSkill
-                      return (
-                        <li key={skill.id}>
-                          <label className="flex items-start gap-2 text-sm">
-                            <input
-                              type="checkbox"
-                              className="accent-primary mt-0.5 size-4"
-                              checked={selectedSkills.includes(skill.name)}
-                              onChange={(event) =>
-                                toggleSkill(skill.name, event.target.checked)
-                              }
-                              disabled={isSaving || locked}
-                            />
-                            <span className="min-w-0">
-                              <span className="font-medium">{skill.name}</span>
-                              <span className="text-muted-foreground ml-2 text-xs">
-                                {skill.source}
-                              </span>
-                              {locked && (
-                                <span className="text-muted-foreground ml-2 text-xs">
-                                  {t("agents.skillLocked")}
-                                </span>
-                              )}
-                              <span className="text-muted-foreground block text-xs">
-                                {skill.description}
-                              </span>
-                            </span>
-                          </label>
-                        </li>
-                      )
-                    })}
-                    {selectedNotListed.map((name) => {
-                      const locked = name === lockedSkill
-                      return (
-                        <li key={name}>
-                          <label className="flex items-center gap-2 text-sm">
-                            <input
-                              type="checkbox"
-                              className="accent-primary size-4"
-                              checked
-                              onChange={() => {
-                                if (locked) return
-                                update({
-                                  skills: selectedSkills.filter((skill) => skill !== name),
-                                })
-                              }}
-                              disabled={isSaving || locked}
-                            />
-                            <span className="font-medium">{name}</span>
-                            <span className="text-muted-foreground text-xs">
-                              {locked
-                                ? t("agents.skillLocked")
-                                : t("agents.skillNotInWorkspace")}
-                            </span>
-                          </label>
-                        </li>
-                      )
-                    })}
-                  </ul>
-                )}
-              </div>
-              <p className="text-muted-foreground text-xs">
-                {t("agents.skillsHelp")}
-              </p>
-            </div>
+            <AgentSkillsField
+              idPrefix="agent"
+              skills={skills}
+              selected={selectedSkills}
+              onChange={(next) => update({ skills: next })}
+              loading={skillsQuery.isLoading}
+              disabled={busy}
+            />
           </fieldset>
 
           <fieldset className="flex flex-col gap-4">
@@ -551,76 +312,13 @@ export function AgentEditDialog({
               {t("agents.sectionSubagents")}
             </legend>
 
-            <label className="flex items-center justify-between gap-3 rounded-xl border p-3">
-              <span className="flex flex-col">
-                <span className="text-sm font-medium">{t("agents.subagentsEnabled")}</span>
-                <span className="text-muted-foreground text-xs">
-                  {t("agents.subagentsEnabledHint")}
-                </span>
-              </span>
-              <Switch
-                checked={subagentsEnabled}
-                onCheckedChange={(checked) =>
-                  update({
-                    subagents: {
-                      ...form.subagents,
-                      enabled: checked,
-                      allow_agents: allowAgents,
-                    },
-                  })
-                }
-                disabled={isSaving}
-              />
-            </label>
-
-            {subagentsEnabled && (
-              <div className="grid gap-2">
-                <span className="text-sm font-medium">{t("agents.allowAgents")}</span>
-                <label className="flex items-center gap-2 text-sm">
-                  <input
-                    type="checkbox"
-                    className="accent-primary size-4"
-                    checked={allowAll}
-                    onChange={(event) =>
-                      update({
-                        subagents: {
-                          ...form.subagents,
-                          enabled: true,
-                          allow_agents: event.target.checked ? ["*"] : [],
-                        },
-                      })
-                    }
-                    disabled={isSaving}
-                  />
-                  {t("agents.allowAllAgents")}
-                </label>
-                {!allowAll && (
-                  <div className="flex flex-wrap gap-3">
-                    {agents
-                      .filter((agent) => agent.id !== form.id)
-                      .map((agent) => (
-                        <label key={agent.id} className="flex items-center gap-2 text-sm">
-                          <input
-                            type="checkbox"
-                            className="accent-primary size-4"
-                            checked={allowAgents.includes(agent.id)}
-                            onChange={(event) =>
-                              toggleAllowAgent(agent.id, event.target.checked)
-                            }
-                            disabled={isSaving}
-                          />
-                          {agent.id}
-                        </label>
-                      ))}
-                    {agents.filter((agent) => agent.id !== form.id).length === 0 && (
-                      <span className="text-muted-foreground text-xs">
-                        {t("agents.noOtherAgents")}
-                      </span>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
+            <AgentSubagentsField
+              agents={agents}
+              currentId={form.id}
+              value={form.subagents}
+              onChange={(subagents) => update({ subagents })}
+              disabled={busy}
+            />
           </fieldset>
 
           {error && (
@@ -637,12 +335,12 @@ export function AgentEditDialog({
               type="button"
               variant="outline"
               onClick={() => onOpenChange(false)}
-              disabled={isSaving}
+              disabled={busy}
             >
               {t("common.cancel")}
             </Button>
-            <Button type="submit" disabled={isSaving}>
-              {isSaving ? t("common.saving") : t("agents.save")}
+            <Button type="submit" disabled={busy}>
+              {busy ? t("common.saving") : t("agents.save")}
             </Button>
           </DialogFooter>
         </form>

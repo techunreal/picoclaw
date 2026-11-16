@@ -228,16 +228,12 @@ export function inspectAgentProfile(upload: ProfileUpload): Promise<ProfilePrevi
 export function importAgentProfile(
   upload: ProfileUpload,
   values: {
-    id: string
-    name?: string
-    emoji?: string
+    agent: AgentConfig
     overwrite?: boolean
   },
 ): Promise<ProfileImportResult> {
   const body = buildProfileFormData(upload)
-  body.append("id", values.id)
-  if (values.name) body.append("name", values.name)
-  if (values.emoji) body.append("emoji", values.emoji)
+  body.append("agent", JSON.stringify(values.agent))
   body.append("overwrite", values.overwrite ? "true" : "false")
   return request<ProfileImportResult>("/api/agents/import", {
     method: "POST",

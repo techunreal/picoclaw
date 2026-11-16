@@ -11,6 +11,33 @@ const sizeClasses: Record<AvatarSize, string> = {
   lg: "size-10 text-xl",
 }
 
+const FALLBACK_EMOJIS = [
+  "🦉",
+  "🦊",
+  "🐼",
+  "🐸",
+  "🐙",
+  "🦁",
+  "🐧",
+  "🦄",
+  "🐻",
+  "🐨",
+  "🦋",
+  "🐬",
+  "🐢",
+  "🦖",
+  "🐳",
+  "🦜",
+]
+
+function fallbackEmoji(seed: string): string {
+  let hash = 0
+  for (let i = 0; i < seed.length; i += 1) {
+    hash = (hash * 31 + seed.charCodeAt(i)) >>> 0
+  }
+  return FALLBACK_EMOJIS[hash % FALLBACK_EMOJIS.length]
+}
+
 interface AgentAvatarProps {
   agentId?: string
   avatar?: AgentAvatarData | null
@@ -39,8 +66,7 @@ export function AgentAvatar({
   const text =
     avatar?.emoji?.trim() ||
     fallback ||
-    name?.trim().charAt(0).toUpperCase() ||
-    "?"
+    fallbackEmoji(agentId || name || "agent")
 
   return (
     <span

@@ -1,15 +1,37 @@
-import { IconAlertTriangle, IconFileZip, IconFolderOpen, IconUpload } from "@tabler/icons-react"
-import { useQueryClient } from "@tanstack/react-query"
-import { useEffect, useRef, useState } from "react"
+import {
+  IconAlertTriangle,
+  IconFileZip,
+  IconFolderOpen,
+  IconUpload,
+} from "@tabler/icons-react"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
+import { useEffect, useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
+import { toast } from "sonner"
 
 import {
   AgentApiError,
   importAgentProfile,
   inspectAgentProfile,
+  toAgentConfig,
+  uploadAgentAvatar,
+  type AgentConfig,
+  type AgentDefaults,
+  type AgentView,
   type ProfilePreview,
   type ProfileUpload,
 } from "@/api/agents"
+import { getModels } from "@/api/models"
+import { getSkills } from "@/api/skills"
+import {
+  AgentAvatarPicker,
+  AgentModelField,
+  AgentSkillsField,
+  AgentSubagentsField,
+  AgentWorkspaceField,
+} from "@/components/agent/agents/agent-form-fields"
+import { defaultSkillSelection } from "@/components/agent/agents/agent-form-utils"
+import { suggestAgentWorkspace } from "@/components/agent/agents/use-agents-page"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -26,6 +48,8 @@ import { showSaveSuccessOrRestartToast } from "@/lib/restart-required"
 
 interface ProfileImportDialogProps {
   open: boolean
+  agents: AgentView[]
+  defaults: AgentDefaults
   onOpenChange: (open: boolean) => void
 }
 
@@ -35,13 +59,18 @@ function formatSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
+function emptyAgent(): AgentConfig {
+  return { id: "", name: "" }
+}
+
 export function ProfileImportDialog({
   open,
+  agents,
+  defaults,
   onOpenChange,
 }: ProfileImportDialogProps) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
-  const folderInputRef = useRef<HTMLInputElement>(null)
 
   const [upload, setUpload] = useState<ProfileUpload | null>(null)
   const [sourceLabel, setSourceLabel] = useState("")
@@ -49,16 +78,56 @@ export function ProfileImportDialog({
   const [previewing, setPreviewing] = useState(false)
   const [importing, setImporting] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [agentId, setAgentId] = useState("")
-  const [name, setName] = useState("")
-  const [emoji, setEmoji] = useState("")
+  const [form, setForm] = useState<AgentConfig>(emptyAgent())
+  const [workspaceTouched, setWorkspaceTouched] = useState(false)
   const [overwrite, setOverwrite] = useState(false)
+  const [skillsDefaultsApplied, setSkillsDefaultsApplied] = useState(false)
+  const [pendingAvatar, setPendingAvatar] = useState<{
+    file: File
+    previewUrl: string
+  } | null>(null)
+  const [loadedExistingID, setLoadedExistingID] = useState<string | null>(null)
+
+  const modelsQuery = useQuery({
+    queryKey: ["models"],
+    queryFn: getModels,
+    enabled: open,
+  })
+  const skillsQuery = useQuery({
+    queryKey: ["skills", "import-picker"],
+    queryFn: () => getSkills(),
+    enabled: open,
+  })
+  const models = modelsQuery.data?.models ?? []
+  const skills = useMemo(() => skillsQuery.data?.skills ?? [], [skillsQuery.data])
+  const selectedSkills = form.skills ?? []
+
+  const setFolderInput = (node: HTMLInputElement | null) => {
+    if (!node) return
+    node.setAttribute("webkitdirectory", "")
+    node.setAttribute("directory", "")
+  }
 
   useEffect(() => {
-    if (!open) return
-    folderInputRef.current?.setAttribute("webkitdirectory", "")
-    folderInputRef.current?.setAttribute("directory", "")
-  }, [open])
+    return () => {
+      if (pendingAvatar) URL.revokeObjectURL(pendingAvatar.previewUrl)
+    }
+  }, [pendingAvatar])
+
+  useEffect(() => {
+    if (!open || skillsDefaultsApplied || skillsQuery.isLoading) return
+    if (form.skills !== undefined) {
+      setSkillsDefaultsApplied(true)
+      return
+    }
+    if (skills.length === 0) return
+    setForm((current) =>
+      current.skills === undefined
+        ? { ...current, skills: defaultSkillSelection(skills) }
+        : current,
+    )
+    setSkillsDefaultsApplied(true)
+  }, [open, skillsDefaultsApplied, skillsQuery.isLoading, skills, form.skills])
 
   const reset = () => {
     setUpload(null)
@@ -67,10 +136,12 @@ export function ProfileImportDialog({
     setPreviewing(false)
     setImporting(false)
     setError(null)
-    setAgentId("")
-    setName("")
-    setEmoji("")
+    setForm(emptyAgent())
+    setWorkspaceTouched(false)
     setOverwrite(false)
+    setSkillsDefaultsApplied(false)
+    setPendingAvatar(null)
+    setLoadedExistingID(null)
   }
 
   const handleOpenChange = (next: boolean) => {
@@ -78,19 +149,74 @@ export function ProfileImportDialog({
     onOpenChange(next)
   }
 
+  const existingAgent = agents.find((agent) => agent.id === form.id.trim())
+
+  const applyID = (nextID: string) => {
+    const trimmed = nextID.trim()
+    const existing = agents.find((agent) => agent.id === trimmed)
+    setForm((current) => {
+      if (existing) {
+        return {
+          ...toAgentConfig(existing),
+          id: trimmed,
+        }
+      }
+      return {
+        ...current,
+        id: nextID,
+        workspace: workspaceTouched
+          ? current.workspace
+          : suggestAgentWorkspace(defaults.workspace, nextID),
+      }
+    })
+    if (existing) {
+      if (loadedExistingID !== trimmed) {
+        setLoadedExistingID(trimmed)
+        setWorkspaceTouched(false)
+        setSkillsDefaultsApplied(existing.skills !== undefined)
+      }
+      return
+    }
+    if (loadedExistingID !== null) {
+      setLoadedExistingID(null)
+      setWorkspaceTouched(false)
+      setSkillsDefaultsApplied(false)
+      setForm((current) => ({
+        ...current,
+        name: current.name || "",
+        model: undefined,
+        skills: undefined,
+        subagents: undefined,
+      }))
+    }
+  }
+
   const runPreview = async (next: ProfileUpload, label: string) => {
     setUpload(next)
     setSourceLabel(label)
     setPreview(null)
     setError(null)
+    setPendingAvatar(null)
     setPreviewing(true)
     try {
       const result = await inspectAgentProfile(next)
       setPreview(result)
-      setAgentId(result.suggested_id)
-      setName(result.identity.name ?? "")
-      setEmoji(result.identity.emoji ?? "")
+      const existing = agents.find((agent) => agent.id === result.suggested_id)
+      const base = existing
+        ? { ...toAgentConfig(existing), id: result.suggested_id }
+        : {
+            id: result.suggested_id,
+            name: result.identity.name ?? "",
+            workspace: suggestAgentWorkspace(defaults.workspace, result.suggested_id),
+            skills: skills.length > 0 ? defaultSkillSelection(skills) : undefined,
+          }
+      setForm(base)
+      setWorkspaceTouched(false)
       setOverwrite(false)
+      setSkillsDefaultsApplied(
+        existing ? existing.skills !== undefined : skills.length > 0,
+      )
+      setLoadedExistingID(existing ? existing.id : null)
     } catch (err) {
       setError(
         err instanceof AgentApiError
@@ -116,9 +242,13 @@ export function ProfileImportDialog({
     void runPreview({ files: list }, `${root} (${list.length})`)
   }
 
+  const handleAvatarSelect = (file: File) => {
+    setPendingAvatar({ file, previewUrl: URL.createObjectURL(file) })
+  }
+
   const handleImport = async () => {
     if (!upload || !preview) return
-    if (!agentId.trim()) {
+    if (!form.id.trim()) {
       setError(t("agents.importIdRequired"))
       return
     }
@@ -126,11 +256,22 @@ export function ProfileImportDialog({
     setError(null)
     try {
       const result = await importAgentProfile(upload, {
-        id: agentId.trim(),
-        name: name.trim(),
-        emoji: emoji.trim(),
+        agent: {
+          ...form,
+          id: form.id.trim(),
+          name: form.name?.trim(),
+          workspace: form.workspace?.trim(),
+          skills: form.skills,
+        },
         overwrite,
       })
+      if (pendingAvatar) {
+        try {
+          await uploadAgentAvatar(result.agent, pendingAvatar.file)
+        } catch {
+          toast.error(t("agents.avatarUploadFailed"))
+        }
+      }
       showSaveSuccessOrRestartToast(
         t,
         t("agents.importSuccess", { id: result.agent }),
@@ -191,7 +332,7 @@ export function ProfileImportDialog({
                 {t("agents.importFolderHint")}
               </span>
               <input
-                ref={folderInputRef}
+                ref={setFolderInput}
                 type="file"
                 className="hidden"
                 onChange={(event) => {
@@ -272,9 +413,7 @@ export function ProfileImportDialog({
                       {preview.ignored.map((item) => (
                         <li key={item}>{item}</li>
                       ))}
-                      {preview.ignored_count > preview.ignored.length && (
-                        <li>…</li>
-                      )}
+                      {preview.ignored_count > preview.ignored.length && <li>…</li>}
                     </ul>
                   </details>
                 )}
@@ -286,41 +425,116 @@ export function ProfileImportDialog({
                 ))}
               </div>
 
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div className="grid gap-2">
-                  <Label htmlFor="import-agent-id">{t("agents.importId")}</Label>
-                  <Input
-                    id="import-agent-id"
-                    value={agentId}
-                    onChange={(event) => setAgentId(event.target.value)}
-                    autoComplete="off"
-                    spellCheck={false}
-                    disabled={importing}
-                  />
+              <fieldset className="flex flex-col gap-4">
+                <legend className="mb-1 text-sm font-semibold">
+                  {t("agents.sectionIdentity")}
+                </legend>
+
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="grid gap-2">
+                    <Label htmlFor="import-agent-id">{t("agents.importId")}</Label>
+                    <Input
+                      id="import-agent-id"
+                      value={form.id}
+                      onChange={(event) => applyID(event.target.value)}
+                      autoComplete="off"
+                      spellCheck={false}
+                      disabled={importing}
+                    />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="import-agent-name">{t("agents.name")}</Label>
+                    <Input
+                      id="import-agent-name"
+                      value={form.name ?? ""}
+                      onChange={(event) =>
+                        setForm((current) => ({
+                          ...current,
+                          name: event.target.value,
+                        }))
+                      }
+                      maxLength={120}
+                      disabled={importing}
+                    />
+                  </div>
                 </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="import-agent-name">{t("agents.name")}</Label>
-                  <Input
-                    id="import-agent-name"
-                    value={name}
-                    onChange={(event) => setName(event.target.value)}
-                    maxLength={120}
-                    disabled={importing}
-                  />
-                </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="import-agent-emoji">
-                    {t("agents.avatarEmoji")}
-                  </Label>
-                  <Input
-                    id="import-agent-emoji"
-                    value={emoji}
-                    onChange={(event) => setEmoji(event.target.value)}
-                    maxLength={16}
-                    disabled={importing}
-                  />
-                </div>
-              </div>
+
+                {existingAgent && (
+                  <p className="text-muted-foreground text-xs">
+                    {t("agents.importExistingHint")}
+                  </p>
+                )}
+
+                <AgentAvatarPicker
+                  agentId={existingAgent ? form.id : undefined}
+                  avatar={form.avatar}
+                  name={form.name || form.id}
+                  previewUrl={pendingAvatar?.previewUrl}
+                  disabled={importing}
+                  canRemove={Boolean(pendingAvatar)}
+                  onSelectFile={handleAvatarSelect}
+                  onRemove={() => setPendingAvatar(null)}
+                />
+              </fieldset>
+
+              <fieldset className="flex flex-col gap-4">
+                <legend className="mb-1 text-sm font-semibold">
+                  {t("agents.sectionRuntime")}
+                </legend>
+
+                <AgentWorkspaceField
+                  idPrefix="import"
+                  defaultsWorkspace={defaults.workspace}
+                  agentId={form.id}
+                  value={form.workspace}
+                  onChange={(workspace) => {
+                    setWorkspaceTouched(true)
+                    setForm((current) => ({ ...current, workspace }))
+                  }}
+                  disabled={importing}
+                />
+
+                <AgentModelField
+                  idPrefix="import"
+                  models={models}
+                  value={form.model?.primary}
+                  defaultModelName={defaults.model_name}
+                  onChange={(primary) =>
+                    setForm((current) => ({
+                      ...current,
+                      model: primary ? { primary } : undefined,
+                    }))
+                  }
+                  disabled={importing}
+                />
+
+                <AgentSkillsField
+                  idPrefix="import"
+                  skills={skills}
+                  selected={selectedSkills}
+                  onChange={(next) =>
+                    setForm((current) => ({ ...current, skills: next }))
+                  }
+                  loading={skillsQuery.isLoading}
+                  disabled={importing}
+                />
+              </fieldset>
+
+              <fieldset className="flex flex-col gap-4">
+                <legend className="mb-1 text-sm font-semibold">
+                  {t("agents.sectionSubagents")}
+                </legend>
+
+                <AgentSubagentsField
+                  agents={agents}
+                  currentId={form.id}
+                  value={form.subagents}
+                  onChange={(subagents) =>
+                    setForm((current) => ({ ...current, subagents }))
+                  }
+                  disabled={importing}
+                />
+              </fieldset>
 
               <label className="flex items-start gap-2 rounded-xl border p-3 text-sm">
                 <input
@@ -353,7 +567,7 @@ export function ProfileImportDialog({
           <Button
             type="button"
             onClick={() => void handleImport()}
-            disabled={!preview || importing || previewing || !agentId.trim()}
+            disabled={!preview || importing || previewing || !form.id.trim()}
             className="gap-1.5"
           >
             <IconUpload className="size-4" />

@@ -98,7 +98,7 @@ export function useAgentsPage() {
     saveMutation.mutate({ agents: nextAgents, dispatch: nextDispatch })
   }
 
-  const saveAgent = (agent: AgentConfig) => {
+  const saveAgent = async (agent: AgentConfig): Promise<boolean> => {
     const normalized: AgentConfig = {
       ...agent,
       default: agent.default || agents.length === 0,
@@ -119,9 +119,16 @@ export function useAgentsPage() {
     } else if (!next.some((item) => item.default)) {
       next = next.map((item, index) => ({ ...item, default: index === 0 }))
     }
-    persist(next, dispatch.rules.length > 0 ? dispatch : null, {
-      selectId: normalized.id,
-    })
+    setSelectedId(normalized.id)
+    try {
+      await saveMutation.mutateAsync({
+        agents: next,
+        dispatch: dispatch.rules.length > 0 ? dispatch : null,
+      })
+      return true
+    } catch {
+      return false
+    }
   }
 
   const deleteAgent = () => {
