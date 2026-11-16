@@ -213,6 +213,28 @@ func NewAgentInstance(
 
 	contextWindow := defaults.ContextWindow
 	if contextWindow == 0 {
+		// Ask the endpoint for its advertised context length first (llama.cpp,
+		// vLLM, LM Studio and compatible servers expose it in /models).
+		if modelCfg := providers.FindModelConfigForContext(cfg, model); modelCfg != nil {
+			contextWindow = providers.DetectModelContextWindow(modelCfg)
+			if contextWindow > 0 {
+				logger.InfoCF("agent", "Model context window detected", map[string]any{
+					"model":   modelCfg.Model,
+					"context": contextWindow,
+				})
+			} else {
+				logger.WarnCF("agent", "Model context window not detected; using heuristic", map[string]any{
+					"model": modelCfg.Model,
+					"base":  modelCfg.APIBase,
+				})
+			}
+		} else {
+			logger.WarnCF("agent", "Model config not resolved for context window detection", map[string]any{
+				"model": model,
+			})
+		}
+	}
+	if contextWindow == 0 {
 		// Default heuristic: 4x the output token limit.
 		// Most models have context windows well above their output limits
 		// (e.g., GPT-4o 128k ctx / 16k out, Claude 200k ctx / 8k out).
