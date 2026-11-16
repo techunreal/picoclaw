@@ -1,6 +1,10 @@
 package providers
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/sipeed/picoclaw/pkg/config"
+)
 
 func TestOpenCodeProviderCatalog(t *testing.T) {
 	goOption, ok := modelProviderOptionForName("opencode-go")
@@ -33,5 +37,32 @@ func TestOpenCodeProviderCatalog(t *testing.T) {
 	}
 	if !IsSupportedModelProvider("opencode-zen") || !IsHTTPAPIProtocol("opencode-zen") {
 		t.Fatal("opencode-zen should be a supported HTTP API provider")
+	}
+}
+
+func TestCreateProviderFromConfig_OpenCode(t *testing.T) {
+	for _, item := range []struct {
+		provider string
+		model    string
+	}{
+		{provider: "opencode-go", model: "hy4-flash-free"},
+		{provider: "opencode-zen", model: "deepseek-v4-pro"},
+	} {
+		cfg := &config.ModelConfig{
+			ModelName: "opencode test",
+			Provider:  item.provider,
+			Model:     item.model,
+		}
+		cfg.SetAPIKey("sk-test")
+		provider, modelID, err := CreateProviderFromConfig(cfg)
+		if err != nil {
+			t.Fatalf("%s: CreateProviderFromConfig() error = %v", item.provider, err)
+		}
+		if provider == nil {
+			t.Fatalf("%s: CreateProviderFromConfig() returned nil provider", item.provider)
+		}
+		if modelID != item.model {
+			t.Fatalf("%s: modelID = %q, want %q", item.provider, modelID, item.model)
+		}
 	}
 }
