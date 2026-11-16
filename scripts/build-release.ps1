@@ -48,7 +48,8 @@ Write-Host "Building picoclaw.exe"
 if ($LASTEXITCODE -ne 0) { throw "picoclaw.exe build failed." }
 
 Write-Host "Building picoclaw-launcher.exe"
-& $go build -tags "goolm,stdjson" -trimpath -ldflags $ldflags -o (Join-Path $build "picoclaw-launcher.exe") ./web/backend
+$launcherLdflags = "$ldflags -H=windowsgui"
+& $go build -tags "goolm,stdjson" -trimpath -ldflags $launcherLdflags -o (Join-Path $build "picoclaw-launcher.exe") ./web/backend
 if ($LASTEXITCODE -ne 0) { throw "picoclaw-launcher.exe build failed." }
 
 $packageArgs = @{

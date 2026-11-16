@@ -1,5 +1,5 @@
 import { IconGhost, IconPlus } from "@tabler/icons-react"
-import { useAtom } from "jotai"
+import { useAtom, useAtomValue, useSetAtom } from "jotai"
 import {
   type ChangeEvent,
   type ClipboardEvent,
@@ -19,7 +19,6 @@ import {
 import { ChatEmptyState } from "@/components/chat/chat-empty-state"
 import { ChatMemoryToggle } from "@/components/chat/chat-memory-toggle"
 import { ModelSelector } from "@/components/chat/model-selector"
-import { SessionHistoryMenu } from "@/components/chat/session-history-menu"
 import { TypingIndicator } from "@/components/chat/typing-indicator"
 import { UserMessage } from "@/components/chat/user-message"
 import { PageHeader } from "@/components/page-header"
@@ -42,12 +41,12 @@ import { isIncognitoSession } from "@/features/chat/state"
 import { useChatModels } from "@/hooks/use-chat-models"
 import { useGateway } from "@/hooks/use-gateway"
 import { usePicoChat } from "@/hooks/use-pico-chat"
-import { useSessionHistory } from "@/hooks/use-session-history"
 import type { AssistantDetailVisibility } from "@/store/chat"
 import type { ConnectionState } from "@/store/chat"
 import type { ChatAttachment } from "@/store/chat"
 import {
   assistantDetailVisibilityAtom,
+  pendingSessionAtom,
   shouldShowAssistantMessage,
 } from "@/store/chat"
 import type { GatewayState } from "@/store/gateway"
@@ -144,6 +143,14 @@ export function ChatPage() {
   } = usePicoChat()
   const isIncognito = isIncognitoSession(activeSessionId)
 
+  const pendingSessionId = useAtomValue(pendingSessionAtom)
+  const setPendingSessionId = useSetAtom(pendingSessionAtom)
+  useEffect(() => {
+    if (!pendingSessionId) return
+    switchSession(pendingSessionId)
+    setPendingSessionId(null)
+  }, [pendingSessionId, switchSession, setPendingSessionId])
+
   const { state: gwState } = useGateway()
   const isGatewayRunning = gwState === "running"
 
@@ -163,19 +170,6 @@ export function ChatPage() {
     gatewayState: gwState,
   })
   const canInput = inputDisabledReason === null
-
-  const {
-    sessions,
-    hasMore,
-    loadError,
-    loadErrorMessage,
-    observerRef,
-    loadSessions,
-    handleDeleteSession,
-  } = useSessionHistory({
-    activeSessionId,
-    onDeletedActiveSession: newChat,
-  })
 
   const syncScrollState = (element: HTMLDivElement) => {
     const { clientHeight, scrollHeight, scrollTop } = element
@@ -409,22 +403,6 @@ export function ChatPage() {
           <IconGhost className="size-4" />
           <span className="hidden sm:inline">{t("chat.incognitoBadge")}</span>
         </Button>
-
-        <SessionHistoryMenu
-          sessions={sessions}
-          activeSessionId={activeSessionId}
-          hasMore={hasMore}
-          loadError={loadError}
-          loadErrorMessage={loadErrorMessage}
-          observerRef={observerRef}
-          onOpenChange={(open) => {
-            if (open) {
-              void loadSessions(true)
-            }
-          }}
-          onSwitchSession={switchSession}
-          onDeleteSession={handleDeleteSession}
-        />
       </PageHeader>
 
       <div

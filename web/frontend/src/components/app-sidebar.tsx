@@ -2,8 +2,11 @@ import {
   IconActivity,
   IconArchive,
   IconAtom,
+  IconBroadcast,
   IconCalendarTime,
+  IconChevronDown,
   IconChevronLeft,
+  IconChevronRight,
   IconKey,
   IconListDetails,
   IconMessageCircle,
@@ -12,12 +15,15 @@ import {
   IconSparkles,
   IconTools,
   IconUsers,
-  IconBroadcast,
 } from "@tabler/icons-react"
-import { Link, useRouterState } from "@tanstack/react-router"
+import { Link, useNavigate, useRouterState } from "@tanstack/react-router"
+import { useQuery } from "@tanstack/react-query"
+import { useAtomValue, useSetAtom } from "jotai"
 import * as React from "react"
 import { useTranslation } from "react-i18next"
 
+import { getAgents } from "@/api/agents"
+import { getSessions } from "@/api/sessions"
 import {
   Sidebar,
   SidebarContent,
@@ -31,6 +37,7 @@ import {
   SidebarRail,
   useSidebar,
 } from "@/components/ui/sidebar"
+import { chatAtom, pendingSessionAtom } from "@/store/chat"
 
 interface NavItem {
   title: string
@@ -51,6 +58,8 @@ const SETTINGS_PATHS = [
   "/credentials",
   "/channels",
   "/agent/agents",
+  "/agent/files",
+  "/agent/skills",
   "/agent/tools",
   "/cron",
   "/backup",
@@ -61,43 +70,6 @@ function isSettingsPath(pathname: string) {
   return SETTINGS_PATHS.some(
     (path) => pathname === path || pathname.startsWith(`${path}/`),
   )
-}
-
-const workspaceGroup: NavGroup = {
-  label: "navigation.agent_group",
-  items: [
-    {
-      title: "navigation.agents",
-      url: "/agent/agents",
-      icon: IconUsers,
-      translateTitle: true,
-      tour: "agents-nav",
-    },
-    {
-      title: "navigation.memory",
-      url: "/agent/files",
-      icon: IconNotebook,
-      translateTitle: true,
-    },
-    {
-      title: "navigation.skills",
-      url: "/agent/skills",
-      icon: IconSparkles,
-      translateTitle: true,
-    },
-    {
-      title: "navigation.tools",
-      url: "/agent/tools",
-      icon: IconTools,
-      translateTitle: true,
-    },
-    {
-      title: "navigation.subagents",
-      url: "/agent/subagents",
-      icon: IconActivity,
-      translateTitle: true,
-    },
-  ],
 }
 
 const settingsGroup: NavGroup = {
@@ -126,6 +98,18 @@ const settingsGroup: NavGroup = {
       title: "navigation.agents",
       url: "/agent/agents",
       icon: IconUsers,
+      translateTitle: true,
+    },
+    {
+      title: "navigation.memory",
+      url: "/agent/files",
+      icon: IconNotebook,
+      translateTitle: true,
+    },
+    {
+      title: "navigation.skills",
+      url: "/agent/skills",
+      icon: IconSparkles,
       translateTitle: true,
     },
     {
@@ -161,12 +145,35 @@ const settingsGroup: NavGroup = {
   ],
 }
 
+interface AgentChatGroup {
+  id: string
+  label: string
+  isDefault: boolean
+}
+
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const routerState = useRouterState()
+  const navigate = useNavigate()
   const { t } = useTranslation()
   const { isMobile, setOpenMobile } = useSidebar()
   const currentPath = routerState.location.pathname
   const settingsMode = isSettingsPath(currentPath)
+  const setPendingSession = useSetAtom(pendingSessionAtom)
+  const chatState = useAtomValue(chatAtom)
+
+  const [expandedAgents, setExpandedAgents] = React.useState<
+    Record<string, boolean>
+  >({})
+
+  const agentsQuery = useQuery({
+    queryKey: ["sidebar-agents"],
+    queryFn: getAgents,
+  })
+  const sessionsQuery = useQuery({
+    queryKey: ["sidebar-sessions"],
+    queryFn: () => getSessions(0, 20),
+    refetchOnWindowFocus: true,
+  })
 
   const handleNavItemClick = React.useCallback(() => {
     if (isMobile) {
@@ -174,7 +181,33 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     }
   }, [isMobile, setOpenMobile])
 
-  const groups: NavGroup[] = settingsMode ? [settingsGroup] : [workspaceGroup]
+  const agentGroups: AgentChatGroup[] = React.useMemo(() => {
+    const agents = agentsQuery.data?.agents
+    if (!agents || agents.length === 0) {
+      return [{ id: "main", label: "Pico", isDefault: true }]
+    }
+    return agents.map((agent) => ({
+      id: agent.id,
+      label:
+        agent.name?.trim() ||
+        (agent.id === "main" ? "Pico" : agent.id),
+      isDefault: agent.default === true,
+    }))
+  }, [agentsQuery.data])
+
+  const sessions = sessionsQuery.data ?? []
+
+  const openSession = React.useCallback(
+    (sessionId: string) => {
+      setPendingSession(sessionId)
+      void navigate({ to: "/" })
+      if (isMobile) setOpenMobile(false)
+    },
+    [navigate, setPendingSession, isMobile, setOpenMobile],
+  )
+
+  const isExpanded = (agent: AgentChatGroup) =>
+    expandedAgents[agent.id] ?? agent.isDefault
 
   return (
     <Sidebar
@@ -182,104 +215,171 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       className="bg-background border-r-border/20 border-r pt-2"
     >
       <SidebarContent className="bg-background">
-        {settingsMode && (
-          <SidebarGroup className="px-2 pt-1 pb-0">
-            <Link
-              to="/"
-              onClick={handleNavItemClick}
-              className="text-muted-foreground hover:bg-muted/60 hover:text-foreground flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium transition-colors"
-            >
-              <IconChevronLeft className="size-3.5" />
-              {t("navigation.back_to_app")}
-            </Link>
-          </SidebarGroup>
-        )}
-
-        {!settingsMode && (
-          <SidebarGroup className="px-2 py-0">
-            <SidebarMenu>
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  asChild
-                  isActive={currentPath === "/"}
-                  onClick={handleNavItemClick}
-                  data-tour="chat-nav"
-                  className={`h-8 px-2.5 text-[13px] ${currentPath === "/" ? "bg-accent/80 text-foreground font-medium" : "text-muted-foreground hover:bg-muted/60"}`}
-                >
-                  <Link to="/">
-                    <IconMessageCircle
-                      className={`size-4 ${currentPath === "/" ? "opacity-100" : "opacity-60"}`}
-                    />
-                    <span>{t("navigation.chat")}</span>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-            </SidebarMenu>
-          </SidebarGroup>
-        )}
-
-        {groups.map((group, groupIndex) => (
-          <SidebarGroup
-            key={group.label ?? `group-${groupIndex}`}
-            className="px-2 py-0"
-          >
-            {group.label && (
-              <SidebarGroupLabel
-                className="text-muted-foreground/70 h-7 px-2.5 text-[10px] font-semibold tracking-wider uppercase"
-                data-tour={
-                  !settingsMode && group.label === "navigation.agent_group"
-                    ? "agent-group"
-                    : undefined
-                }
+        {settingsMode ? (
+          <>
+            <SidebarGroup className="px-2 pt-1 pb-0">
+              <Link
+                to="/"
+                onClick={handleNavItemClick}
+                className="text-muted-foreground hover:bg-muted/60 hover:text-foreground flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium transition-colors"
               >
-                {t(group.label)}
-              </SidebarGroupLabel>
-            )}
-            {settingsMode && (
+                <IconChevronLeft className="size-3.5" />
+                {t("navigation.back_to_app")}
+              </Link>
+            </SidebarGroup>
+            <SidebarGroup className="px-2 py-0">
               <SidebarGroupLabel
                 className="text-muted-foreground/70 h-8 px-2.5 text-[10px] font-semibold tracking-wider uppercase"
                 data-tour="settings-nav"
               >
                 {t("navigation.settings")}
               </SidebarGroupLabel>
-            )}
-            <SidebarGroupContent>
+              <SidebarGroupContent>
+                <SidebarMenu>
+                  {settingsGroup.items.map((item) => {
+                    const isActive =
+                      currentPath === item.url ||
+                      currentPath.startsWith(`${item.url}/`)
+                    return (
+                      <SidebarMenuItem key={`${item.url}-${item.title}`}>
+                        <SidebarMenuButton
+                          asChild
+                          isActive={isActive}
+                          onClick={handleNavItemClick}
+                          data-tour={item.tour}
+                          className={`h-8 px-2.5 text-[13px] ${isActive ? "bg-accent/80 text-foreground font-medium" : "text-muted-foreground hover:bg-muted/60"}`}
+                        >
+                          <Link to={item.url}>
+                            <item.icon
+                              className={`size-4 ${isActive ? "opacity-100" : "opacity-60"}`}
+                            />
+                            <span
+                              className={
+                                isActive ? "opacity-100" : "opacity-80"
+                              }
+                            >
+                              {item.translateTitle === false
+                                ? item.title
+                                : t(item.title)}
+                            </span>
+                          </Link>
+                        </SidebarMenuButton>
+                      </SidebarMenuItem>
+                    )
+                  })}
+                </SidebarMenu>
+              </SidebarGroupContent>
+            </SidebarGroup>
+          </>
+        ) : (
+          <>
+            <SidebarGroup className="px-2 py-0">
               <SidebarMenu>
-                {group.items.map((item) => {
-                  const isActive =
-                    currentPath === item.url ||
-                    (item.url !== "/" && currentPath.startsWith(`${item.url}/`))
-                  return (
-                    <SidebarMenuItem key={`${item.url}-${item.title}`}>
-                      <SidebarMenuButton
-                        asChild
-                        isActive={isActive}
-                        onClick={handleNavItemClick}
-                        data-tour={item.tour}
-                        className={`h-8 px-2.5 text-[13px] ${isActive ? "bg-accent/80 text-foreground font-medium" : "text-muted-foreground hover:bg-muted/60"}`}
-                      >
-                        <Link to={item.url}>
-                          <item.icon
-                            className={`size-4 ${isActive ? "opacity-100" : "opacity-60"}`}
-                          />
-                          <span
-                            className={
-                              isActive ? "opacity-100" : "opacity-80"
-                            }
-                          >
-                            {item.translateTitle === false
-                              ? item.title
-                              : t(item.title)}
-                          </span>
-                        </Link>
-                      </SidebarMenuButton>
-                    </SidebarMenuItem>
-                  )
-                })}
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    asChild
+                    isActive={currentPath === "/"}
+                    onClick={handleNavItemClick}
+                    data-tour="chat-nav"
+                    className={`h-8 px-2.5 text-[13px] ${currentPath === "/" ? "bg-accent/80 text-foreground font-medium" : "text-muted-foreground hover:bg-muted/60"}`}
+                  >
+                    <Link to="/">
+                      <IconMessageCircle
+                        className={`size-4 ${currentPath === "/" ? "opacity-100" : "opacity-60"}`}
+                      />
+                      <span>{t("navigation.chat")}</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    asChild
+                    isActive={currentPath.startsWith("/agent/subagents")}
+                    onClick={handleNavItemClick}
+                    className={`h-8 px-2.5 text-[13px] ${currentPath.startsWith("/agent/subagents") ? "bg-accent/80 text-foreground font-medium" : "text-muted-foreground hover:bg-muted/60"}`}
+                  >
+                    <Link to="/agent/subagents">
+                      <IconActivity className="size-4 opacity-60" />
+                      <span>{t("navigation.subagents")}</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
               </SidebarMenu>
-            </SidebarGroupContent>
-          </SidebarGroup>
-        ))}
+            </SidebarGroup>
+
+            <div className="border-border/40 mx-3 my-2 border-t" data-tour="agent-group" />
+
+            <div className="flex min-h-0 flex-1 flex-col">
+              <SidebarGroup className="px-2 py-0">
+                <SidebarGroupLabel className="text-muted-foreground/70 h-7 px-2.5 text-[10px] font-semibold tracking-wider uppercase">
+                  {t("navigation.chats")}
+                </SidebarGroupLabel>
+                <SidebarGroupContent>
+                  <SidebarMenu>
+                    {agentGroups.map((agent) => {
+                      const expanded = isExpanded(agent)
+                      const agentSessions = agent.isDefault ? sessions : []
+                      return (
+                        <React.Fragment key={agent.id}>
+                          <SidebarMenuItem>
+                            <SidebarMenuButton
+                              onClick={() =>
+                                setExpandedAgents((prev) => ({
+                                  ...prev,
+                                  [agent.id]: !expanded,
+                                }))
+                              }
+                              className="text-muted-foreground hover:bg-muted/60 h-8 px-2.5 text-[13px]"
+                            >
+                              {expanded ? (
+                                <IconChevronDown className="size-3.5 shrink-0 opacity-60" />
+                              ) : (
+                                <IconChevronRight className="size-3.5 shrink-0 opacity-60" />
+                              )}
+                              <IconUsers className="size-4 shrink-0 opacity-70" />
+                              <span className="truncate">{agent.label}</span>
+                            </SidebarMenuButton>
+                          </SidebarMenuItem>
+                          {expanded && (
+                            <div className="border-border/30 ml-4 border-l pl-1">
+                              {agentSessions.length === 0 && (
+                                <p className="text-muted-foreground/70 px-2.5 py-1.5 text-[11px]">
+                                  {t("navigation.no_chats")}
+                                </p>
+                              )}
+                              {agentSessions.map((session) => {
+                                const active =
+                                  session.id === chatState.activeSessionId
+                                const title =
+                                  session.title.trim() ||
+                                  t("chat.untitledChat")
+                                return (
+                                  <button
+                                    key={session.id}
+                                    type="button"
+                                    onClick={() => openSession(session.id)}
+                                    title={title}
+                                    className={`block w-full truncate rounded-md px-2.5 py-1.5 text-left text-[12px] transition-colors ${
+                                      active
+                                        ? "bg-accent/70 text-foreground font-medium"
+                                        : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+                                    }`}
+                                  >
+                                    {title}
+                                  </button>
+                                )
+                              })}
+                            </div>
+                          )}
+                        </React.Fragment>
+                      )
+                    })}
+                  </SidebarMenu>
+                </SidebarGroupContent>
+              </SidebarGroup>
+            </div>
+          </>
+        )}
       </SidebarContent>
 
       <SidebarFooter className="bg-background border-border/20 border-t px-2 py-2">

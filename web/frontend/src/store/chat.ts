@@ -88,6 +88,9 @@ const DEFAULT_CHAT_STATE: ChatStoreState = {
 }
 
 export const chatAtom = atom<ChatStoreState>(DEFAULT_CHAT_STATE)
+
+// pendingSessionAtom carries a session id from the sidebar into the chat page.
+export const pendingSessionAtom = atom<string | null>(null)
 export const assistantDetailVisibilityAtom =
   atomWithStorage<AssistantDetailVisibility>(
     ASSISTANT_DETAIL_VISIBILITY_STORAGE_KEY,

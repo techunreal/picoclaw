@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils"
 interface PageHeaderProps {
   title: string
   titleExtra?: ReactNode
+  leading?: ReactNode
   children?: ReactNode
   className?: string
 }
@@ -14,6 +15,7 @@ interface PageHeaderProps {
 export function PageHeader({
   title,
   titleExtra,
+  leading,
   children,
   className,
 }: PageHeaderProps) {
@@ -28,6 +30,7 @@ export function PageHeader({
         <SidebarTrigger className="border-border/60 bg-background text-muted-foreground hover:bg-accent hover:text-foreground hidden h-9 w-9 rounded-lg border sm:flex [&>svg]:size-5">
           <IconMenu2 />
         </SidebarTrigger>
+        {leading}
         <h2 className="text-foreground/90 text-xl font-medium tracking-tight">
           {title}
         </h2>

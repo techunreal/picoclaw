@@ -1,4 +1,5 @@
-import { IconLoader2 } from "@tabler/icons-react"
+import { IconChevronLeft, IconLoader2 } from "@tabler/icons-react"
+import { Link } from "@tanstack/react-router"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 
@@ -689,6 +690,15 @@ export function ChannelConfigPage({ channelName }: ChannelConfigPageProps) {
     <div className="flex h-full flex-col">
       <PageHeader
         title={channelDisplayName}
+        leading={
+          <Link
+            to="/channels"
+            className="text-muted-foreground hover:bg-muted/60 hover:text-foreground inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium transition-colors"
+          >
+            <IconChevronLeft className="size-4" />
+            {t("channels.page.backToList")}
+          </Link>
+        }
         titleExtra={
           channel &&
           docsUrl && (
