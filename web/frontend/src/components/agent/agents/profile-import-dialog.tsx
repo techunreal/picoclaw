@@ -154,26 +154,13 @@ export function ProfileImportDialog({
   const applyID = (nextID: string) => {
     const trimmed = nextID.trim()
     const existing = agents.find((agent) => agent.id === trimmed)
-    setForm((current) => {
-      if (existing) {
-        return {
-          ...toAgentConfig(existing),
-          id: trimmed,
-        }
-      }
-      return {
-        ...current,
-        id: nextID,
-        workspace: workspaceTouched
-          ? current.workspace
-          : suggestAgentWorkspace(defaults.workspace, nextID),
-      }
-    })
     if (existing) {
       if (loadedExistingID !== trimmed) {
+        setForm({ ...toAgentConfig(existing), id: trimmed })
         setLoadedExistingID(trimmed)
         setWorkspaceTouched(false)
         setSkillsDefaultsApplied(existing.skills !== undefined)
+        setPendingAvatar(null)
       }
       return
     }
@@ -181,14 +168,21 @@ export function ProfileImportDialog({
       setLoadedExistingID(null)
       setWorkspaceTouched(false)
       setSkillsDefaultsApplied(false)
-      setForm((current) => ({
-        ...current,
-        name: current.name || "",
-        model: undefined,
-        skills: undefined,
-        subagents: undefined,
-      }))
+      setPendingAvatar(null)
+      setForm({
+        id: nextID,
+        name: preview?.identity.name ?? "",
+        workspace: suggestAgentWorkspace(defaults.workspace, nextID),
+      })
+      return
     }
+    setForm((current) => ({
+      ...current,
+      id: nextID,
+      workspace: workspaceTouched
+        ? current.workspace
+        : suggestAgentWorkspace(defaults.workspace, nextID),
+    }))
   }
 
   const runPreview = async (next: ProfileUpload, label: string) => {
