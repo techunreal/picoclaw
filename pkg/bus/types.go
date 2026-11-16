@@ -15,6 +15,9 @@ type SenderInfo struct {
 type InboundContext struct {
 	Channel string `json:"channel"`
 	Account string `json:"account,omitempty"`
+	// AgentID is an explicit agent target (for example the WebUI chat agent
+	// selector). When set and valid it overrides dispatch rules.
+	AgentID string `json:"agent_id,omitempty"`
 
 	ChatID   string `json:"chat_id"`
 	ChatType string `json:"chat_type,omitempty"` // direct / group / channel

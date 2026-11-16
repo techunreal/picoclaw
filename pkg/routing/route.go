@@ -42,6 +42,19 @@ func (r *RouteResolver) ResolveRoute(inbound bus.InboundContext) ResolvedRoute {
 	identityLinks := cloneIdentityLinks(r.cfg.Session.IdentityLinks)
 	view := buildDispatchView(inbound, identityLinks)
 
+	if explicit := strings.TrimSpace(inbound.AgentID); explicit != "" {
+		normalized := NormalizeAgentID(explicit)
+		if r.hasAgent(normalized) {
+			return ResolvedRoute{
+				AgentID:       normalized,
+				Channel:       channel,
+				AccountID:     accountID,
+				SessionPolicy: r.sessionPolicy(nil),
+				MatchedBy:     "explicit",
+			}
+		}
+	}
+
 	if rule := r.matchDispatchRule(view); rule != nil {
 		return ResolvedRoute{
 			AgentID:       r.pickAgentID(rule.Agent),
@@ -59,6 +72,18 @@ func (r *RouteResolver) ResolveRoute(inbound bus.InboundContext) ResolvedRoute {
 		SessionPolicy: r.sessionPolicy(nil),
 		MatchedBy:     "default",
 	}
+}
+
+func (r *RouteResolver) hasAgent(agentID string) bool {
+	if agentID == DefaultAgentID {
+		return true
+	}
+	for _, agent := range r.cfg.Agents.List {
+		if NormalizeAgentID(agent.ID) == agentID {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *RouteResolver) pickAgentID(agentID string) string {
@@ -92,9 +117,8 @@ func (r *RouteResolver) resolveDefaultAgentID() string {
 			}
 		}
 	}
-	if id := strings.TrimSpace(agents[0].ID); id != "" {
-		return NormalizeAgentID(id)
-	}
+	// No explicit default: Pico (main) stays the default so adding another
+	// agent never silently takes over unrouted chats.
 	return DefaultAgentID
 }
 

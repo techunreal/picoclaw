@@ -154,7 +154,6 @@ func (h *Handler) handleImportAgentProfile(w http.ResponseWriter, r *http.Reques
 		created.ID = agentID
 		created.Name = name
 		created.Workspace = strings.TrimSpace(incoming.Workspace)
-		created.Default = len(candidates) == 0
 		created.Avatar = mergeProfileAvatar(incoming.Avatar, preview.Identity.Emoji)
 		candidates = append(candidates, created)
 	}

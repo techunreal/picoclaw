@@ -36,9 +36,11 @@ type picoConn struct {
 	// incognito marks the session as memory-only: history is never persisted
 	// and does not show up in the session list.
 	incognito bool
-	writeMu   sync.Mutex
-	closed    atomic.Bool
-	cancel    context.CancelFunc // cancels per-connection goroutines (e.g. pingLoop)
+	// agentID optionally targets a specific agent for this chat connection.
+	agentID string
+	writeMu sync.Mutex
+	closed  atomic.Bool
+	cancel  context.CancelFunc // cancels per-connection goroutines (e.g. pingLoop)
 }
 
 var allowedInlineImageMIMETypes = map[string]struct{}{
@@ -1052,6 +1054,7 @@ func (c *PicoChannel) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		// Incognito sessions never use memory, regardless of the global switch.
 		pc.memoryEnabled = "false"
 	}
+	pc.agentID = strings.TrimSpace(r.URL.Query().Get("agent"))
 
 	logger.InfoCF("pico", "WebSocket client connected", map[string]any{
 		"conn_id":    pc.id,
@@ -1261,6 +1264,9 @@ func (c *PicoChannel) handleMessageSend(pc *picoConn, msg PicoMessage) {
 	if pc.incognito {
 		metadata["incognito"] = "true"
 	}
+	if pc.agentID != "" {
+		metadata["agent_id"] = pc.agentID
+	}
 
 	logger.DebugCF("pico", "Received message", map[string]any{
 		"session_id": sessionID,
@@ -1280,6 +1286,7 @@ func (c *PicoChannel) handleMessageSend(pc *picoConn, msg PicoMessage) {
 
 	inboundCtx := bus.InboundContext{
 		Channel:   "pico",
+		AgentID:   pc.agentID,
 		ChatID:    chatID,
 		ChatType:  "direct",
 		SenderID:  senderID,

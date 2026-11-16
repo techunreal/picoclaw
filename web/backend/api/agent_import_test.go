@@ -208,7 +208,7 @@ func TestImportAgentProfile_Folder(t *testing.T) {
 		t.Fatalf("agents = %d, want 1", len(cfg.Agents.List))
 	}
 	agent := cfg.Agents.List[0]
-	if agent.ID != "socrates" || !agent.Default {
+	if agent.ID != "socrates" || agent.Default {
 		t.Fatalf("agent = %#v", agent)
 	}
 	if agent.Avatar == nil || agent.Avatar.Emoji != "🦉" {

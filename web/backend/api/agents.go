@@ -669,8 +669,8 @@ func validateAgentsConfig(
 		normalized = append(normalized, agentCfg)
 	}
 
-	if len(agents) > 0 && defaultCount != 1 {
-		errs = append(errs, "exactly one agent must be marked as default")
+	if defaultCount > 1 {
+		errs = append(errs, "at most one agent may be marked as default")
 	}
 
 	// Reject duplicate effective workspaces (explicit or derived).

@@ -485,6 +485,9 @@ func TestHandleSessions_JSONLScopeDiscovery(t *testing.T) {
 	if items[0].ID != "scope-jsonl" {
 		t.Fatalf("items[0].ID = %q, want %q", items[0].ID, "scope-jsonl")
 	}
+	if items[0].AgentID != "main" {
+		t.Fatalf("items[0].AgentID = %q, want main", items[0].AgentID)
+	}
 
 	detailRec := httptest.NewRecorder()
 	detailReq := httptest.NewRequest(http.MethodGet, "/api/sessions/scope-jsonl", nil)

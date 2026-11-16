@@ -144,6 +144,18 @@ var toolCatalog = []toolCatalogEntry{
 		ConfigKey:   "send_file",
 	},
 	{
+		Name:        "load_image",
+		Description: "Load a workspace image for vision-capable models.",
+		Category:    "media",
+		ConfigKey:   "load_image",
+	},
+	{
+		Name:        "send_tts",
+		Description: "Speak a reply using the configured text-to-speech provider.",
+		Category:    "media",
+		ConfigKey:   "send_tts",
+	},
+	{
 		Name:        "find_skills",
 		Description: "Search external skill registries for installable skills.",
 		Category:    "skills",

@@ -119,6 +119,35 @@ func TestEffectiveAgentWorkspace(t *testing.T) {
 	}
 }
 
+func TestUpdateAgents_AllowsNoDefault(t *testing.T) {
+	configPath, cleanup := setupOAuthTestEnv(t)
+	defer cleanup()
+
+	body, err := json.Marshal(agentsUpdateRequest{Agents: []config.AgentConfig{
+		{ID: "alpha", Workspace: t.TempDir()},
+		{ID: "beta", Workspace: t.TempDir()},
+	}})
+	if err != nil {
+		t.Fatalf("Marshal() error = %v", err)
+	}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPut, "/api/agents", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	agentsTestMux(t, configPath).ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("PUT status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	cfg, err := config.LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+	for _, agent := range cfg.Agents.List {
+		if agent.Default {
+			t.Fatalf("agent %q became default unexpectedly", agent.ID)
+		}
+	}
+}
+
 func TestUpdateAgents_SeedsNewAgentWorkspace(t *testing.T) {
 	configPath, cleanup := setupOAuthTestEnv(t)
 	defer cleanup()
@@ -574,13 +603,6 @@ func TestUpdateAgents_Validation(t *testing.T) {
 			body: agentsUpdateRequest{Agents: []config.AgentConfig{
 				{ID: "alpha", Default: true},
 				{ID: "beta", Default: true},
-			}},
-		},
-		{
-			name: "no default",
-			body: agentsUpdateRequest{Agents: []config.AgentConfig{
-				{ID: "alpha"},
-				{ID: "beta"},
 			}},
 		},
 		{

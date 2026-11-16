@@ -2019,6 +2019,8 @@ func (t *ToolsConfig) IsToolEnabled(name string) bool {
 		return t.MediaCleanup.Enabled
 	case "append_file":
 		return t.AppendFile.Enabled
+	case "browser":
+		return t.Browser.Enabled
 	case "edit_file":
 		return t.EditFile.Enabled
 	case "find_skills":

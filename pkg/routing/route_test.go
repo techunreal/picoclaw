@@ -46,6 +46,50 @@ func TestResolveRoute_DefaultAgent_NoBindings(t *testing.T) {
 	}
 }
 
+func TestResolveRoute_NoDefaultFallsBackToMain(t *testing.T) {
+	cfg := testConfig([]config.AgentConfig{
+		{ID: "socrates"},
+		{ID: "deneme"},
+	})
+	r := NewRouteResolver(cfg)
+
+	route := r.ResolveRoute(bus.InboundContext{
+		Channel:  "telegram",
+		ChatType: "direct",
+		SenderID: "user1",
+	})
+
+	if route.AgentID != DefaultAgentID {
+		t.Errorf("AgentID = %q, want %q (Pico)", route.AgentID, DefaultAgentID)
+	}
+}
+
+func TestResolveRoute_ExplicitAgentWins(t *testing.T) {
+	cfg := testConfig([]config.AgentConfig{
+		{ID: "main", Default: true},
+		{ID: "socrates"},
+	})
+	cfg.Agents.Dispatch = &config.DispatchConfig{Rules: []config.DispatchRule{{
+		Agent: "socrates",
+		When:  config.DispatchSelector{Channel: "telegram"},
+	}}}
+	r := NewRouteResolver(cfg)
+
+	route := r.ResolveRoute(bus.InboundContext{
+		Channel:  "pico",
+		AgentID:  "main",
+		ChatType: "direct",
+		SenderID: "pico-user",
+	})
+
+	if route.AgentID != "main" {
+		t.Errorf("AgentID = %q, want main", route.AgentID)
+	}
+	if route.MatchedBy != "explicit" {
+		t.Errorf("MatchedBy = %q, want explicit", route.MatchedBy)
+	}
+}
+
 func TestResolveRoute_UsesNormalizedInboundContextFields(t *testing.T) {
 	cfg := testConfig([]config.AgentConfig{{ID: "sales", Default: true}})
 	r := NewRouteResolver(cfg)
@@ -217,7 +261,7 @@ func TestResolveRoute_DefaultAgentSelection(t *testing.T) {
 	}
 }
 
-func TestResolveRoute_NoDefaultUsesFirst(t *testing.T) {
+func TestResolveRoute_NoDefaultUsesPico(t *testing.T) {
 	agents := []config.AgentConfig{
 		{ID: "alpha"},
 		{ID: "beta"},
@@ -227,7 +271,7 @@ func TestResolveRoute_NoDefaultUsesFirst(t *testing.T) {
 
 	route := r.ResolveRoute(bus.InboundContext{Channel: "cli"})
 
-	if route.AgentID != "alpha" {
-		t.Errorf("AgentID = %q, want 'alpha' (first in list)", route.AgentID)
+	if route.AgentID != DefaultAgentID {
+		t.Errorf("AgentID = %q, want %q (Pico)", route.AgentID, DefaultAgentID)
 	}
 }

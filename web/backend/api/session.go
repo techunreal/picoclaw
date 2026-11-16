@@ -30,6 +30,7 @@ func (h *Handler) registerSessionRoutes(mux *http.ServeMux) {
 // sessionFile mirrors the on-disk session JSON structure from pkg/session.
 type sessionFile struct {
 	Key      string              `json:"key"`
+	AgentID  string              `json:"agent_id,omitempty"`
 	Messages []providers.Message `json:"messages"`
 	Summary  string              `json:"summary,omitempty"`
 	Created  time.Time           `json:"created"`
@@ -39,6 +40,7 @@ type sessionFile struct {
 // sessionListItem is a lightweight summary returned by GET /api/sessions.
 type sessionListItem struct {
 	ID           string `json:"id"`
+	AgentID      string `json:"agent_id,omitempty"`
 	Title        string `json:"title"`
 	Preview      string `json:"preview"`
 	MessageCount int    `json:"message_count"`
@@ -108,6 +110,11 @@ func (h *Handler) readLegacySession(path string) (sessionFile, error) {
 	var sess sessionFile
 	if err := json.Unmarshal(data, &sess); err != nil {
 		return sessionFile{}, err
+	}
+	if sess.AgentID == "" {
+		if parsed := session.ParseLegacyAgentSessionKey(sess.Key); parsed != nil {
+			sess.AgentID = parsed.AgentID
+		}
 	}
 	return sess, nil
 }
@@ -197,8 +204,17 @@ func (h *Handler) readJSONLSession(dir, sessionKey string) (sessionFile, error) 
 		}
 	}
 
+	agentID := ""
+	if len(meta.Scope) > 0 {
+		var scope session.SessionScope
+		if err := json.Unmarshal(meta.Scope, &scope); err == nil {
+			agentID = strings.TrimSpace(scope.AgentID)
+		}
+	}
+
 	return sessionFile{
 		Key:      meta.Key,
+		AgentID:  agentID,
 		Messages: messages,
 		Summary:  meta.Summary,
 		Created:  created,
@@ -432,8 +448,14 @@ func buildSessionListItem(sessionID string, sess sessionFile, toolFeedbackMaxArg
 	}
 	title := preview
 
+	agentID := strings.TrimSpace(sess.AgentID)
+	if agentID == "" {
+		agentID = "main"
+	}
+
 	return sessionListItem{
 		ID:           sessionID,
+		AgentID:      agentID,
 		Title:        title,
 		Preview:      preview,
 		MessageCount: len(transcript),
