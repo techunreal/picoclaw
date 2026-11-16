@@ -69,6 +69,7 @@ interface EditForm {
   workspace: string
   rpm: string
   maxTokensField: string
+  contextWindow: string
   requestTimeout: string
   thinkingLevel: string
   toolSchemaTransform: string
@@ -104,6 +105,7 @@ function buildInitialEditForm(model: ModelInfo): EditForm {
     workspace: model.workspace ?? "",
     rpm: model.rpm ? String(model.rpm) : "",
     maxTokensField: model.max_tokens_field ?? "",
+    contextWindow: model.context_window ? String(model.context_window) : "",
     requestTimeout: model.request_timeout ? String(model.request_timeout) : "",
     thinkingLevel: model.thinking_level ?? "",
     toolSchemaTransform: model.tool_schema_transform ?? "",
@@ -149,6 +151,7 @@ export function EditModelSheet({
     workspace: "",
     rpm: "",
     maxTokensField: "",
+    contextWindow: "",
     requestTimeout: "",
     thinkingLevel: "",
     toolSchemaTransform: "",
@@ -451,6 +454,7 @@ export function EditModelSheet({
         workspace: form.workspace.trim() || undefined,
         rpm: form.rpm ? Number(form.rpm) : undefined,
         max_tokens_field: form.maxTokensField.trim() || undefined,
+        context_window: form.contextWindow.trim() ? Number(form.contextWindow) : undefined,
         request_timeout: form.requestTimeout
           ? Number(form.requestTimeout)
           : undefined,
@@ -857,6 +861,19 @@ export function EditModelSheet({
                     value={form.maxTokensField}
                     onChange={setField("maxTokensField")}
                     placeholder="max_completion_tokens"
+                  />
+                </Field>
+
+                <Field
+                  label={t("models.field.contextWindow")}
+                  hint={t("models.field.contextWindowHint")}
+                >
+                  <Input
+                    type="number"
+                    min={0}
+                    value={form.contextWindow}
+                    onChange={setField("contextWindow")}
+                    placeholder={t("models.field.providerDefault")}
                   />
                 </Field>
 

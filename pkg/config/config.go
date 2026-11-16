@@ -399,7 +399,7 @@ func (s *SessionConfig) DeriveDmScope() {
 		s.DmScope = "per-peer"
 	}
 	// Dimensions not matching any known scope mapping (custom array)
-	// is fine — DmScope stays empty and the UI can handle it.
+	// is fine â€” DmScope stays empty and the UI can handle it.
 }
 
 // RoutingConfig controls the intelligent model routing feature.
@@ -407,11 +407,11 @@ func (s *SessionConfig) DeriveDmScope() {
 // (message length, code blocks, tool call history, conversation depth, attachments).
 // Messages scoring below Threshold are sent to LightModel; all others use the
 // agent's primary model. This reduces cost and latency for simple tasks without
-// requiring any keyword matching — all scoring is language-agnostic.
+// requiring any keyword matching â€” all scoring is language-agnostic.
 type RoutingConfig struct {
 	Enabled    bool    `json:"enabled"`
 	LightModel string  `json:"light_model"` // model_name from model_list to use for simple tasks
-	Threshold  float64 `json:"threshold"`   // complexity score in [0,1]; score >= threshold → primary model
+	Threshold  float64 `json:"threshold"`   // complexity score in [0,1]; score >= threshold â†’ primary model
 }
 
 // SubTurnConfig configures the SubTurn execution system.
@@ -848,6 +848,10 @@ type ModelConfig struct {
 	Streaming           ModelStreamingConfig `json:"streaming,omitzero"`              // Opt-in for provider streaming on this model entry
 	ExtraBody           map[string]any       `json:"extra_body,omitempty"`            // Additional fields to inject into request body
 	CustomHeaders       map[string]string    `json:"custom_headers,omitempty"`        // Additional headers to inject into every HTTP request
+
+	// ContextWindow is the model input context size in tokens. When zero the
+	// global default, endpoint detection, or a heuristic is used instead.
+	ContextWindow int `json:"context_window,omitempty"`
 
 	// Optional pricing for the usage/cost panel. Values are per one million
 	// tokens; when both are zero the model is reported without an estimated
@@ -1473,15 +1477,15 @@ func LoadConfig(path string) (*Config, error) {
 
 		migrateErr := migrateV0ToV1(m)
 		if migrateErr != nil {
-			return nil, fmt.Errorf("V0→V1 migration failed: %w", migrateErr)
+			return nil, fmt.Errorf("V0â†’V1 migration failed: %w", migrateErr)
 		}
 		migrateErr = migrateV1ToV2(m)
 		if migrateErr != nil {
-			return nil, fmt.Errorf("V1→V2 migration failed: %w", migrateErr)
+			return nil, fmt.Errorf("V1â†’V2 migration failed: %w", migrateErr)
 		}
 		migrateErr = migrateV2ToV3(m)
 		if migrateErr != nil {
-			return nil, fmt.Errorf("V2→V3 migration failed: %w", migrateErr)
+			return nil, fmt.Errorf("V2â†’V3 migration failed: %w", migrateErr)
 		}
 
 		var migrated []byte
@@ -1504,7 +1508,7 @@ func LoadConfig(path string) (*Config, error) {
 			_ = SaveConfig(path, cfg)
 		}(cfg)
 	case 1:
-		// V1→V3 migration: rename channels→channel_list, infer Enabled, migrate channel configs
+		// V1â†’V3 migration: rename channelsâ†’channel_list, infer Enabled, migrate channel configs
 		logger.InfoF(
 			"config migrate start",
 			map[string]any{"from": versionInfo.Version, "to": CurrentVersion},
@@ -1531,11 +1535,11 @@ func LoadConfig(path string) (*Config, error) {
 
 		migrateErr := migrateV1ToV2(m)
 		if migrateErr != nil {
-			return nil, fmt.Errorf("V1→V2 migration failed: %w", migrateErr)
+			return nil, fmt.Errorf("V1â†’V2 migration failed: %w", migrateErr)
 		}
 		migrateErr = migrateV2ToV3(m)
 		if migrateErr != nil {
-			return nil, fmt.Errorf("V2→V3 migration failed: %w", migrateErr)
+			return nil, fmt.Errorf("V2â†’V3 migration failed: %w", migrateErr)
 		}
 
 		var migrated []byte
@@ -1562,7 +1566,7 @@ func LoadConfig(path string) (*Config, error) {
 			map[string]any{"from": versionInfo.Version, "to": CurrentVersion},
 		)
 	case 2:
-		// V2→V3 migration: rename channels→channel_list, convert flat→nested
+		// V2â†’V3 migration: rename channelsâ†’channel_list, convert flatâ†’nested
 		logger.InfoF(
 			"config migrate start",
 			map[string]any{"from": versionInfo.Version, "to": CurrentVersion},
@@ -1587,7 +1591,7 @@ func LoadConfig(path string) (*Config, error) {
 		}
 		migrateErr := migrateV2ToV3(m)
 		if migrateErr != nil {
-			return nil, fmt.Errorf("V2→V3 migration failed: %w", migrateErr)
+			return nil, fmt.Errorf("V2â†’V3 migration failed: %w", migrateErr)
 		}
 
 		var migrated []byte
@@ -1941,6 +1945,7 @@ func expandMultiKeyModels(models []*ModelConfig) []*ModelConfig {
 				Streaming:           m.Streaming,
 				ExtraBody:           m.ExtraBody,
 				CustomHeaders:       m.CustomHeaders,
+				ContextWindow:       m.ContextWindow,
 				UserAgent:           m.UserAgent,
 				Enabled:             m.Enabled,
 				Disabled:            m.Disabled,
@@ -1968,6 +1973,7 @@ func expandMultiKeyModels(models []*ModelConfig) []*ModelConfig {
 			Streaming:           m.Streaming,
 			ExtraBody:           m.ExtraBody,
 			CustomHeaders:       m.CustomHeaders,
+			ContextWindow:       m.ContextWindow,
 			UserAgent:           m.UserAgent,
 			Enabled:             m.Enabled,
 			Disabled:            m.Disabled,

@@ -16,6 +16,8 @@ export interface ModelInfo {
   api_keys_keep?: number[]
   proxy?: string
   auth_method?: string
+  // Optional per-model input context size in tokens.
+  context_window?: number
   // Advanced fields
   connect_mode?: string
   workspace?: string
@@ -248,6 +250,7 @@ export async function testModelInline(
 export interface UpstreamModel {
   id: string
   owned_by?: string
+  context_window?: number
   extra?: Record<string, unknown>
 }
 
@@ -279,6 +282,7 @@ export async function fetchUpstreamModels(
 export interface CatalogModel {
   id: string
   owned_by?: string
+  context_window?: number
   extra?: Record<string, unknown>
 }
 

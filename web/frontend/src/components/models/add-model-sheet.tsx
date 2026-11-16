@@ -68,6 +68,7 @@ interface AddForm {
   workspace: string
   rpm: string
   maxTokensField: string
+  contextWindow: string
   requestTimeout: string
   thinkingLevel: string
   toolSchemaTransform: string
@@ -88,6 +89,7 @@ const EMPTY_ADD_FORM: AddForm = {
   workspace: "",
   rpm: "",
   maxTokensField: "",
+  contextWindow: "",
   requestTimeout: "",
   thinkingLevel: "",
   toolSchemaTransform: "",
@@ -411,6 +413,7 @@ export function AddModelSheet({
         workspace: form.workspace.trim() || undefined,
         rpm: form.rpm ? Number(form.rpm) : undefined,
         max_tokens_field: form.maxTokensField.trim() || undefined,
+        context_window: form.contextWindow.trim() ? Number(form.contextWindow) : undefined,
         request_timeout: form.requestTimeout
           ? Number(form.requestTimeout)
           : undefined,
@@ -781,6 +784,19 @@ export function AddModelSheet({
                     value={form.maxTokensField}
                     onChange={setField("maxTokensField")}
                     placeholder="max_completion_tokens"
+                  />
+                </Field>
+
+                <Field
+                  label={t("models.field.contextWindow")}
+                  hint={t("models.field.contextWindowHint")}
+                >
+                  <Input
+                    type="number"
+                    min={0}
+                    value={form.contextWindow}
+                    onChange={setField("contextWindow")}
+                    placeholder={t("models.field.providerDefault")}
                   />
                 </Field>
 

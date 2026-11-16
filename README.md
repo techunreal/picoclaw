@@ -5,7 +5,7 @@ by Sipeed. Upstream is MIT-licensed; this fork keeps the same license and adds
 desktop usability, security hardening, agent management, and local document
 tools.
 
-- **Version:** `0.1.2-fork`
+- **Version:** `0.1.3-fork`
 - **Upstream:** https://github.com/sipeed/picoclaw
 - **Fork:** https://github.com/techunreal/picoclaw
 - **License:** MIT (see `LICENSE` and `NOTICE.md`)
@@ -13,8 +13,12 @@ tools.
 > This is not an official Sipeed release. Report fork-specific issues on the
 > fork repository, not upstream.
 
-## What's new in 0.1.2-fork
+## What's new in 0.1.3-fork
 
+- **Per-model context window:** each model entry can store its input context size
+  (`context_window`), editable in the model sheet. Catalog entries fetched from
+  providers that advertise `context_length` keep that value and reuse it when
+  the model is added.
 - **Context window auto-detection:** self-hosted/compatible endpoints advertise
   their context length in `/models`; the chat budget now uses it instead of the
   `4 x max_tokens` heuristic.
@@ -108,7 +112,7 @@ Microsoft Office, Adobe Acrobat, or a system Python install.
 
 ## Quick start (Windows)
 
-1. Extract `PicoClaw-Windows-x86_64-0.1.2-fork.zip` to a folder such as
+1. Extract `PicoClaw-Windows-x86_64-0.1.3-fork.zip` to a folder such as
    `C:\Users\<you>\PicoClaw`.
 2. Run `picoclaw-launcher.exe`.
 3. Open `http://localhost:18800` if the browser does not open automatically.
@@ -157,13 +161,13 @@ go build -tags "goolm,stdjson" -o build/picoclaw-launcher.exe ./web/backend
 Release build with version metadata, Office runtime, ZIP, and SHA256:
 
 ```powershell
-powershell -File scripts/build-release.ps1 -Version 0.1.2-fork
+powershell -File scripts/build-release.ps1 -Version 0.1.3-fork
 ```
 
 Lean build without the Office runtime:
 
 ```powershell
-powershell -File scripts/build-release.ps1 -Version 0.1.2-fork -SkipOfficeRuntime
+powershell -File scripts/build-release.ps1 -Version 0.1.3-fork -SkipOfficeRuntime
 ```
 
 ## Tests

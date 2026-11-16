@@ -18,9 +18,10 @@ import (
 
 // CatalogModel represents a single model entry in a saved catalog.
 type CatalogModel struct {
-	ID      string         `json:"id"`
-	OwnedBy string         `json:"owned_by,omitempty"`
-	Extra   map[string]any `json:"extra,omitempty"`
+	ID            string         `json:"id"`
+	OwnedBy       string         `json:"owned_by,omitempty"`
+	ContextWindow int            `json:"context_window,omitempty"`
+	Extra         map[string]any `json:"extra,omitempty"`
 }
 
 // CatalogEntry is a saved list of upstream models fetched for a specific provider+key combination.

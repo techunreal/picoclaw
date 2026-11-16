@@ -62,6 +62,7 @@ type modelResponse struct {
 	Streaming            config.ModelStreamingConfig `json:"streaming,omitempty"`
 	ExtraBody            map[string]any              `json:"extra_body,omitempty"`
 	CustomHeaders        map[string]string           `json:"custom_headers,omitempty"`
+	ContextWindow        int                         `json:"context_window,omitempty"`
 	InputCostPerMTokens  float64                     `json:"input_cost_per_million,omitempty"`
 	OutputCostPerMTokens float64                     `json:"output_cost_per_million,omitempty"`
 	Currency             string                      `json:"currency,omitempty"`
@@ -679,6 +680,7 @@ func (h *Handler) handleListModels(w http.ResponseWriter, r *http.Request) {
 			Streaming:            m.Streaming,
 			ExtraBody:            m.ExtraBody,
 			CustomHeaders:        m.CustomHeaders,
+			ContextWindow:        m.ContextWindow,
 			InputCostPerMTokens:  m.InputCostPerMTokens,
 			OutputCostPerMTokens: m.OutputCostPerMTokens,
 			Currency:             m.Currency,
@@ -1754,7 +1756,7 @@ func (h *Handler) handleFetchModels(w http.ResponseWriter, r *http.Request) {
 	// Auto-save fetched models to catalog
 	catalogModels := make([]CatalogModel, len(models))
 	for i, m := range models {
-		catalogModels[i] = CatalogModel{ID: m.ID, OwnedBy: m.OwnedBy}
+		catalogModels[i] = CatalogModel{ID: m.ID, OwnedBy: m.OwnedBy, ContextWindow: m.ContextWindow}
 	}
 	if saveErr := SaveCatalog(req.Provider, apiBase, apiKey, catalogModels); saveErr != nil {
 		// Log but don't fail the request — saving catalog is non-critical
@@ -1837,8 +1839,18 @@ func (h *Handler) lookupStoredModelConfig(index int, reqProvider, reqAPIBase str
 }
 
 type upstreamModel struct {
-	ID      string `json:"id"`
-	OwnedBy string `json:"owned_by,omitempty"`
+	ID            string `json:"id"`
+	OwnedBy       string `json:"owned_by,omitempty"`
+	ContextWindow int    `json:"context_window,omitempty"`
+}
+
+func firstPositiveInt(values ...int) int {
+	for _, value := range values {
+		if value > 0 {
+			return value
+		}
+	}
+	return 0
 }
 
 func fetchUpstreamModelsWithClient(
@@ -1954,8 +1966,12 @@ func fetchOpenAICompatibleModelsWithClient(
 	}
 
 	type modelItem struct {
-		ID      string `json:"id"`
-		OwnedBy string `json:"owned_by"`
+		ID               string `json:"id"`
+		OwnedBy          string `json:"owned_by"`
+		ContextLength    int    `json:"context_length"`
+		ContextWindow    int    `json:"context_window"`
+		MaxModelLen      int    `json:"max_model_len"`
+		MaxContextLength int    `json:"max_context_length"`
 	}
 
 	// {"data": [...]} envelope. Distinguish "envelope shape with empty list"
@@ -1969,7 +1985,11 @@ func fetchOpenAICompatibleModelsWithClient(
 		models := make([]upstreamModel, 0, len(envelope.Data))
 		for _, m := range envelope.Data {
 			if m.ID != "" {
-				models = append(models, upstreamModel{ID: m.ID, OwnedBy: m.OwnedBy})
+				models = append(models, upstreamModel{
+					ID:            m.ID,
+					OwnedBy:       m.OwnedBy,
+					ContextWindow: firstPositiveInt(m.ContextLength, m.ContextWindow, m.MaxModelLen, m.MaxContextLength),
+				})
 			}
 		}
 		return models, nil
@@ -1981,7 +2001,11 @@ func fetchOpenAICompatibleModelsWithClient(
 		models := make([]upstreamModel, 0, len(arr))
 		for _, m := range arr {
 			if m.ID != "" {
-				models = append(models, upstreamModel{ID: m.ID, OwnedBy: m.OwnedBy})
+				models = append(models, upstreamModel{
+					ID:            m.ID,
+					OwnedBy:       m.OwnedBy,
+					ContextWindow: firstPositiveInt(m.ContextLength, m.ContextWindow, m.MaxModelLen, m.MaxContextLength),
+				})
 			}
 		}
 		return models, nil

@@ -152,6 +152,7 @@ export function CatalogDialog({
           model: model.id,
           api_base: entry.api_base || undefined,
           api_key: enteredKey || undefined,
+          context_window: model.context_window || undefined,
         })
         reusedKey = reusedKey || res.api_key_reused === true
       }

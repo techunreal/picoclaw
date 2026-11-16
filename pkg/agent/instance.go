@@ -212,6 +212,10 @@ func NewAgentInstance(
 	}
 
 	contextWindow := defaults.ContextWindow
+	// A per-model context window wins over the global default.
+	if modelCfg := providers.FindModelConfigForContext(cfg, model); modelCfg != nil && modelCfg.ContextWindow > 0 {
+		contextWindow = modelCfg.ContextWindow
+	}
 	if contextWindow == 0 {
 		// Ask the endpoint for its advertised context length first (llama.cpp,
 		// vLLM, LM Studio and compatible servers expose it in /models).

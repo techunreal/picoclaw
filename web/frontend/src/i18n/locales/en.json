@@ -560,6 +560,8 @@
       "providerDefault": "provider default",
       "maxTokensField": "Max Tokens Field",
       "maxTokensFieldHint": "Override the request field name for max tokens, e.g. max_completion_tokens.",
+      "contextWindow": "Context Window",
+      "contextWindowHint": "Input context size in tokens for this model. Leave empty to auto-detect (self-hosted) or use the global default.",
       "toolSchemaTransform": "Tool Schema Transform",
       "toolSchemaTransformHint": "Optional compatibility transform for tool JSON schemas. Leave blank for native behavior. Supported values: simple.",
       "streamingEnabled": "Streaming Output",
