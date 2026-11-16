@@ -10,6 +10,7 @@ import { useTranslation } from "react-i18next"
 
 import {
   type ModelProviderOption,
+  type UpstreamModel,
   addModel,
   getCatalogs,
   setDefaultModel,
@@ -318,10 +319,17 @@ export function AddModelSheet({
     }
   }
 
-  const handleFetchFill = (models: string[]) => {
-    setFetchedModels(models)
-    if (models.length >= 1) {
-      setForm((f) => ({ ...f, model: models[0] }))
+  const handleFetchFill = (models: UpstreamModel[]) => {
+    setFetchedModels(models.map((model) => model.id))
+    const first = models[0]
+    if (first) {
+      setForm((f) => ({
+        ...f,
+        model: first.id,
+        contextWindow: first.context_window
+          ? String(first.context_window)
+          : f.contextWindow,
+      }))
       setModelValidation(null)
       if (fieldErrors.model) {
         setFieldErrors((prev) => ({ ...prev, model: undefined }))

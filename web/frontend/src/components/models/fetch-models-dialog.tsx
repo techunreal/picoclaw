@@ -26,7 +26,7 @@ import {
 interface FetchModelsDialogProps {
   open: boolean
   onClose: () => void
-  onFill: (models: string[]) => void
+  onFill: (models: UpstreamModel[]) => void
   provider: string
   apiKey: string
   apiBase: string
@@ -89,7 +89,7 @@ export function FetchModelsDialog({
   }, [open, provider, hasKey, needsKey, handleFetch])
 
   const handleFill = () => {
-    onFill(Array.from(selected))
+    onFill(models.filter((model) => selected.has(model.id)))
     handleClose()
   }
 

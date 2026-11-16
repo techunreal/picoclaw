@@ -12,6 +12,7 @@ import {
   type ModelInfo,
   type ModelProviderOption,
   type ModelReferenceRename,
+  type UpstreamModel,
   getCatalogs,
   setDefaultModel,
   updateModelByName,
@@ -331,10 +332,17 @@ export function EditModelSheet({
     setModelValidation(null)
   }
 
-  const handleFetchFill = (models: string[]) => {
-    setFetchedModels(models)
-    if (models.length >= 1) {
-      setForm((f) => ({ ...f, modelId: models[0] }))
+  const handleFetchFill = (models: UpstreamModel[]) => {
+    setFetchedModels(models.map((model) => model.id))
+    const first = models[0]
+    if (first) {
+      setForm((f) => ({
+        ...f,
+        modelId: first.id,
+        contextWindow: first.context_window
+          ? String(first.context_window)
+          : f.contextWindow,
+      }))
       setModelValidation(null)
     }
   }

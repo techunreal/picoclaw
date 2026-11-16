@@ -1972,6 +1972,11 @@ func fetchOpenAICompatibleModelsWithClient(
 		ContextWindow    int    `json:"context_window"`
 		MaxModelLen      int    `json:"max_model_len"`
 		MaxContextLength int    `json:"max_context_length"`
+		Limit            struct {
+			Context int `json:"context"`
+			Input   int `json:"input"`
+			Output  int `json:"output"`
+		} `json:"limit"`
 	}
 
 	// {"data": [...]} envelope. Distinguish "envelope shape with empty list"
@@ -1988,7 +1993,7 @@ func fetchOpenAICompatibleModelsWithClient(
 				models = append(models, upstreamModel{
 					ID:            m.ID,
 					OwnedBy:       m.OwnedBy,
-					ContextWindow: firstPositiveInt(m.ContextLength, m.ContextWindow, m.MaxModelLen, m.MaxContextLength),
+					ContextWindow: firstPositiveInt(m.Limit.Context, m.ContextLength, m.ContextWindow, m.MaxModelLen, m.MaxContextLength),
 				})
 			}
 		}
@@ -2004,7 +2009,7 @@ func fetchOpenAICompatibleModelsWithClient(
 				models = append(models, upstreamModel{
 					ID:            m.ID,
 					OwnedBy:       m.OwnedBy,
-					ContextWindow: firstPositiveInt(m.ContextLength, m.ContextWindow, m.MaxModelLen, m.MaxContextLength),
+					ContextWindow: firstPositiveInt(m.Limit.Context, m.ContextLength, m.ContextWindow, m.MaxModelLen, m.MaxContextLength),
 				})
 			}
 		}
