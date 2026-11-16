@@ -129,6 +129,7 @@ Notlar:
 - "picoclaw.exe" arka planda calisan motordur; silme, tasima. Launcher onu ayni klasorde bulur.
 - Kapatmak icin sistem tepsisindeki PicoClaw simgesine sag tik > Quit.
 - Ayni anda iki PicoClaw calistirma; 18800 portu cakisir.
+- Bu build imzasizdir; SmartScreen "bilinmeyen yayinci" uyarisi verebilir. "More info" > "Run anyway" ile devam edin.
 - Bu bir "$Version" surumudur. Eski kurulumunu yedek olarak sakla.
 "@
 Set-Content -Path (Join-Path $stage "BASLAT.txt") -Value $quickStart -Encoding UTF8

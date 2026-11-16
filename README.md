@@ -172,7 +172,8 @@ See [`docs/FORK-ROADMAP.md`](docs/FORK-ROADMAP.md) for the detailed roadmap and
 ## Known limitations
 
 - Windows x64 build is the primary target; macOS verification is deferred.
-- Office Pack is not code-signed; SmartScreen may warn on first run.
+- This build is not code-signed; Windows SmartScreen may show an "unknown publisher"
+  warning on first run. Choose More info -> Run anyway.
 - No OCR for scanned PDFs.
 - Complex Office documents may lose advanced formatting.
 - `openpyxl` does not calculate formulas; use Excel/LibreOffice for recalculation.
