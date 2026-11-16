@@ -227,13 +227,24 @@ export function useSkillsDiscover() {
   }
 
   const handleInstall = (result: SkillRegistrySearchResult) => {
-    installMutation.mutate({
+    const variables = {
       slug: result.slug,
       registry: result.registry_name,
       version: result.version || undefined,
       owner_handle: result.owner_handle || undefined,
       install_kind: result.install_kind || undefined,
-    })
+    }
+    // The marketplace audit can flag a skill as suspicious before the registry's
+    // install metadata does. Ask for confirmation in that case as well, so a
+    // "suspicious" card is never installed silently.
+    if (result.security?.status === "suspicious") {
+      setSuspiciousInstall({
+        variables,
+        summary: result.security.summary,
+      })
+      return
+    }
+    installMutation.mutate(variables)
   }
 
   const handleInstallWithOwner = (ownerHandle: string) => {
