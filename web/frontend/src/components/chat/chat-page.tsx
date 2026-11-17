@@ -263,7 +263,12 @@ export function ChatPage() {
       }
       return
     }
-    if (modelName === chatModelName) return
+    if (modelName === chatModelName) {
+      // An inheriting agent can pin the current global model as its own
+      // override. Pico itself is always global, so selecting the same model is
+      // a no-op there.
+      if (!(chatModelInherited && !isMainAgent)) return
+    }
     if (isMainAgent) {
       await handleSetDefault(modelName)
       await queryClient.invalidateQueries({ queryKey: ["sidebar-agents"] })
