@@ -117,6 +117,18 @@ func TestSwitchModelWaitsForActiveTurnLock(t *testing.T) {
 	case <-time.After(100 * time.Millisecond):
 	}
 
+	// Read-only model queries must not block behind the queued writer.
+	snapshotDone := make(chan agentModelSnapshot, 1)
+	go func() { snapshotDone <- agent.ModelSnapshot() }()
+	select {
+	case snapshot := <-snapshotDone:
+		if snapshot.Model != "local" {
+			t.Fatalf("snapshot model = %q, want local while switch is pending", snapshot.Model)
+		}
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("ModelSnapshot blocked behind a pending model switch")
+	}
+
 	agent.modelStateMutex().RUnlock()
 	select {
 	case err := <-done:

@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/sipeed/picoclaw/pkg/config"
 	"github.com/sipeed/picoclaw/pkg/isolation"
@@ -42,6 +43,7 @@ type agentModelSnapshot struct {
 type AgentInstance struct {
 	modelMu                   *sync.RWMutex
 	switchMu                  *sync.Mutex
+	modelSnapshot             *atomic.Pointer[agentModelSnapshot]
 	ID                        string
 	Name                      string
 	Model                     string
@@ -390,9 +392,10 @@ func NewAgentInstance(
 		}
 	}
 
-	return &AgentInstance{
+	instance := &AgentInstance{
 		modelMu:                   &sync.RWMutex{},
 		switchMu:                  &sync.Mutex{},
+		modelSnapshot:             &atomic.Pointer[agentModelSnapshot]{},
 		ID:                        agentID,
 		Name:                      agentName,
 		Model:                     model,
@@ -421,6 +424,8 @@ func NewAgentInstance(
 		LightProvider:             lightProvider,
 		CandidateProviders:        candidateProviders,
 	}
+	instance.storeModelSnapshotLocked()
+	return instance
 }
 
 // populateCandidateProvidersFromNames resolves each model name (alias or
@@ -771,17 +776,33 @@ func mediaTempDirPattern() string {
 	return "^" + regexp.QuoteMeta(filepath.Clean(media.TempDir())) + "(?:" + sep + "|$)"
 }
 
-// ModelSnapshot returns a consistent copy of the agent's LLM state. Callers use
-// it for read-only reporting; turns are already protected by the model read
-// lock held in runTurn.
+// ModelSnapshot returns a consistent copy of the agent's LLM state without
+// waiting for a pending model switch. It is safe to call while a switch is
+// queued behind an in-flight turn.
 func (a *AgentInstance) ModelSnapshot() agentModelSnapshot {
 	if a == nil {
 		return agentModelSnapshot{}
+	}
+	if a.modelSnapshot != nil {
+		if snapshot := a.modelSnapshot.Load(); snapshot != nil {
+			return *snapshot
+		}
 	}
 	mu := a.modelStateMutex()
 	mu.RLock()
 	defer mu.RUnlock()
 	return a.modelSnapshotLocked()
+}
+
+// storeModelSnapshotLocked publishes the current fields as an immutable
+// snapshot for lock-free readers. Callers must hold the model write lock (or
+// be in single-threaded construction).
+func (a *AgentInstance) storeModelSnapshotLocked() {
+	if a == nil || a.modelSnapshot == nil {
+		return
+	}
+	snapshot := a.modelSnapshotLocked()
+	a.modelSnapshot.Store(&snapshot)
 }
 
 func (a *AgentInstance) modelSnapshotLocked() agentModelSnapshot {
@@ -922,6 +943,7 @@ func (a *AgentInstance) SwitchModel(cfg *config.Config, modelName string) (strin
 	a.MaxTokens = nextMaxTokens
 	a.ThinkingLevel = parseThinkingLevel(resolvedCfg.ThinkingLevel)
 	a.ThinkingLevelConfigured = isConfiguredThinkingLevel(resolvedCfg.ThinkingLevel)
+	a.storeModelSnapshotLocked()
 
 	removed := unreferencedStatefulProviders(
 		previousProviders,
