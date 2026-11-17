@@ -131,21 +131,11 @@ func openLauncherListeners(hostInput string, public bool, port string) (netbind.
 		if openErr == nil {
 			return result, nil
 		}
-		if !isPortInUseError(openErr) || time.Now().After(deadline) {
+		if time.Now().After(deadline) {
 			return netbind.OpenResult{}, openErr
 		}
 		time.Sleep(400 * time.Millisecond)
 	}
-}
-
-func isPortInUseError(err error) bool {
-	if err == nil {
-		return false
-	}
-	message := strings.ToLower(err.Error())
-	return strings.Contains(message, "only one usage") ||
-		strings.Contains(message, "address already in use") ||
-		strings.Contains(message, "wsaeaddrinuse")
 }
 
 func appendUniqueHost(hosts []string, seen map[string]struct{}, host string) []string {
