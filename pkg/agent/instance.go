@@ -20,10 +20,28 @@ import (
 	"github.com/sipeed/picoclaw/pkg/tools"
 )
 
+// agentModelSnapshot is a consistent copy of the agent's LLM configuration.
+// Read-only APIs and command handlers use it; turns are protected by the model
+// read lock held for their whole lifetime in runTurn.
+type agentModelSnapshot struct {
+	Provider                providers.LLMProvider
+	Model                   string
+	Candidates              []providers.FallbackCandidate
+	CandidateProviders      map[string]providers.LLMProvider
+	LightProvider           providers.LLMProvider
+	LightCandidates         []providers.FallbackCandidate
+	ContextWindow           int
+	MaxTokens               int
+	SummarizeTokenPercent   int
+	ThinkingLevel           ThinkingLevel
+	ThinkingLevelConfigured bool
+}
+
 // AgentInstance represents a fully configured agent with its own workspace,
 // session manager, context builder, and tool registry.
 type AgentInstance struct {
 	modelMu                   *sync.RWMutex
+	switchMu                  *sync.Mutex
 	ID                        string
 	Name                      string
 	Model                     string
@@ -374,6 +392,7 @@ func NewAgentInstance(
 
 	return &AgentInstance{
 		modelMu:                   &sync.RWMutex{},
+		switchMu:                  &sync.Mutex{},
 		ID:                        agentID,
 		Name:                      agentName,
 		Model:                     model,
@@ -752,6 +771,202 @@ func mediaTempDirPattern() string {
 	return "^" + regexp.QuoteMeta(filepath.Clean(media.TempDir())) + "(?:" + sep + "|$)"
 }
 
+// ModelSnapshot returns a consistent copy of the agent's LLM state. Callers use
+// it for read-only reporting; turns are already protected by the model read
+// lock held in runTurn.
+func (a *AgentInstance) ModelSnapshot() agentModelSnapshot {
+	if a == nil {
+		return agentModelSnapshot{}
+	}
+	mu := a.modelStateMutex()
+	mu.RLock()
+	defer mu.RUnlock()
+	return a.modelSnapshotLocked()
+}
+
+func (a *AgentInstance) modelSnapshotLocked() agentModelSnapshot {
+	candidateProviders := make(map[string]providers.LLMProvider, len(a.CandidateProviders))
+	for key, provider := range a.CandidateProviders {
+		candidateProviders[key] = provider
+	}
+	return agentModelSnapshot{
+		Provider:                a.Provider,
+		Model:                   a.Model,
+		Candidates:              append([]providers.FallbackCandidate(nil), a.Candidates...),
+		CandidateProviders:      candidateProviders,
+		LightProvider:           a.LightProvider,
+		LightCandidates:         append([]providers.FallbackCandidate(nil), a.LightCandidates...),
+		ContextWindow:           a.ContextWindow,
+		MaxTokens:               a.MaxTokens,
+		SummarizeTokenPercent:   a.SummarizeTokenPercent,
+		ThinkingLevel:           a.ThinkingLevel,
+		ThinkingLevelConfigured: a.ThinkingLevelConfigured,
+	}
+}
+
+// ValidateModel checks that a model alias is configured and enabled.
+func (a *AgentInstance) ValidateModel(cfg *config.Config, modelName string) error {
+	modelName = strings.TrimSpace(modelName)
+	if modelName == "" {
+		return fmt.Errorf("model is required")
+	}
+	if cfg == nil {
+		return fmt.Errorf("config is nil")
+	}
+	for _, item := range cfg.ModelList {
+		if item == nil || strings.TrimSpace(item.ModelName) != modelName {
+			continue
+		}
+		if item.Disabled {
+			return fmt.Errorf("model %q is disabled", modelName)
+		}
+		return nil
+	}
+	return fmt.Errorf("model %q not found in model_list or providers", modelName)
+}
+
+// SwitchModel replaces the agent's primary model in place. It takes the model
+// write lock, so an in-flight turn (which holds the read lock for its whole
+// lifetime) is never interrupted: the switch waits until that turn finishes.
+// Subsequent turns use the new model. It does not restart the gateway or touch
+// other agents.
+func (a *AgentInstance) SwitchModel(cfg *config.Config, modelName string) (string, error) {
+	modelName = strings.TrimSpace(modelName)
+	if a == nil {
+		return "", fmt.Errorf("agent is nil")
+	}
+	if cfg == nil {
+		return "", fmt.Errorf("config is nil")
+	}
+	if modelName == "" {
+		return "", fmt.Errorf("model is required")
+	}
+
+	mu := a.modelStateMutex()
+	mu.Lock()
+	defer mu.Unlock()
+
+	var modelCfg *config.ModelConfig
+	for _, item := range cfg.ModelList {
+		if item != nil && strings.TrimSpace(item.ModelName) == modelName {
+			modelCfg = item
+			break
+		}
+	}
+	if modelCfg == nil {
+		return "", fmt.Errorf("model %q not found in model_list or providers", modelName)
+	}
+	if modelCfg.Disabled {
+		return "", fmt.Errorf("model %q is disabled", modelName)
+	}
+
+	nextCandidates := resolveModelCandidates(cfg, cfg.Agents.Defaults.Provider, modelName, a.Fallbacks)
+	if len(nextCandidates) == 0 {
+		return "", fmt.Errorf("model %q did not resolve to any provider candidates", modelName)
+	}
+	resolvedCfg, err := resolvedCandidateModelConfig(cfg, nextCandidates[0], a.Workspace)
+	if err != nil {
+		return "", err
+	}
+	nextProvider, _, err := providers.CreateProviderFromConfig(resolvedCfg)
+	if err != nil {
+		return "", fmt.Errorf("failed to initialize model %q: %w", modelName, err)
+	}
+
+	nextCandidateProviders := make(map[string]providers.LLMProvider)
+	copyInitializedCandidateProviders(
+		a.CandidateProviders,
+		nextCandidateProviders,
+		a.ImageCandidates,
+	)
+	copyInitializedCandidateProviders(
+		a.CandidateProviders,
+		nextCandidateProviders,
+		a.LightCandidates,
+	)
+	inheritPrimaryProviderForCandidates(
+		cfg,
+		a.Workspace,
+		nextCandidates[0],
+		nextCandidates[1:],
+		nextProvider,
+		nextCandidateProviders,
+	)
+	populateCandidateProvidersFromCandidates(
+		cfg,
+		a.Workspace,
+		nextCandidates[1:],
+		nextCandidateProviders,
+	)
+
+	nextContextWindow := resolveSwitchContextWindow(cfg, &cfg.Agents.Defaults, modelName, a.MaxTokens)
+	nextMaxTokens := a.MaxTokens
+	if nextContextWindow > 0 && nextMaxTokens > nextContextWindow/2 {
+		nextMaxTokens = nextContextWindow / 2
+	}
+
+	oldModel := a.Model
+	oldProvider := a.Provider
+	oldCandidateProviders := a.CandidateProviders
+	previousProviders := make(map[string]providers.LLMProvider, len(oldCandidateProviders)+1)
+	for key, provider := range oldCandidateProviders {
+		previousProviders[key] = provider
+	}
+	previousProviders["previous-primary"] = oldProvider
+
+	a.Model = modelName
+	a.Provider = nextProvider
+	a.Candidates = nextCandidates
+	a.CandidateProviders = nextCandidateProviders
+	a.ContextWindow = nextContextWindow
+	a.MaxTokens = nextMaxTokens
+	a.ThinkingLevel = parseThinkingLevel(resolvedCfg.ThinkingLevel)
+	a.ThinkingLevelConfigured = isConfiguredThinkingLevel(resolvedCfg.ThinkingLevel)
+
+	removed := unreferencedStatefulProviders(
+		previousProviders,
+		nextCandidateProviders,
+		nextProvider,
+		a.LightProvider,
+	)
+	closeUniqueStatefulProviders(removed...)
+	return oldModel, nil
+}
+
+// SwitchModelSerialized serializes concurrent switch requests for the same
+// agent so the last request wins deterministically. It still blocks on the
+// model write lock until an in-flight turn finishes.
+func (a *AgentInstance) SwitchModelSerialized(cfg *config.Config, modelName string) (string, error) {
+	if a != nil && a.switchMu != nil {
+		a.switchMu.Lock()
+		defer a.switchMu.Unlock()
+	}
+	return a.SwitchModel(cfg, modelName)
+}
+
+// resolveSwitchContextWindow mirrors NewAgentInstance's context resolution so a
+// runtime model switch cannot leave the agent with a stale context window.
+func resolveSwitchContextWindow(
+	cfg *config.Config,
+	defaults *config.AgentDefaults,
+	model string,
+	maxTokens int,
+) int {
+	contextWindow := defaults.ContextWindow
+	if modelCfg := providers.FindModelConfigForContext(cfg, model); modelCfg != nil && modelCfg.ContextWindow > 0 {
+		contextWindow = modelCfg.ContextWindow
+	}
+	if contextWindow == 0 {
+		if modelCfg := providers.FindModelConfigForContext(cfg, model); modelCfg != nil {
+			contextWindow = providers.DetectModelContextWindow(modelCfg)
+		}
+	}
+	if contextWindow == 0 {
+		contextWindow = maxTokens * 4
+	}
+	return contextWindow
+}
+
 // Close releases resources held by the agent's providers and session store.
 func (a *AgentInstance) Close() error {
 	modelMu := a.modelStateMutex()
@@ -814,6 +1029,14 @@ func closeUnreferencedStatefulProviders(
 	current map[string]providers.LLMProvider,
 	retained ...providers.LLMProvider,
 ) {
+	closeUniqueStatefulProviders(unreferencedStatefulProviders(previous, current, retained...)...)
+}
+
+func unreferencedStatefulProviders(
+	previous map[string]providers.LLMProvider,
+	current map[string]providers.LLMProvider,
+	retained ...providers.LLMProvider,
+) []providers.LLMProvider {
 	retainedKeys := make(map[string]struct{}, len(current)+len(retained))
 	for _, provider := range current {
 		retainedKeys[fmt.Sprintf("%T:%p", provider, provider)] = struct{}{}
@@ -828,7 +1051,7 @@ func closeUnreferencedStatefulProviders(
 			removed = append(removed, provider)
 		}
 	}
-	closeUniqueStatefulProviders(removed...)
+	return removed
 }
 
 // initSessionStore creates the session persistence backend.
