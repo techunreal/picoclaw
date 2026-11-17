@@ -224,6 +224,20 @@ export function AgentDefaultsSection({
       </Field>
 
       <Field
+        label={t("pages.config.max_parallel_turns")}
+        hint={t("pages.config.max_parallel_turns_hint")}
+        layout="setting-row"
+      >
+        <Input
+          type="number"
+          min={1}
+          max={16}
+          value={form.maxParallelTurns}
+          onChange={(e) => onFieldChange("maxParallelTurns", e.target.value)}
+        />
+      </Field>
+
+      <Field
         label={t("pages.config.summarize_threshold")}
         hint={t("pages.config.summarize_threshold_hint")}
         layout="setting-row"

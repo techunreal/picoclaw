@@ -18,6 +18,7 @@ export interface CoreConfigForm {
   maxTokens: string
   contextWindow: string
   maxToolIterations: string
+  maxParallelTurns: string
   summarizeMessageThreshold: string
   summarizeTokenPercent: string
   turnProfile: TurnProfileForm
@@ -130,6 +131,7 @@ export const EMPTY_FORM: CoreConfigForm = {
   maxTokens: "32768",
   contextWindow: "",
   maxToolIterations: "50",
+  maxParallelTurns: "1",
   summarizeMessageThreshold: "20",
   summarizeTokenPercent: "75",
   turnProfile: {
@@ -369,6 +371,10 @@ export function buildFormFromConfig(config: unknown): CoreConfigForm {
     maxToolIterations: asNumberString(
       defaults.max_tool_iterations,
       EMPTY_FORM.maxToolIterations,
+    ),
+    maxParallelTurns: asNumberString(
+      defaults.max_parallel_turns,
+      EMPTY_FORM.maxParallelTurns,
     ),
     summarizeMessageThreshold: asNumberString(
       defaults.summarize_message_threshold,

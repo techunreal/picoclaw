@@ -342,6 +342,11 @@ export function ConfigPage() {
           "Max tool iterations",
           { min: 1 },
         )
+        const maxParallelTurns = parseIntField(
+          form.maxParallelTurns,
+          "Max parallel turns",
+          { min: 1, max: 16 },
+        )
         const toolFeedbackMaxArgsLength = parseIntField(
           form.toolFeedbackMaxArgsLength,
           "Tool feedback max args length",
@@ -590,6 +595,7 @@ export function ConfigPage() {
               max_tokens: maxTokens,
               context_window: contextWindow,
               max_tool_iterations: maxToolIterations,
+              max_parallel_turns: maxParallelTurns,
               summarize_message_threshold: summarizeMessageThreshold,
               summarize_token_percent: summarizeTokenPercent,
               turn_profile: turnProfile,

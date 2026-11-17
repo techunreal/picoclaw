@@ -1373,6 +1373,8 @@
       "context_window_hint": "Model input context capacity in tokens. Leave empty to use the default (4x max tokens).",
       "max_tool_iterations": "Max Tool Iterations",
       "max_tool_iterations_hint": "Maximum tool-call loops in a single task.",
+      "max_parallel_turns": "Max Parallel Turns",
+      "max_parallel_turns_hint": "Maximum turns processed at the same time across different sessions/agents. 1 = sequential. Messages in the same session stay ordered.",
       "summarize_threshold": "Summarize Message Threshold",
       "summarize_threshold_hint": "Start summarization after this many messages.",
       "summarize_token_percent": "Summarize Token Percent",
