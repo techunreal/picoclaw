@@ -17,6 +17,10 @@ interface ModelSelectorProps {
   apiKeyModels: ModelInfo[]
   oauthModels: ModelInfo[]
   localModels: ModelInfo[]
+  badgeLabel?: string
+  badgeTitle?: string
+  globalDefaultModelName?: string
+  canUseGlobalDefault?: boolean
   disabled?: boolean
   onValueChange: (modelName: string) => void
 }
@@ -26,6 +30,10 @@ export function ModelSelector({
   apiKeyModels,
   oauthModels,
   localModels,
+  badgeLabel = "",
+  badgeTitle,
+  globalDefaultModelName = "",
+  canUseGlobalDefault = false,
   disabled = false,
   onValueChange,
 }: ModelSelectorProps) {
@@ -46,11 +54,27 @@ export function ModelSelector({
     >
       <SelectTrigger
         size="sm"
-        className="text-muted-foreground hover:text-foreground focus-visible:border-input h-8 max-w-[160px] min-w-[80px] bg-transparent shadow-none focus-visible:ring-0 sm:max-w-[220px]"
+        title={badgeTitle}
+        className="text-muted-foreground hover:text-foreground focus-visible:border-input h-8 max-w-[160px] min-w-[80px] gap-1.5 bg-transparent shadow-none focus-visible:ring-0 sm:max-w-[220px]"
       >
         <SelectValue placeholder={t("chat.noModel")} />
+        {badgeLabel && (
+          <span className="bg-primary/10 text-primary shrink-0 rounded px-1 py-0.5 text-[9px] leading-none font-semibold uppercase">
+            {badgeLabel}
+          </span>
+        )}
       </SelectTrigger>
       <SelectContent position="popper" align="start">
+        {canUseGlobalDefault && (
+          <>
+            <SelectItem value="__global__">
+              {t("models.useGlobalDefault", {
+                model: globalDefaultModelName || defaultModelName,
+              })}
+            </SelectItem>
+            <SelectSeparator />
+          </>
+        )}
         {rawDefaultModel && (
           <SelectItem value={rawDefaultModel}>{rawDefaultModel}</SelectItem>
         )}

@@ -11,6 +11,7 @@ import { toast } from "sonner"
 
 import {
   AgentApiError,
+  agentModelPrimary,
   importAgentProfile,
   inspectAgentProfile,
   toAgentConfig,
@@ -491,7 +492,7 @@ export function ProfileImportDialog({
                 <AgentModelField
                   idPrefix="import"
                   models={models}
-                  value={form.model?.primary}
+                  value={agentModelPrimary(form.model)}
                   defaultModelName={defaults.model_name}
                   onChange={(primary) =>
                     setForm((current) => ({

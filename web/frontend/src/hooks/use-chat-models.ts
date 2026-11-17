@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
 
 import { type ModelInfo, getModels, setDefaultModel } from "@/api/models"
+import { setAgentModel } from "@/api/agents"
 import { showSaveSuccessOrRestartToast } from "@/lib/restart-required"
 import { refreshGatewayState } from "@/store/gateway"
 
@@ -26,6 +27,7 @@ export function useChatModels({ isConnected }: UseChatModelsOptions) {
   const [modelList, setModelList] = useState<ModelInfo[]>([])
   const [defaultModelName, setDefaultModelName] = useState("")
   const [settingDefault, setSettingDefault] = useState(false)
+  const [settingAgentModel, setSettingAgentModel] = useState(false)
   const setDefaultRequestIdRef = useRef(0)
   const loadModelsRequestIdRef = useRef(0)
   const setDefaultQueueRef = useRef<Promise<void>>(Promise.resolve())
@@ -67,7 +69,7 @@ export function useChatModels({ isConnected }: UseChatModelsOptions) {
         .catch(() => {})
         .then(async () => {
           if (requestId !== setDefaultRequestIdRef.current) return
-          await setDefaultModel(modelName)
+          const result = await setDefaultModel(modelName)
           if (requestId !== setDefaultRequestIdRef.current) return
           const data = await getModels()
           if (requestId !== setDefaultRequestIdRef.current) return
@@ -76,12 +78,19 @@ export function useChatModels({ isConnected }: UseChatModelsOptions) {
           syncDefaultModelName(data.default_model)
           const gateway = await refreshGatewayState({ force: true })
           if (requestId !== setDefaultRequestIdRef.current) return
+          const restartRequired =
+            result.restart_required === true ||
+            (result.restart_required === undefined &&
+              gateway?.restartRequired === true)
           showSaveSuccessOrRestartToast(
             t,
             t("models.defaultChangeSuccess"),
             modelName,
-            gateway?.restartRequired === true,
+            restartRequired,
           )
+          if (result.message) {
+            toast.info(result.message)
+          }
         })
       setDefaultQueueRef.current = request
       try {
@@ -97,6 +106,44 @@ export function useChatModels({ isConnected }: UseChatModelsOptions) {
       }
     },
     [defaultModelName, syncDefaultModelName, t],
+  )
+
+  const handleSetAgentModel = useCallback(
+    async (agentId: string, modelName: string | null) => {
+      if (!agentId) return null
+      setSettingAgentModel(true)
+      try {
+        const result = await setAgentModel(agentId, modelName)
+        await loadModels()
+        const gateway = await refreshGatewayState({ force: true })
+        const restartRequired =
+          result.restart_required === true ||
+          (result.restart_required === undefined &&
+            gateway?.restartRequired === true)
+        showSaveSuccessOrRestartToast(
+          t,
+          t("models.agentModelChangeSuccess", {
+            model: result.effective_model || result.model,
+          }),
+          agentId,
+          restartRequired,
+        )
+        if (result.message) {
+          toast.info(result.message)
+        }
+        return result
+      } catch (err) {
+        toast.error(
+          err instanceof Error
+            ? err.message
+            : t("models.agentModelChangeFailed"),
+        )
+        return null
+      } finally {
+        setSettingAgentModel(false)
+      }
+    },
+    [loadModels, t],
   )
 
   const defaultSelectableModels = useMemo(() => {
@@ -152,6 +199,8 @@ export function useChatModels({ isConnected }: UseChatModelsOptions) {
     oauthModels,
     localModels,
     settingDefault,
+    settingAgentModel,
     handleSetDefault,
+    handleSetAgentModel,
   }
 }

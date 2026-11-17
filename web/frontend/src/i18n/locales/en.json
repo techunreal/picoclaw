@@ -482,6 +482,13 @@
   "models": {
     "description": "Configure API keys for AI providers. Only configured models are available for chat.",
     "defaultChangeSuccess": "Default model updated.",
+    "agentModelChangeSuccess": "Model updated to {{model}}.",
+    "agentModelChangeFailed": "Failed to update model.",
+    "globalBadge": "Global",
+    "frontmatterBadge": "AGENT.md",
+    "globalDefaultHint": "Global default ({{model}}). This agent inherits Pico's model.",
+    "frontmatterHint": "The model comes from AGENT.md frontmatter and overrides this selector.",
+    "useGlobalDefault": "Use global default ({{model}})",
     "unsavedPrompt": "This change has not been saved yet. Save to write it into the model configuration.",
     "restartHint": "Model configuration changes take effect after the gateway restarts.",
     "loadError": "Failed to load models",

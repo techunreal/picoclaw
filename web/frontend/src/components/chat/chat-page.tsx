@@ -1,5 +1,5 @@
 import { IconCheck, IconChevronDown, IconGhost, IconPlus } from "@tabler/icons-react"
-import { useQuery } from "@tanstack/react-query"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useAtom, useAtomValue, useSetAtom } from "jotai"
 import {
   type ChangeEvent,
@@ -12,7 +12,7 @@ import {
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
 
-import { getAgents } from "@/api/agents"
+import { agentModelPrimary, getAgents } from "@/api/agents"
 import { AgentAvatar } from "@/components/agent-avatar"
 import { AssistantMessage } from "@/components/chat/assistant-message"
 import {
@@ -169,6 +169,7 @@ export function ChatPage() {
   } = usePicoChat(chatAgentId)
   const isIncognito = isIncognitoSession(activeSessionId)
 
+  const queryClient = useQueryClient()
   const agentsQuery = useQuery({
     queryKey: ["sidebar-agents"],
     queryFn: getAgents,
@@ -235,8 +236,45 @@ export function ChatPage() {
     oauthModels,
     localModels,
     settingDefault,
+    settingAgentModel,
     handleSetDefault,
+    handleSetAgentModel,
   } = useChatModels({ isConnected: isGatewayRunning })
+
+  const isMainAgent = chatAgentId === "main" || !chatAgent
+  const globalDefaultModel = defaultModelName
+  const chatModelName = isMainAgent
+    ? globalDefaultModel
+    : chatAgent?.effective_model ||
+      agentModelPrimary(chatAgent?.model) ||
+      globalDefaultModel
+  const chatModelSource = isMainAgent
+    ? "global"
+    : chatAgent?.model_source ||
+      (agentModelPrimary(chatAgent?.model) ? "override" : "global")
+  const chatModelInherited = chatModelSource === "global"
+  const chatModelFromFrontmatter = chatModelSource === "frontmatter"
+
+  const handleSetChatModel = async (modelName: string) => {
+    if (modelName === "__global__") {
+      const result = await handleSetAgentModel(chatAgentId, null)
+      if (result) {
+        await queryClient.invalidateQueries({ queryKey: ["sidebar-agents"] })
+      }
+      return
+    }
+    if (modelName === chatModelName) return
+    if (isMainAgent) {
+      await handleSetDefault(modelName)
+      await queryClient.invalidateQueries({ queryKey: ["sidebar-agents"] })
+      return
+    }
+    const result = await handleSetAgentModel(chatAgentId, modelName)
+    if (result) {
+      await queryClient.invalidateQueries({ queryKey: ["sidebar-agents"] })
+    }
+  }
+
   const hasDefaultModel = Boolean(defaultModelName)
   const inputDisabledReason = resolveChatInputDisabledReason({
     hasDefaultModel,
@@ -448,12 +486,34 @@ export function ChatPage() {
         titleExtra={
           hasAvailableModels && (
             <ModelSelector
-              defaultModelName={defaultModelName}
+              defaultModelName={chatModelName || defaultModelName}
               apiKeyModels={apiKeyModels}
               oauthModels={oauthModels}
               localModels={localModels}
-              disabled={settingDefault}
-              onValueChange={handleSetDefault}
+              badgeLabel={
+                chatModelInherited
+                  ? t("models.globalBadge")
+                  : chatModelFromFrontmatter
+                    ? t("models.frontmatterBadge")
+                    : undefined
+              }
+              badgeTitle={
+                chatModelInherited
+                  ? t("models.globalDefaultHint", {
+                      model: globalDefaultModel,
+                    })
+                  : chatModelFromFrontmatter
+                    ? t("models.frontmatterHint")
+                    : undefined
+              }
+              globalDefaultModelName={globalDefaultModel}
+              canUseGlobalDefault={
+                !isMainAgent && chatModelSource === "override"
+              }
+              disabled={
+                settingDefault || settingAgentModel || chatModelFromFrontmatter
+              }
+              onValueChange={handleSetChatModel}
             />
           )
         }

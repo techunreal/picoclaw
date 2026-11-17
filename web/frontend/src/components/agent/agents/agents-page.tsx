@@ -13,7 +13,7 @@ import { useState } from "react"
 import { useTranslation } from "react-i18next"
 import { Link } from "@tanstack/react-router"
 
-import type { AgentView, DispatchRule } from "@/api/agents"
+import { agentModelPrimary, type AgentView, type DispatchRule } from "@/api/agents"
 import { AgentAvatar } from "@/components/agent-avatar"
 import { AgentEditDialog } from "@/components/agent/agents/agent-edit-dialog"
 import { ProfileImportDialog } from "@/components/agent/agents/profile-import-dialog"
@@ -122,7 +122,13 @@ export function AgentsPage() {
           {agent.name || t("agents.noName")}
         </span>
         <span className="text-muted-foreground truncate text-xs">
-          {agent.effective_model || t("agents.useDefaultModelShort")}
+          {agent.model_source === "global"
+            ? t("agents.useDefaultModel", {
+                model: agent.effective_model || "—",
+              })
+            : agent.model_source === "frontmatter"
+              ? `AGENT.md: ${agent.effective_model || "—"}`
+              : agent.effective_model || t("agents.useDefaultModelShort")}
         </span>
       </button>
     )
@@ -299,10 +305,15 @@ export function AgentsPage() {
                             {t("agents.model")}
                           </dt>
                           <dd className="mt-1 text-sm">
-                            {selectedAgent.model?.primary ||
-                              t("agents.useDefaultModel", {
-                                model: selectedAgent.effective_model || "—",
-                              })}
+                            {selectedAgent.model_source === "global"
+                              ? t("agents.useDefaultModel", {
+                                  model: selectedAgent.effective_model || "—",
+                                })
+                              : selectedAgent.model_source === "frontmatter"
+                                ? `AGENT.md: ${selectedAgent.effective_model || "—"}`
+                                : agentModelPrimary(selectedAgent.model) ||
+                                  selectedAgent.effective_model ||
+                                  "—"}
                           </dd>
                         </div>
                         <div>

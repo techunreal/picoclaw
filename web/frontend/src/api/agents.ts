@@ -5,6 +5,23 @@ export interface AgentModelConfig {
   fallbacks?: string[]
 }
 
+export type AgentModelValue = string | AgentModelConfig
+
+export function agentModelPrimary(
+  value?: AgentModelValue | null,
+): string {
+  if (!value) return ""
+  if (typeof value === "string") return value.trim()
+  return value.primary?.trim() || ""
+}
+
+export function agentModelFallbacks(
+  value?: AgentModelValue | null,
+): string[] | undefined {
+  if (!value || typeof value === "string") return undefined
+  return value.fallbacks
+}
+
 export interface AgentSubagentsConfig {
   enabled?: boolean
   allow_agents?: string[]
@@ -22,7 +39,7 @@ export interface AgentConfig {
   name?: string
   default?: boolean
   workspace?: string
-  model?: AgentModelConfig
+  model?: AgentModelValue
   skills?: string[]
   subagents?: AgentSubagentsConfig
   avatar?: AgentAvatar
@@ -32,6 +49,20 @@ export interface AgentView extends AgentConfig {
   effective_workspace: string
   workspace_source: "config" | "default" | "derived" | string
   effective_model?: string
+  model_source?: "global" | "override" | "frontmatter" | string
+}
+
+export interface SetAgentModelResponse {
+  status: string
+  agent: string
+  model: string
+  effective_model?: string
+  applied?: boolean
+  pending_agents?: string[]
+  gateway_unavailable?: boolean
+  warnings?: string[]
+  message?: string
+  restart_required?: boolean
 }
 
 export interface DispatchSelector {
@@ -165,8 +196,22 @@ export function updateAgents(
   })
 }
 
-export function updateAgentOrder(ids: string[]): Promise<{ status: string }> {
-  return request<{ status: string }>("/api/agents/order", {
+export function setAgentModel(
+  agentId: string,
+  model: string | null,
+): Promise<SetAgentModelResponse> {
+  const body = model === null ? { use_default: true } : { model }
+  return request<SetAgentModelResponse>(
+    `/api/agents/${encodeURIComponent(agentId)}/model`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    },
+  )
+}
+
+export function updateAgentOrder(ids: string[]): Promise<{ status: string }> {  return request<{ status: string }>("/api/agents/order", {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ ids }),

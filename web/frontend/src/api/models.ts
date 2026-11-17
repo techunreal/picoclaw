@@ -92,6 +92,12 @@ export interface ModelActionResponse {
   reference_rename?: ModelReferenceRename
   reference_cleanup?: ModelReferenceCleanup
   api_key_reused?: boolean
+  applied?: boolean
+  pending_agents?: string[]
+  gateway_unavailable?: boolean
+  warnings?: string[]
+  message?: string
+  restart_required?: boolean
 }
 
 export interface DefaultChain {

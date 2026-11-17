@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
 
 import {
+  agentModelPrimary,
   deleteAgentAvatar,
   uploadAgentAvatar,
   type AgentAvatar as AgentAvatarData,
@@ -315,7 +316,7 @@ export function AgentEditDialog({
             <AgentModelField
               idPrefix="agent"
               models={models}
-              value={form.model?.primary}
+              value={agentModelPrimary(form.model)}
               defaultModelName={defaults.model_name}
               onChange={(primary) =>
                 update({ model: primary ? { primary } : undefined })
