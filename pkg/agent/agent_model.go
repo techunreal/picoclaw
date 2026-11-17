@@ -37,6 +37,21 @@ func (al *AgentLoop) GetAgentModel(agentID string) (string, bool) {
 	return agent.ModelSnapshot().Model, true
 }
 
+// SetDefaultModelName updates the in-memory global default model alias. It is
+// used when Pico's model changes so subsequently created turns and inherited
+// agents resolve the new default without a gateway restart.
+func (al *AgentLoop) SetDefaultModelName(modelName string) {
+	if al == nil {
+		return
+	}
+	modelName = strings.TrimSpace(modelName)
+	al.mu.Lock()
+	defer al.mu.Unlock()
+	if al.cfg != nil {
+		al.cfg.Agents.Defaults.ModelName = modelName
+	}
+}
+
 // SwitchAgentModel switches one agent's model without restarting the gateway.
 // In-flight turns keep the read lock until they finish; this method waits up to
 // wait for that to happen. When the wait expires it returns applied=false and

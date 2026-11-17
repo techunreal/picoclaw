@@ -16,6 +16,7 @@ import (
 
 	"github.com/sipeed/picoclaw/pkg/agent"
 	"github.com/sipeed/picoclaw/pkg/channels"
+	"github.com/sipeed/picoclaw/pkg/routing"
 )
 
 const agentsAPIBasePath = "/agents/"
@@ -24,6 +25,7 @@ const agentsAPIBasePath = "/agents/"
 // needs. Keeping it small makes the handler easy to test.
 type agentModelController interface {
 	GetAgentModel(agentID string) (string, bool)
+	SetDefaultModelName(modelName string)
 	SwitchAgentModel(agentID, modelName string, wait time.Duration) (string, bool, error)
 }
 
@@ -105,6 +107,10 @@ func (h *agentsAPIHandler) handleSwitch(w http.ResponseWriter, r *http.Request, 
 	if modelName == "" {
 		writeAgentsAPIError(w, http.StatusBadRequest, "invalid_model", "model is required.")
 		return
+	}
+
+	if routing.NormalizeAgentID(agentID) == routing.DefaultAgentID {
+		h.loop.SetDefaultModelName(modelName)
 	}
 
 	oldModel, applied, err := h.loop.SwitchAgentModel(agentID, modelName, agent.DefaultModelSwitchWait)

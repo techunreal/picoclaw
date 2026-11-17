@@ -13,14 +13,19 @@ import (
 )
 
 type fakeAgentModelController struct {
-	model       string
-	oldModel    string
-	applied     bool
-	switchErr   error
-	lastAgent   string
-	lastModel   string
-	lastWait    time.Duration
-	getNotFound bool
+	model        string
+	oldModel     string
+	applied      bool
+	switchErr    error
+	lastAgent    string
+	lastModel    string
+	lastWait     time.Duration
+	defaultModel string
+	getNotFound  bool
+}
+
+func (f *fakeAgentModelController) SetDefaultModelName(modelName string) {
+	f.defaultModel = modelName
 }
 
 func (f *fakeAgentModelController) GetAgentModel(agentID string) (string, bool) {
@@ -119,6 +124,17 @@ func TestAgentsAPISwitchPending(t *testing.T) {
 	}
 	if payload["status"] != "pending" || payload["applied"] != false {
 		t.Fatalf("payload = %#v", payload)
+	}
+}
+
+func TestAgentsAPIMainSwitchSetsDefault(t *testing.T) {
+	loop := &fakeAgentModelController{oldModel: "old", applied: true}
+	rec := serveAgentsAPI(t, loop, http.MethodPost, "/agents/main/model", `{"model":"new"}`, "secret")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	if loop.defaultModel != "new" {
+		t.Fatalf("default model = %q, want new", loop.defaultModel)
 	}
 }
 
