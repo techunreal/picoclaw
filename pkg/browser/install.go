@@ -54,6 +54,7 @@ func StartBrowserInstall(binaryPath string) error {
 	go func() {
 		defer cancel()
 		cmd := exec.CommandContext(ctx, binary, "install")
+		applyHiddenProcAttrs(cmd)
 		stdout, err := cmd.StdoutPipe()
 		if err != nil {
 			finishInstall(err)

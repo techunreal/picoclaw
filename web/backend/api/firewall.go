@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"os/exec"
 	"strings"
 	"sync"
 	"time"
@@ -84,7 +83,7 @@ func (h *Handler) handleFirewallStatus(w http.ResponseWriter, r *http.Request) {
 
 	firewallStatusMu.Lock()
 	firewallStatusCache = response
-	firewallStatusExpires = time.Now().Add(3 * time.Second)
+	firewallStatusExpires = time.Now().Add(30 * time.Second)
 	firewallStatusMu.Unlock()
 
 	writeBrowserSettingsJSON(w, http.StatusOK, response)
@@ -114,7 +113,7 @@ func (h *Handler) handleFirewallAction(w http.ResponseWriter, r *http.Request) {
 		"Start-Process -FilePath powershell.exe -Verb RunAs -ArgumentList '-NoProfile','-NonInteractive','-EncodedCommand','%s'",
 		encoded,
 	)
-	cmd := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-Command", outer)
+	cmd := launcherExecCommand("powershell.exe", "-NoProfile", "-NonInteractive", "-Command", outer)
 	if err := cmd.Start(); err != nil {
 		writeBrowserSettingsError(w, http.StatusInternalServerError, "elevation_failed",
 			"Could not start the Windows elevation prompt: "+err.Error())
@@ -138,7 +137,7 @@ func queryFirewallRule(name string) (bool, error) {
 			"if ($r) { 'PRESENT' } else { 'MISSING' }",
 		psQuote(name),
 	)
-	out, err := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script).Output()
+	out, err := launcherExecCommand("powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script).Output()
 	if err != nil {
 		return false, err
 	}

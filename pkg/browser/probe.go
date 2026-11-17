@@ -30,6 +30,7 @@ func Version(binaryPath string) (string, error) {
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, binary, "--version")
+	applyHiddenProcAttrs(cmd)
 	output, err := cmd.CombinedOutput()
 	text := strings.TrimSpace(string(output))
 	if ctx.Err() != nil {

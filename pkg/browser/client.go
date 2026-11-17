@@ -155,6 +155,7 @@ func (c *Client) Run(ctx context.Context, session string, argv ...string) (strin
 	defer cancel()
 
 	cmd := exec.CommandContext(runCtx, c.binary, args...)
+	applyHiddenProcAttrs(cmd)
 	cmd.Env = append(os.Environ(),
 		"AGENT_BROWSER_PROXY="+c.proxyURL,
 		"AGENT_BROWSER_PROXY_USERNAME=",
