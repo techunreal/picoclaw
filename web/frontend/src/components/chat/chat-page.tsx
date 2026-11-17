@@ -572,27 +572,60 @@ export function ChatPage() {
           </span>
         )}
 
-        <Button
-          variant="secondary"
-          size="sm"
-          onClick={() => void newChat(selectedAgentId)}
-          className="h-9 gap-2"
-        >
-          <IconPlus className="size-4" />
-          <span className="hidden sm:inline">{t("chat.newChat")}</span>
-        </Button>
+        <div className="hidden items-center gap-2 sm:flex">
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => void newChat(selectedAgentId)}
+            className="h-9 gap-2"
+          >
+            <IconPlus className="size-4" />
+            <span className="hidden sm:inline">{t("chat.newChat")}</span>
+          </Button>
 
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => void newIncognitoChat(selectedAgentId)}
-          title={t("chat.newIncognitoChat")}
-          aria-label={t("chat.newIncognitoChat")}
-          className="h-9 gap-2"
-        >
-          <IconGhost className="size-4" />
-          <span className="hidden sm:inline">{t("chat.incognitoBadge")}</span>
-        </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => void newIncognitoChat(selectedAgentId)}
+            title={t("chat.newIncognitoChat")}
+            aria-label={t("chat.newIncognitoChat")}
+            className="h-9 gap-2"
+          >
+            <IconGhost className="size-4" />
+            <span className="hidden sm:inline">{t("chat.incognitoBadge")}</span>
+          </Button>
+        </div>
+
+        <div className="sm:hidden">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="secondary"
+                size="sm"
+                className="h-9 w-9 p-0"
+                aria-label={t("chat.newChat")}
+              >
+                <IconPlus className="size-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="min-w-48">
+              <DropdownMenuItem
+                onSelect={() => void newChat(selectedAgentId)}
+                className="gap-2"
+              >
+                <IconPlus className="size-4" />
+                {t("chat.newChat")}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onSelect={() => void newIncognitoChat(selectedAgentId)}
+                className="gap-2"
+              >
+                <IconGhost className="size-4" />
+                {t("chat.newIncognitoChat")}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
       </PageHeader>
 
       <div

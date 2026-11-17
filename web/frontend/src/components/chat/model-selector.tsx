@@ -61,7 +61,7 @@ export function ModelSelector({
       >
         <SelectValue placeholder={t("chat.noModel")} />
         {badgeLabel && (
-          <span className="bg-primary/10 text-primary shrink-0 rounded px-1 py-0.5 text-[9px] leading-none font-semibold uppercase">
+          <span className="bg-primary/10 text-primary hidden shrink-0 rounded px-1 py-0.5 text-[9px] leading-none font-semibold uppercase sm:inline">
             {badgeLabel}
           </span>
         )}

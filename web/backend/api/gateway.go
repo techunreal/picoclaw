@@ -165,39 +165,7 @@ func isLikelyGatewayProcess(pid int) (bool, bool) {
 	}
 
 	if runtime.GOOS == "windows" {
-		psCmd := fmt.Sprintf(
-			`$p=Get-CimInstance Win32_Process -Filter "ProcessId = %d"; if ($null -eq $p) { "" } else { $p.CommandLine }`,
-			pid,
-		)
-		out, err := launcherExecCommand("powershell", "-NoProfile", "-NonInteractive", "-Command", psCmd).Output()
-		if err == nil {
-			cmdline := strings.TrimSpace(string(out))
-			if cmdline != "" {
-				return looksLikeGatewayCommandLine(cmdline), true
-			}
-		}
-
-		// Fallback: determine only whether the process still exists.
-		out, err = launcherExecCommand("tasklist", "/FI", "PID eq "+strconv.Itoa(pid), "/FO", "CSV", "/NH").Output()
-		if err != nil {
-			return false, false
-		}
-		line := strings.ToLower(strings.TrimSpace(string(out)))
-		if line == "" {
-			return false, true
-		}
-		// A CSV row means the process exists, but may have a custom executable
-		// name we cannot classify here.
-		if strings.HasPrefix(line, "\"") {
-			if strings.Contains(line, "\"picoclaw.exe\"") {
-				return true, true
-			}
-			return false, true
-		}
-		if strings.Contains(line, "no tasks are running") {
-			return false, true
-		}
-		return false, true
+		return inspectGatewayProcessWindows(pid)
 	}
 
 	out, err := launcherExecCommand("ps", "-o", "command=", "-p", strconv.Itoa(pid)).Output()
