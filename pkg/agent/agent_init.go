@@ -354,11 +354,13 @@ func registerSharedTools(
 					}
 				}
 
-				// 5. Build SubTurnConfig
+				// 5. Build SubTurnConfig. TargetAgentID makes spawnSubTurn
+				// resolve the target agent's provider, model, workspace and tools.
 				cfg := SubTurnConfig{
-					Model:        modelToUse,
-					Tools:        tlSlice,
-					SystemPrompt: systemPrompt,
+					Model:         modelToUse,
+					Tools:         tlSlice,
+					SystemPrompt:  systemPrompt,
+					TargetAgentID: targetAgentID,
 				}
 				if hasMaxTokens {
 					cfg.MaxTokens = maxTokens
