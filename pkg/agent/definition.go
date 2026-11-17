@@ -77,6 +77,17 @@ func (cb *ContextBuilder) LoadAgentDefinition() AgentContextDefinition {
 	return loadAgentDefinition(cb.workspace)
 }
 
+// AgentDefinitionModel returns the model declared in AGENT.md frontmatter, if
+// any. Runtime model resolution gives this value precedence over the agent
+// config override, so API/UI callers must use the same source of truth.
+func AgentDefinitionModel(workspace string) string {
+	definition := loadAgentDefinition(strings.TrimSpace(workspace))
+	if definition.Agent == nil {
+		return ""
+	}
+	return strings.TrimSpace(definition.Agent.Frontmatter.Model)
+}
+
 func loadAgentDefinition(workspace string) AgentContextDefinition {
 	definition := AgentContextDefinition{}
 	definition.User = loadUserDefinition(workspace)

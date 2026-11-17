@@ -53,6 +53,23 @@ func NewAgentRegistry(
 					"model":     instance.Model,
 				})
 		}
+		// Pico/main is a real agent even when agents.list is configured. It owns
+		// the default workspace and follows the global default model unless an
+		// explicit agent with ID "main" was declared.
+		if _, ok := registry.agents[routing.DefaultAgentID]; !ok {
+			mainCfg := &config.AgentConfig{
+				ID:   routing.DefaultAgentID,
+				Name: "Pico",
+			}
+			instance := NewAgentInstance(mainCfg, &cfg.Agents.Defaults, cfg, provider)
+			registry.agents[routing.DefaultAgentID] = instance
+			logger.InfoCF("agent", "Created implicit main agent alongside configured agents",
+				map[string]any{
+					"agent_id":  routing.DefaultAgentID,
+					"workspace": instance.Workspace,
+					"model":     instance.Model,
+				})
+		}
 	}
 
 	for _, instance := range registry.agents {

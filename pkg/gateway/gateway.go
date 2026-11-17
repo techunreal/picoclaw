@@ -199,13 +199,9 @@ func Run(debug bool, homePath, configPath string, allowEmptyStartup bool) (runEr
 		}
 	}()
 
-	provider, modelID, err := createStartupProvider(cfg, allowEmptyStartup)
+	provider, _, err := createStartupProvider(cfg, allowEmptyStartup)
 	if err != nil {
 		return fmt.Errorf("error creating provider: %w", err)
-	}
-
-	if modelID != "" {
-		cfg.Agents.Defaults.ModelName = modelID
 	}
 
 	msgBus := bus.NewMessageBus()
@@ -627,14 +623,10 @@ func handleConfigReload(
 
 	logger.Infof(" New model is '%s', recreating provider...", newModel)
 
-	newProvider, newModelID, err := createStartupProvider(newCfg, allowEmptyStartup)
+	newProvider, _, err := createStartupProvider(newCfg, allowEmptyStartup)
 	if err != nil {
 		logger.Errorf("  ⚠ Error creating new provider: %v", err)
 		return fmt.Errorf("error creating new provider: %w", err)
-	}
-
-	if newModelID != "" {
-		newCfg.Agents.Defaults.ModelName = newModelID
 	}
 
 	if ctx == nil {

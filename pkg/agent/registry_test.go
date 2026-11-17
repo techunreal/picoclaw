@@ -67,8 +67,11 @@ func TestNewAgentRegistry_ExplicitAgents(t *testing.T) {
 	registry := NewAgentRegistry(cfg, &mockRegistryProvider{})
 
 	ids := registry.ListAgentIDs()
-	if len(ids) != 2 {
-		t.Fatalf("expected 2 agents, got %d: %v", len(ids), ids)
+	if len(ids) != 3 {
+		t.Fatalf("expected 2 configured agents plus main, got %d: %v", len(ids), ids)
+	}
+	if _, ok := registry.GetAgent("main"); !ok {
+		t.Fatal("expected implicit main agent alongside configured agents")
 	}
 
 	sales, ok := registry.GetAgent("sales")

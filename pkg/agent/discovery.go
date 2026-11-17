@@ -214,6 +214,10 @@ func (r *AgentRegistry) defaultAgentIDLocked() string {
 				return id
 			}
 		}
+		// Pico/main is the default when no agent is explicitly marked default.
+		if _, ok := r.agents[routing.DefaultAgentID]; ok {
+			return routing.DefaultAgentID
+		}
 		id := routing.NormalizeAgentID(r.cfg.Agents.List[0].ID)
 		if _, ok := r.agents[id]; ok {
 			return id
