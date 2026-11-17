@@ -76,8 +76,13 @@ type modelResponse struct {
 }
 
 type defaultChainResponse struct {
-	DefaultModel  string   `json:"default_model"`
-	FallbackChain []string `json:"fallback_chain"`
+	DefaultModel       string   `json:"default_model"`
+	FallbackChain      []string `json:"fallback_chain"`
+	Applied            bool     `json:"applied"`
+	PendingAgents      []string `json:"pending_agents,omitempty"`
+	GatewayUnavailable bool     `json:"gateway_unavailable,omitempty"`
+	Warnings           []string `json:"warnings,omitempty"`
+	RestartRequired    bool     `json:"restart_required"`
 }
 
 type defaultChainRequest struct {
@@ -1558,10 +1563,20 @@ func (h *Handler) handleUpdateDefaultChain(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	applied, pending, gatewayUnavailable, warnings := h.applyGatewayAgentModels(
+		h.globalModelRequests(cfg, defaultModel),
+	)
+	h.markGatewayConfigApplied()
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(defaultChainResponse{
-		DefaultModel:  defaultModel,
-		FallbackChain: fallbacks,
+		DefaultModel:       defaultModel,
+		FallbackChain:      fallbacks,
+		Applied:            applied,
+		PendingAgents:      pending,
+		GatewayUnavailable: gatewayUnavailable,
+		Warnings:           warnings,
+		RestartRequired:    false,
 	})
 }
 
