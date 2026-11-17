@@ -63,17 +63,53 @@ func TestBrowserSettings_Get(t *testing.T) {
 	}
 }
 
-func TestBrowserSettings_EnableRequiresDomains(t *testing.T) {
+func TestBrowserSettings_EnableDenyRequiresDomains(t *testing.T) {
 	mux, _ := newBrowserSettingsTestMux(t)
 
 	rec := doBrowserSettingsRequest(t, mux, http.MethodPut, "/api/tools/browser", map[string]any{
-		"enabled":         true,
-		"allowed_domains": []string{},
-		"headless":        true,
+		"enabled":           true,
+		"allowed_domains":   []string{},
+		"permission_policy": "deny",
+		"headless":          true,
 	})
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400, body = %s", rec.Code, rec.Body.String())
 	}
+	var payload struct {
+		Code string `json:"code"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode error body: %v", err)
+	}
+	if payload.Code != "requires_allowed_domains" {
+		t.Fatalf("code = %q, want requires_allowed_domains", payload.Code)
+	}
+}
+
+func TestBrowserSettings_EnableAskWithoutDomains(t *testing.T) {
+	mux, _ := newBrowserSettingsTestMux(t)
+
+	rec := doBrowserSettingsRequest(t, mux, http.MethodPut, "/api/tools/browser", map[string]any{
+		"enabled":           true,
+		"allowed_domains":   []string{},
+		"permission_policy": "ask",
+		"headless":          true,
+	})
+	if rec.Code == http.StatusOK {
+		return
+	}
+
+	var payload struct {
+		Code string `json:"code"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &payload)
+	if payload.Code == "requires_allowed_domains" {
+		t.Fatalf("ask policy must not require allowed domains, body = %s", rec.Body.String())
+	}
+	if payload.Code == "agent_browser_missing" {
+		t.Skipf("agent-browser is not installed in this environment: %s", rec.Body.String())
+	}
+	t.Fatalf("status = %d, want 200 or agent_browser_missing, body = %s", rec.Code, rec.Body.String())
 }
 
 func TestBrowserSettings_EnablePersistsDomains(t *testing.T) {

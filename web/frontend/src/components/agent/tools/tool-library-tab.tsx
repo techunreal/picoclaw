@@ -32,6 +32,7 @@ interface ToolLibraryTabProps {
   onSearchQueryChange: (value: string) => void
   onStatusFilterChange: (value: ToolStatusFilter) => void
   onOpenWebSearchSettings: () => void
+  onOpenTTSSettings: () => void
   onToggleTool: (name: string, enabled: boolean) => void
 }
 
@@ -47,6 +48,7 @@ export function ToolLibraryTab({
   onSearchQueryChange,
   onStatusFilterChange,
   onOpenWebSearchSettings,
+  onOpenTTSSettings,
   onToggleTool,
 }: ToolLibraryTabProps) {
   const { t } = useTranslation()
@@ -159,6 +161,7 @@ export function ToolLibraryTab({
                     tool={tool}
                     isPending={pendingToolName === tool.name}
                     onOpenWebSearchSettings={onOpenWebSearchSettings}
+                    onOpenTTSSettings={onOpenTTSSettings}
                     onToggleTool={onToggleTool}
                   />
                 ))}
@@ -175,11 +178,13 @@ function ToolCard({
   tool,
   isPending,
   onOpenWebSearchSettings,
+  onOpenTTSSettings,
   onToggleTool,
 }: {
   tool: ToolSupportItem
   isPending: boolean
   onOpenWebSearchSettings: () => void
+  onOpenTTSSettings: () => void
   onToggleTool: (name: string, enabled: boolean) => void
 }) {
   const { t } = useTranslation()
@@ -191,6 +196,7 @@ function ToolCard({
   const isDisabled = tool.status === "disabled"
   const isBlocked = tool.status === "blocked"
   const isWebSearchTool = tool.name === "web_search"
+  const isTTSTool = tool.name === "send_tts"
 
   return (
     <Card
@@ -222,6 +228,21 @@ function ToolCard({
                 aria-label={t(
                   "pages.agent.tools.web_search.open_settings",
                   "Open Settings",
+                )}
+              >
+                <IconSettings className="size-4" />
+              </Button>
+            )}
+            {isTTSTool && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                onClick={onOpenTTSSettings}
+                className="text-muted-foreground hover:text-foreground hover:bg-muted/60 size-8 rounded-lg"
+                aria-label={t(
+                  "pages.agent.tools.tts.open_settings",
+                  "Open TTS settings",
                 )}
               >
                 <IconSettings className="size-4" />

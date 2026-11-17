@@ -1,6 +1,6 @@
 import type { ToolSupportItem, WebSearchConfigResponse } from "@/api/tools"
 
-export type ToolsPageTab = "library" | "web-search" | "browser" | "mcp"
+export type ToolsPageTab = "library" | "web-search" | "browser" | "tts" | "mcp"
 export type ToolStatusFilter = "all" | ToolSupportItem["status"]
 export type GroupedTools = Array<[string, ToolSupportItem[]]>
 

@@ -254,6 +254,73 @@ func TestHandleUpdateToolState(t *testing.T) {
 	}
 }
 
+func TestHandleUpdateToolState_BrowserPolicy(t *testing.T) {
+	configPath, cleanup := setupOAuthTestEnv(t)
+	defer cleanup()
+
+	cfg, err := config.LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+	cfg.Tools.Browser.Enabled = false
+	cfg.Tools.Browser.AllowedDomains = nil
+	cfg.Tools.Browser.AllowAllDomains = false
+	cfg.Tools.Browser.PermissionPolicy = "ask"
+	if err := config.SaveConfig(configPath, cfg); err != nil {
+		t.Fatalf("SaveConfig() error = %v", err)
+	}
+
+	h := NewHandler(configPath)
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	// Ask can be enabled without an allowlist because unlisted sites prompt at runtime.
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(
+		http.MethodPut,
+		"/api/tools/browser/state",
+		bytes.NewBufferString(`{"enabled":true}`),
+	)
+	req.Header.Set("Content-Type", "application/json")
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("ask policy status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+	if !configMustLoad(t, configPath).Tools.Browser.Enabled {
+		t.Fatal("browser should be enabled with the ask policy")
+	}
+
+	// Deny with an empty allowlist would refuse every site, so it stays blocked.
+	cfg = configMustLoad(t, configPath)
+	cfg.Tools.Browser.Enabled = false
+	cfg.Tools.Browser.PermissionPolicy = "deny"
+	cfg.Tools.Browser.AllowedDomains = nil
+	if err := config.SaveConfig(configPath, cfg); err != nil {
+		t.Fatalf("SaveConfig() error = %v", err)
+	}
+
+	rec2 := httptest.NewRecorder()
+	req2 := httptest.NewRequest(
+		http.MethodPut,
+		"/api/tools/browser/state",
+		bytes.NewBufferString(`{"enabled":true}`),
+	)
+	req2.Header.Set("Content-Type", "application/json")
+	mux.ServeHTTP(rec2, req2)
+	if rec2.Code != http.StatusBadRequest {
+		t.Fatalf("deny policy status = %d, want 400, body=%s", rec2.Code, rec2.Body.String())
+	}
+}
+
+func configMustLoad(t *testing.T, path string) *config.Config {
+	t.Helper()
+	cfg, err := config.LoadConfig(path)
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+	return cfg
+}
+
 func TestHandleListTools_ReportsWebSearchEnabledWhenToolIsOn(t *testing.T) {
 	tests := []struct {
 		name         string

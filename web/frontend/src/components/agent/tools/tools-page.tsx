@@ -7,6 +7,7 @@ import { BrowserTab } from "./browser-tab"
 import { MCPTab } from "./mcp-tab"
 import { ToolLibraryTab } from "./tool-library-tab"
 import { ToolsTabs } from "./tools-tabs"
+import { TTSTab } from "./tts-tab"
 import { useToolsPage } from "./use-tools-page"
 import { WebSearchTab } from "./web-search-tab"
 
@@ -66,10 +67,13 @@ export function ToolsPage() {
               onSearchQueryChange={setSearchQuery}
               onStatusFilterChange={setStatusFilter}
               onOpenWebSearchSettings={() => setActiveTab("web-search")}
+              onOpenTTSSettings={() => setActiveTab("tts")}
               onToggleTool={toggleTool}
             />
           ) : activeTab === "browser" ? (
             <BrowserTab />
+          ) : activeTab === "tts" ? (
+            <TTSTab />
           ) : activeTab === "mcp" ? (
             <MCPTab />
           ) : (

@@ -30,6 +30,11 @@ const tabs: Array<{
     defaultLabel: "Browser",
   },
   {
+    key: "tts",
+    translationKey: "pages.agent.tools.tts.title",
+    defaultLabel: "Text to Speech",
+  },
+  {
     key: "mcp",
     translationKey: "pages.agent.tools.mcp.title",
     defaultLabel: "MCP",

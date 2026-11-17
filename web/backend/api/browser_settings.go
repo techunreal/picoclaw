@@ -96,9 +96,12 @@ func (h *Handler) handleUpdateBrowserConfig(w http.ResponseWriter, r *http.Reque
 			"permission_policy must be ask, allow or deny.")
 		return
 	}
-	if req.Enabled && policy != "allow" && len(domains) == 0 {
+	// The Ask policy prompts at runtime for sites that are not on the list, so it
+	// can be enabled without any allowed domain. Deny would leave the tool unable
+	// to open anything, so that combination still requires a domain.
+	if req.Enabled && policy == "deny" && len(domains) == 0 {
 		writeBrowserSettingsError(w, http.StatusBadRequest, "requires_allowed_domains",
-			"Add at least one allowed domain before enabling the browser tool, or choose Allow all sites.")
+			"The Deny policy needs at least one allowed domain before the browser tool can be enabled.")
 		return
 	}
 	if req.Enabled {

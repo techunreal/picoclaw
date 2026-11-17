@@ -225,6 +225,7 @@ func (h *Handler) registerToolRoutes(mux *http.ServeMux) {
 	h.registerBrowserSettingsRoutes(mux)
 	h.registerBrowserApprovalRoutes(mux)
 	h.registerMCPRoutes(mux)
+	h.registerVoiceRoutes(mux)
 }
 
 func (h *Handler) handleListTools(w http.ResponseWriter, r *http.Request) {
@@ -368,7 +369,9 @@ func resolveBrowserToolSupport(cfg *config.Config) (string, string) {
 	if !cfg.Tools.IsToolEnabled("browser") {
 		return "disabled", ""
 	}
-	if len(cfg.Tools.Browser.AllowedDomains) == 0 && !cfg.Tools.Browser.IsAllowAllDomains() {
+	// Ask (default) prompts at runtime for unlisted sites, so an empty allowlist
+	// is allowed. Deny refuses unlisted sites, so it needs at least one domain.
+	if cfg.Tools.Browser.UnknownDomainPolicy() == "deny" && len(cfg.Tools.Browser.AllowedDomains) == 0 {
 		return "blocked", "requires_allowed_domains"
 	}
 	if _, err := browser.LocateBinary(cfg.Tools.Browser.BinaryPath); err != nil {
@@ -393,9 +396,10 @@ func applyToolState(cfg *config.Config, toolName string, enabled bool) error {
 		cfg.Tools.Exec.Enabled = enabled
 	case "browser":
 		if enabled &&
-			len(cfg.Tools.Browser.AllowedDomains) == 0 &&
-			!cfg.Tools.Browser.IsAllowAllDomains() {
-			return fmt.Errorf("browser requires allowed_domains before it can be enabled")
+			cfg.Tools.Browser.UnknownDomainPolicy() == "deny" &&
+			len(cfg.Tools.Browser.AllowedDomains) == 0 {
+			return fmt.Errorf(
+				"browser with the deny policy requires at least one allowed domain before it can be enabled")
 		}
 		cfg.Tools.Browser.Enabled = enabled
 	case "cron":

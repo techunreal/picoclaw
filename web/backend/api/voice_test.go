@@ -1,0 +1,187 @@
+package api
+
+import (
+	"bytes"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+
+	"github.com/sipeed/picoclaw/pkg/config"
+)
+
+func newVoiceTestEnv(t *testing.T) (string, *http.ServeMux) {
+	t.Helper()
+	configPath, cleanup := setupOAuthTestEnv(t)
+	t.Cleanup(cleanup)
+
+	cfg, err := config.LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+	cfg.ModelList = []*config.ModelConfig{
+		{
+			ModelName: "local-tts",
+			Provider:  "openai-compatible",
+			Model:     "kokoro-tts",
+			APIBase:   "http://127.0.0.1:9999/v1",
+			APIKeys:   config.SimpleSecureStrings("test-key"),
+		},
+		{
+			ModelName: "chat-only",
+			Provider:  "openai-compatible",
+			Model:     "gpt-test",
+			APIBase:   "http://127.0.0.1:9999/v1",
+		},
+	}
+	cfg.Voice.TTSModelName = ""
+	if err := config.SaveConfig(configPath, cfg); err != nil {
+		t.Fatalf("SaveConfig() error = %v", err)
+	}
+
+	h := NewHandler(configPath)
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+	return configPath, mux
+}
+
+func TestVoiceConfig_Get(t *testing.T) {
+	_, mux := newVoiceTestEnv(t)
+
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/voice/config", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200, body = %s", rec.Code, rec.Body.String())
+	}
+
+	var response voiceConfigResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if response.TTSModelName != "" {
+		t.Fatalf("tts_model_name = %q, want empty", response.TTSModelName)
+	}
+	if !response.Resolved || response.ResolvedName != "local-tts" {
+		t.Fatalf("resolved = %+v, want local-tts via fallback scan", response)
+	}
+	if len(response.Models) != 2 {
+		t.Fatalf("models = %d, want 2", len(response.Models))
+	}
+	if response.Models[0].TTSLike != true || !response.Models[0].HasKey {
+		t.Fatalf("first model = %+v, want tts_like with key", response.Models[0])
+	}
+	if response.Models[1].TTSLike || response.Models[1].HasKey {
+		t.Fatalf("second model = %+v, want plain model without key", response.Models[1])
+	}
+}
+
+func TestVoiceConfig_Update(t *testing.T) {
+	configPath, mux := newVoiceTestEnv(t)
+
+	body := bytes.NewBufferString(`{"tts_model_name":"local-tts"}`)
+	req := httptest.NewRequest(http.MethodPut, "/api/voice/config", body)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200, body = %s", rec.Code, rec.Body.String())
+	}
+
+	cfg, err := config.LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+	if cfg.Voice.TTSModelName != "local-tts" {
+		t.Fatalf("tts_model_name = %q, want local-tts", cfg.Voice.TTSModelName)
+	}
+}
+
+func TestVoiceConfig_UpdateUnknownModel(t *testing.T) {
+	_, mux := newVoiceTestEnv(t)
+
+	req := httptest.NewRequest(
+		http.MethodPut,
+		"/api/voice/config",
+		bytes.NewBufferString(`{"tts_model_name":"missing-model"}`),
+	)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400, body = %s", rec.Code, rec.Body.String())
+	}
+	var payload struct {
+		Code string `json:"code"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode error body: %v", err)
+	}
+	if payload.Code != "model_not_found" {
+		t.Fatalf("code = %q, want model_not_found", payload.Code)
+	}
+}
+
+func TestVoiceTest_RequiresProvider(t *testing.T) {
+	configPath, mux := newVoiceTestEnv(t)
+
+	cfg, err := config.LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+	cfg.ModelList = nil
+	cfg.Voice.TTSModelName = ""
+	if err := config.SaveConfig(configPath, cfg); err != nil {
+		t.Fatalf("SaveConfig() error = %v", err)
+	}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/voice/test", bytes.NewBufferString(`{"text":"hi"}`))
+	req.Header.Set("Content-Type", "application/json")
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400, body = %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestVoiceTest_ReturnsAudio(t *testing.T) {
+	ttsServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasPrefix(r.URL.Path, "/v1/audio/speech") {
+			t.Errorf("unexpected path %q", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "audio/mpeg")
+		_, _ = w.Write([]byte("AUDIO-BYTES"))
+	}))
+	defer ttsServer.Close()
+
+	configPath, mux := newVoiceTestEnv(t)
+	cfg, err := config.LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+	cfg.ModelList = []*config.ModelConfig{{
+		ModelName: "local-tts",
+		Provider:  "openai-compatible",
+		Model:     "kokoro-tts",
+		APIBase:   ttsServer.URL + "/v1",
+		APIKeys:   config.SimpleSecureStrings("test-key"),
+	}}
+	cfg.Voice.TTSModelName = "local-tts"
+	if err := config.SaveConfig(configPath, cfg); err != nil {
+		t.Fatalf("SaveConfig() error = %v", err)
+	}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/voice/test", bytes.NewBufferString(`{"text":"hi"}`))
+	req.Header.Set("Content-Type", "application/json")
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200, body = %s", rec.Code, rec.Body.String())
+	}
+	if rec.Body.String() != "AUDIO-BYTES" {
+		t.Fatalf("body = %q, want AUDIO-BYTES", rec.Body.String())
+	}
+	if ct := rec.Header().Get("Content-Type"); !strings.HasPrefix(ct, "audio/") {
+		t.Fatalf("content type = %q, want audio/*", ct)
+	}
+}

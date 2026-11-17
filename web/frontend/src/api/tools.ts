@@ -77,21 +77,32 @@ export interface BrowserToolTestResult {
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await launcherFetch(path, options)
   if (!res.ok) {
-    let message = `API error: ${res.status} ${res.statusText}`
-    try {
-      const body = (await res.json()) as {
-        error?: string
-        errors?: string[]
+    const fallback = `API error: ${res.status} ${res.statusText}`
+    const raw = await res.text().catch(() => "")
+    let message = fallback
+    const trimmed = raw.trim()
+    if (trimmed !== "") {
+      try {
+        const body = JSON.parse(trimmed) as {
+          error?: string
+          errors?: string[]
+        }
+        if (Array.isArray(body.errors) && body.errors.length > 0) {
+          message = body.errors.join("; ")
+        } else if (
+          typeof body.error === "string" &&
+          body.error.trim() !== ""
+        ) {
+          message = body.error
+        } else {
+          message = trimmed
+        }
+      } catch {
+        // Plain-text errors (http.Error) carry the actual reason.
+        message = trimmed
       }
-      if (Array.isArray(body.errors) && body.errors.length > 0) {
-        message = body.errors.join("; ")
-      } else if (typeof body.error === "string" && body.error.trim() !== "") {
-        message = body.error
-      }
-    } catch {
-      // ignore invalid body
     }
-    throw new Error(message)
+    throw new Error(message.length > 300 ? `${message.slice(0, 300)}…` : message)
   }
   return res.json() as Promise<T>
 }
