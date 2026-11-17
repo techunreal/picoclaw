@@ -1,5 +1,5 @@
 import { IconCode, IconDeviceFloppy, IconTag } from "@tabler/icons-react"
-import { useQuery, useQueryClient } from "@tanstack/react-query"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Link } from "@tanstack/react-router"
 import { useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
@@ -12,10 +12,12 @@ import {
   getAutoStartStatus,
   getLauncherConfig,
   getSystemVersionInfo,
+  restartLauncher as requestLauncherRestart,
   setAutoStartEnabled as updateAutoStartEnabled,
   setLauncherConfig as updateLauncherConfig,
 } from "@/api/system"
 import { ConfigChangeNotice } from "@/components/config-change-notice"
+import { FirewallCard } from "@/components/config/firewall-card"
 import {
   AgentDefaultsSection,
   CronSection,
@@ -136,6 +138,30 @@ export function ConfigPage() {
     queryKey: ["system", "launcher-config"],
     queryFn: getLauncherConfig,
   })
+
+  const launcherRestartMutation = useMutation({
+    mutationFn: requestLauncherRestart,
+    onSuccess: () => {
+      toast.info(
+        t(
+          "pages.config.launcher_restarting",
+          "PicoClaw is restarting. The page refreshes automatically.",
+        ),
+      )
+      window.setTimeout(() => window.location.reload(), 6000)
+    },
+    onError: (error) =>
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : t(
+              "pages.config.launcher_restart_error",
+              "Could not restart the launcher.",
+            ),
+      ),
+  })
+
+  const launcherRestartRequired = launcherConfig?.restart_required === true
 
   const { data: versionInfo } = useQuery({
     queryKey: ["system", "version"],
@@ -813,11 +839,43 @@ export function ConfigPage() {
             </div>
           ) : (
             <div className="space-y-6">
+              {launcherRestartRequired && (
+                <div className="flex flex-col gap-3 rounded-2xl border border-amber-300/70 bg-amber-50/70 p-4 sm:flex-row sm:items-center sm:justify-between dark:border-amber-900/50 dark:bg-amber-950/20">
+                  <div className="space-y-1">
+                    <p className="text-sm font-medium text-amber-900 dark:text-amber-200">
+                      {t(
+                        "pages.config.launcher_restart_title",
+                        "Launcher restart required",
+                      )}
+                    </p>
+                    <p className="text-xs text-amber-800/80 dark:text-amber-200/70">
+                      {t(
+                        "pages.config.launcher_restart_hint",
+                        "Port or LAN access changes take effect after the launcher restarts. Open chats disconnect for a few seconds.",
+                      )}
+                    </p>
+                  </div>
+                  <Button
+                    type="button"
+                    className="h-10 shrink-0 rounded-xl px-4"
+                    onClick={() => launcherRestartMutation.mutate()}
+                    disabled={launcherRestartMutation.isPending}
+                  >
+                    {t(
+                      "pages.config.launcher_restart_button",
+                      "Restart launcher",
+                    )}
+                  </Button>
+                </div>
+              )}
+
               <LauncherSection
                 launcherForm={launcherForm}
                 onFieldChange={updateLauncherField}
                 disabled={saving || isLauncherLoading}
               />
+
+              <FirewallCard />
 
               <AgentDefaultsSection
                 form={form}

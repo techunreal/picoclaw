@@ -33,6 +33,9 @@ func TestGetLauncherConfigUsesRuntimeFallback(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
 		t.Fatalf("unmarshal response: %v", err)
 	}
+	if got.RestartRequired {
+		t.Fatalf("restart_required = true, want false for matching runtime settings")
+	}
 	if got.Port != 19999 || !got.Public {
 		t.Fatalf("response = %+v, want port=19999 public=true", got)
 	}

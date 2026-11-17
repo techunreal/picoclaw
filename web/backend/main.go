@@ -122,7 +122,30 @@ func openLauncherListeners(hostInput string, public bool, port string) (netbind.
 	if err != nil {
 		return netbind.OpenResult{}, err
 	}
-	return netbind.OpenPlan(plan, port)
+
+	// During a launcher restart the old process may still hold the port for a
+	// moment. Retry briefly instead of failing the whole startup.
+	deadline := time.Now().Add(8 * time.Second)
+	for {
+		result, openErr := netbind.OpenPlan(plan, port)
+		if openErr == nil {
+			return result, nil
+		}
+		if !isPortInUseError(openErr) || time.Now().After(deadline) {
+			return netbind.OpenResult{}, openErr
+		}
+		time.Sleep(400 * time.Millisecond)
+	}
+}
+
+func isPortInUseError(err error) bool {
+	if err == nil {
+		return false
+	}
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "only one usage") ||
+		strings.Contains(message, "address already in use") ||
+		strings.Contains(message, "wsaeaddrinuse")
 }
 
 func appendUniqueHost(hosts []string, seen map[string]struct{}, host string) []string {

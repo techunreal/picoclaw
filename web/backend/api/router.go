@@ -138,6 +138,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 
 	// Launcher service parameters (port/public)
 	h.registerLauncherConfigRoutes(mux)
+	h.registerFirewallRoutes(mux)
 
 	// Self-update endpoint (requires dashboard auth)
 	h.registerUpdateRoutes(mux)

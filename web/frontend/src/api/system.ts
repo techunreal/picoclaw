@@ -13,6 +13,14 @@ export interface LauncherConfig {
   allowed_cidrs: string[]
   allow_localhost_bypass: boolean
   trusted_proxy_cidrs: string[]
+  restart_required?: boolean
+}
+
+export interface FirewallStatus {
+  supported: boolean
+  present: boolean
+  rule_name: string
+  port: number
 }
 
 export interface SystemVersionInfo {
@@ -74,4 +82,24 @@ export async function setLauncherConfig(
 
 export async function getSystemVersionInfo(): Promise<SystemVersionInfo> {
   return request<SystemVersionInfo>("/api/system/version")
+}
+
+export async function restartLauncher(): Promise<{ status: string }> {
+  return request<{ status: string }>("/api/system/launcher/restart", {
+    method: "POST",
+  })
+}
+
+export async function getFirewallStatus(): Promise<FirewallStatus> {
+  return request<FirewallStatus>("/api/system/firewall")
+}
+
+export async function setFirewallRule(
+  action: "allow" | "remove",
+): Promise<{ status: string }> {
+  return request<{ status: string }>("/api/system/firewall", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action }),
+  })
 }
