@@ -133,8 +133,19 @@ func (h *Handler) handleFirewallAction(w http.ResponseWriter, r *http.Request) {
 
 func queryFirewallRule(name string) (bool, error) {
 	script := fmt.Sprintf(
-		"$r = Get-NetFirewallRule -DisplayName %s -ErrorAction SilentlyContinue; "+
-			"if ($r) { 'PRESENT' } else { 'MISSING' }",
+		"$name = %s; $present = $false; "+
+			"if (Get-NetFirewallRule -DisplayName $name -ErrorAction SilentlyContinue) { $present = $true } "+
+			"if (-not $present) { "+
+			"  $filters = Get-NetFirewallApplicationFilter -ErrorAction SilentlyContinue | "+
+			"    Where-Object { $_.Program -match 'picoclaw(-launcher)?\\.exe$' }; "+
+			"  foreach ($f in $filters) { "+
+			"    $rules = Get-NetFirewallRule -AssociatedNetFirewallApplicationFilter $f -ErrorAction SilentlyContinue; "+
+			"    foreach ($r in $rules) { "+
+			"      if ($r.Enabled -eq 'True' -and $r.Direction -eq 'Inbound' -and $r.Action -eq 'Allow') { $present = $true } "+
+			"    } "+
+			"  } "+
+			"} "+
+			"if ($present) { 'PRESENT' } else { 'MISSING' }",
 		psQuote(name),
 	)
 	out, err := launcherExecCommand("powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script).Output()
