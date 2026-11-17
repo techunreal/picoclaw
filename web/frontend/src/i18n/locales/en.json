@@ -1350,7 +1350,14 @@
           "unsaved_description": "Saving writes voice.tts_model_name to config.json and restarts the gateway.",
           "local_title": "Local TTS",
           "local_hint": "You can run TTS on your own machine: add a model with provider openai-compatible, base URL such as http://127.0.0.1:8000/v1 (for example openedai-speech or Kokoro) and a placeholder API key, then select it here. No cloud key is needed.",
-          "channel_hint": "Telegram receives the audio as a voice message. In the WebUI the reply shows a player inside the chat bubble."
+          "channel_hint": "Telegram receives the audio as a voice message. In the WebUI the reply shows a player inside the chat bubble.",
+          "voice_title": "Read aloud voice (WebUI)",
+          "voice_hint": "Used by the speaker button in chats. Automatic follows your browser language; pick a voice to force a language.",
+          "voice_auto": "Automatic (browser language)",
+          "voice_test": "Test voice",
+          "voice_stop": "Stop",
+          "voice_sample": "Hello, this is a speech test.",
+          "voice_none": "This browser did not expose any speech voices. Edge or Chrome usually provides them."
         },
         "reasons": {
           "requires_linux": "This tool only works on Linux hosts with the required device files exposed.",

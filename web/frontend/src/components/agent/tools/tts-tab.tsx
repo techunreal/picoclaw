@@ -21,10 +21,20 @@ import {
 } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
 import { showSaveSuccessOrRestartToast } from "@/lib/restart-required"
+import {
+  getSpeechVoices,
+  pickSpeechVoice,
+  readSpeechVoicePreference,
+  speakWithVoice,
+  speechSupported,
+  stopSpeech,
+  writeSpeechVoicePreference,
+} from "@/lib/speech"
 import { refreshGatewayState } from "@/store/gateway"
 
 const queryKey = ["tools", "voice-config"] as const
 const autoValue = "__auto__"
+const browserAutoVoice = "__auto_voice__"
 
 export function TTSTab() {
   const { t } = useTranslation()
@@ -33,7 +43,22 @@ export function TTSTab() {
   const [testText, setTestText] = useState("")
   const [audioUrl, setAudioUrl] = useState<string | null>(null)
   const [showAllModels, setShowAllModels] = useState(false)
+  const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([])
+  const [voiceURI, setVoiceURI] = useState("")
+  const [browserSpeaking, setBrowserSpeaking] = useState(false)
   const audioRef = useRef<HTMLAudioElement | null>(null)
+
+  useEffect(() => {
+    if (!speechSupported()) return
+    const sync = () => setVoices(getSpeechVoices())
+    sync()
+    setVoiceURI(readSpeechVoicePreference())
+    window.speechSynthesis.addEventListener("voiceschanged", sync)
+    return () => {
+      window.speechSynthesis.removeEventListener("voiceschanged", sync)
+      stopSpeech()
+    }
+  }, [])
 
   const query = useQuery({ queryKey, queryFn: getVoiceConfig })
   const config = query.data
@@ -89,6 +114,37 @@ export function TTSTab() {
           : t("pages.agent.tools.tts.test_error", "TTS test failed"),
       ),
   })
+
+  const selectedVoiceAvailable = voices.some(
+    (voice) => voice.voiceURI === voiceURI,
+  )
+  const voiceSelectValue = selectedVoiceAvailable ? voiceURI : browserAutoVoice
+
+  const selectBrowserVoice = (value: string) => {
+    const uri = value === browserAutoVoice ? "" : value
+    setVoiceURI(uri)
+    writeSpeechVoicePreference(uri)
+  }
+
+  const testBrowserVoice = () => {
+    if (browserSpeaking) {
+      stopSpeech()
+      setBrowserSpeaking(false)
+      return
+    }
+    const voice = selectedVoiceAvailable
+      ? (voices.find((item) => item.voiceURI === voiceURI) ?? null)
+      : pickSpeechVoice()
+    const lang = (voice?.lang || navigator.language || "en").toLowerCase()
+    const sample = lang.startsWith("tr")
+      ? "Merhaba, bu bir ses testidir."
+      : t("pages.agent.tools.tts.voice_sample", "Hello, this is a speech test.")
+    const utterance = speakWithVoice(sample, voice, {
+      onEnd: () => setBrowserSpeaking(false),
+      onError: () => setBrowserSpeaking(false),
+    })
+    setBrowserSpeaking(Boolean(utterance))
+  }
 
   const options = useMemo(() => {
     const allModels = config?.models ?? []
@@ -310,6 +366,66 @@ export function TTSTab() {
                 />
               )}
             </div>
+          </div>
+
+          <div className="bg-card border-border/40 space-y-4 rounded-2xl border p-5 shadow-sm">
+            <div className="space-y-1">
+              <p className="text-sm font-medium">
+                {t(
+                  "pages.agent.tools.tts.voice_title",
+                  "Read aloud voice (WebUI)",
+                )}
+              </p>
+              <p className="text-muted-foreground text-xs">
+                {t(
+                  "pages.agent.tools.tts.voice_hint",
+                  "Used by the speaker button in chats. Automatic follows your browser language; pick a voice to force a language.",
+                )}
+              </p>
+            </div>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+              <Select
+                value={voiceSelectValue}
+                onValueChange={selectBrowserVoice}
+              >
+                <SelectTrigger className="w-full sm:w-96">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={browserAutoVoice}>
+                    {t(
+                      "pages.agent.tools.tts.voice_auto",
+                      "Automatic (browser language)",
+                    )}
+                  </SelectItem>
+                  {voices.map((voice) => (
+                    <SelectItem key={voice.voiceURI} value={voice.voiceURI}>
+                      {voice.name} — {voice.lang}
+                      {voice.default ? " ★" : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Button
+                type="button"
+                variant="outline"
+                className="h-10 rounded-xl px-4"
+                onClick={testBrowserVoice}
+                disabled={voices.length === 0}
+              >
+                {browserSpeaking
+                  ? t("pages.agent.tools.tts.voice_stop", "Stop")
+                  : t("pages.agent.tools.tts.voice_test", "Test voice")}
+              </Button>
+            </div>
+            {voices.length === 0 && (
+              <p className="text-xs text-amber-600 dark:text-amber-400">
+                {t(
+                  "pages.agent.tools.tts.voice_none",
+                  "This browser did not expose any speech voices. Edge or Chrome usually provides them.",
+                )}
+              </p>
+            )}
           </div>
 
           <div className="bg-muted/30 border-border/40 space-y-2 rounded-2xl border p-5">

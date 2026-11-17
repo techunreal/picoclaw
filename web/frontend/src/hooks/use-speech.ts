@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
+
+import {
+  pickSpeechVoice,
+  speechSupported,
+  speakWithVoice,
+  stopSpeech,
+} from "@/lib/speech"
 
 function stripMarkdown(text: string): string {
   return text
@@ -18,64 +25,31 @@ function stripMarkdown(text: string): string {
 export function useSpeech() {
   const [isSpeaking, setIsSpeaking] = useState(false)
   const [isSupported, setIsSupported] = useState(false)
-  const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null)
 
   useEffect(() => {
-    const supported =
-      typeof window !== "undefined" && "speechSynthesis" in window
-    setIsSupported(supported)
+    setIsSupported(speechSupported())
     return () => {
-      if (supported) {
-        window.speechSynthesis.cancel()
-      }
+      stopSpeech()
     }
   }, [])
 
-  const pickVoice = useCallback((): SpeechSynthesisVoice | null => {
-    const voices = window.speechSynthesis.getVoices()
-    if (voices.length === 0) return null
-    const lang = (
-      document.documentElement.lang ||
-      navigator.language ||
-      "en"
-    ).toLowerCase()
-    const short = lang.split("-")[0]
-    return (
-      voices.find((voice) => voice.lang.toLowerCase() === lang) ??
-      voices.find((voice) => voice.lang.toLowerCase().startsWith(short)) ??
-      voices[0] ??
-      null
-    )
-  }, [])
-
   const stop = useCallback(() => {
-    if (typeof window === "undefined" || !("speechSynthesis" in window)) return
-    window.speechSynthesis.cancel()
-    utteranceRef.current = null
+    stopSpeech()
     setIsSpeaking(false)
   }, [])
 
-  const speak = useCallback(
-    (text: string) => {
-      if (typeof window === "undefined" || !("speechSynthesis" in window)) return
-      const plain = stripMarkdown(text)
-      if (plain === "") return
-
-      window.speechSynthesis.cancel()
-      const utterance = new SpeechSynthesisUtterance(plain)
-      const voice = pickVoice()
-      if (voice) {
-        utterance.voice = voice
-        utterance.lang = voice.lang
-      }
-      utterance.onend = () => setIsSpeaking(false)
-      utterance.onerror = () => setIsSpeaking(false)
-      utteranceRef.current = utterance
+  const speak = useCallback((text: string) => {
+    const plain = stripMarkdown(text)
+    if (plain === "") return
+    const voice = pickSpeechVoice(plain)
+    const utterance = speakWithVoice(plain, voice, {
+      onEnd: () => setIsSpeaking(false),
+      onError: () => setIsSpeaking(false),
+    })
+    if (utterance) {
       setIsSpeaking(true)
-      window.speechSynthesis.speak(utterance)
-    },
-    [pickVoice],
-  )
+    }
+  }, [])
 
   const toggle = useCallback(
     (text: string) => {
