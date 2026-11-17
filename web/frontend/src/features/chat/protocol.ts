@@ -5,10 +5,10 @@ import {
   parseAssistantMessageUpdateState,
 } from "@/features/chat/assistant-message-state"
 import { normalizeUnixTimestamp } from "@/features/chat/state"
-import {
-  type ChatAttachment,
-  type ContextUsage,
-  updateChatStore,
+import type {
+  ChatAttachment,
+  ChatMessage,
+  ContextUsage,
 } from "@/store/chat"
 
 export interface PicoMessage {
@@ -18,6 +18,21 @@ export interface PicoMessage {
   timestamp?: number | string
   payload?: Record<string, unknown>
 }
+
+/** Per-session chat state used by the active store and background caches. */
+export interface ChatSessionSnapshot {
+  messages: ChatMessage[]
+  isTyping: boolean
+  contextUsage?: ContextUsage
+}
+
+export type ChatSessionPatch = Partial<ChatSessionSnapshot>
+
+export type ApplyChatSessionPatch = (
+  patch:
+    | ChatSessionPatch
+    | ((prev: ChatSessionSnapshot) => ChatSessionPatch),
+) => void
 
 function parseAttachments(
   payload: Record<string, unknown>,
@@ -78,9 +93,13 @@ function parseContextUsage(
   return {
     used_tokens: used,
     total_tokens: total,
-    history_tokens: obj.history_tokens != null ? Number(obj.history_tokens) : undefined,
+    history_tokens:
+      obj.history_tokens != null ? Number(obj.history_tokens) : undefined,
     compress_at_tokens: Number(obj.compress_at_tokens) || 0,
-    summarize_at_tokens: obj.summarize_at_tokens != null ? Number(obj.summarize_at_tokens) : undefined,
+    summarize_at_tokens:
+      obj.summarize_at_tokens != null
+        ? Number(obj.summarize_at_tokens)
+        : undefined,
     used_percent: Number(obj.used_percent) || 0,
   }
 }
@@ -96,6 +115,7 @@ function parseModelName(payload: Record<string, unknown>): string | undefined {
 export function handlePicoMessage(
   message: PicoMessage,
   expectedSessionId: string,
+  apply: ApplyChatSessionPatch,
 ) {
   if (message.session_id && message.session_id !== expectedSessionId) {
     return
@@ -119,7 +139,7 @@ export function handlePicoMessage(
           ? normalizeUnixTimestamp(Number(message.timestamp))
           : Date.now()
 
-      updateChatStore((prev) => ({
+      apply((prev) => ({
         messages: [
           ...prev.messages,
           {
@@ -157,7 +177,7 @@ export function handlePicoMessage(
         break
       }
 
-      updateChatStore((prev) => ({
+      apply((prev) => ({
         messages: (() => {
           let found = false
           const messages = prev.messages.map((msg) => {
@@ -209,18 +229,18 @@ export function handlePicoMessage(
         break
       }
 
-      updateChatStore((prev) => ({
+      apply((prev) => ({
         messages: prev.messages.filter((msg) => msg.id !== messageId),
       }))
       break
     }
 
     case "typing.start":
-      updateChatStore({ isTyping: true })
+      apply({ isTyping: true })
       break
 
     case "typing.stop":
-      updateChatStore({ isTyping: false })
+      apply({ isTyping: false })
       break
 
     case "error": {
@@ -233,7 +253,7 @@ export function handlePicoMessage(
       if (errorMessage) {
         toast.error(errorMessage)
       }
-      updateChatStore((prev) => ({
+      apply((prev) => ({
         messages: requestId
           ? prev.messages.filter((msg) => msg.id !== requestId)
           : prev.messages,
