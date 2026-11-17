@@ -17,6 +17,7 @@ import {
   IconNotebook,
   IconPencil,
   IconPin,
+  IconLoader2,
   IconSettings,
   IconSparkles,
   IconTools,
@@ -229,6 +230,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     queryKey: ["sidebar-sessions"],
     queryFn: () => getSessions(0, 20),
     refetchOnWindowFocus: true,
+    refetchInterval: 3000,
   })
 
   const allAgents = React.useMemo(
@@ -659,6 +661,9 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                                           : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
                                       }`}
                                     >
+                                      {session.running && (
+                                        <IconLoader2 className="text-primary mr-1 inline size-3 -translate-y-px animate-spin" />
+                                      )}
                                       {session.pinned && (
                                         <IconPin className="mr-1 inline size-3 -translate-y-px" />
                                       )}

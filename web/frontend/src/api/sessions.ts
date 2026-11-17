@@ -6,6 +6,7 @@ export interface SessionSummary {
   title: string
   preview: string
   pinned?: boolean
+  running?: boolean
   message_count: number
   created: string
   updated: string

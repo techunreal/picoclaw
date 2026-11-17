@@ -146,6 +146,7 @@ export function ChatPage() {
   const sessionsQuery = useQuery({
     queryKey: ["sidebar-sessions"],
     queryFn: () => getSessions(0, 50),
+    refetchInterval: 3000,
   })
   const activeSessionAgent = sessionsQuery.data?.find(
     (session) => session.id === activeSessionIdForAgent,
