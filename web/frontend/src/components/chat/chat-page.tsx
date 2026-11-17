@@ -256,6 +256,14 @@ export function ChatPage() {
   const chatModelFromFrontmatter = chatModelSource === "frontmatter"
 
   const handleSetChatModel = async (modelName: string) => {
+    if (modelName === "__pin__") {
+      if (!chatModelName) return
+      const result = await handleSetAgentModel(chatAgentId, chatModelName)
+      if (result) {
+        await queryClient.invalidateQueries({ queryKey: ["sidebar-agents"] })
+      }
+      return
+    }
     if (modelName === "__global__") {
       const result = await handleSetAgentModel(chatAgentId, null)
       if (result) {
@@ -515,6 +523,7 @@ export function ChatPage() {
               canUseGlobalDefault={
                 !isMainAgent && chatModelSource === "override"
               }
+              canPinCurrentModel={!isMainAgent && chatModelInherited}
               disabled={
                 settingDefault || settingAgentModel || chatModelFromFrontmatter
               }

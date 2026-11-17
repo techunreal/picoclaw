@@ -21,6 +21,7 @@ interface ModelSelectorProps {
   badgeTitle?: string
   globalDefaultModelName?: string
   canUseGlobalDefault?: boolean
+  canPinCurrentModel?: boolean
   disabled?: boolean
   onValueChange: (modelName: string) => void
 }
@@ -34,6 +35,7 @@ export function ModelSelector({
   badgeTitle,
   globalDefaultModelName = "",
   canUseGlobalDefault = false,
+  canPinCurrentModel = false,
   disabled = false,
   onValueChange,
 }: ModelSelectorProps) {
@@ -65,6 +67,14 @@ export function ModelSelector({
         )}
       </SelectTrigger>
       <SelectContent position="popper" align="start">
+        {canPinCurrentModel && (
+          <>
+            <SelectItem value="__pin__">
+              {t("models.pinCurrentModel", { model: defaultModelName })}
+            </SelectItem>
+            <SelectSeparator />
+          </>
+        )}
         {canUseGlobalDefault && (
           <>
             <SelectItem value="__global__">
