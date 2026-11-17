@@ -5,7 +5,9 @@ import {
   IconCopy,
   IconDownload,
   IconFileText,
+  IconPlayerStop,
   IconTool,
+  IconVolume,
 } from "@tabler/icons-react"
 import { useState } from "react"
 import { useTranslation } from "react-i18next"
@@ -22,6 +24,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { formatMessageTime } from "@/hooks/use-pico-chat"
 import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard"
+import { useSpeech } from "@/hooks/use-speech"
 import { cn } from "@/lib/utils"
 import {
   type AssistantMessageKind,
@@ -48,6 +51,8 @@ export function AssistantMessage({
 }: AssistantMessageProps) {
   const { t } = useTranslation()
   const { copy, isCopied } = useCopyToClipboard()
+  const { isSupported: speechSupported, isSpeaking, toggle: toggleSpeech } =
+    useSpeech()
   const isThought = kind === "thought"
   const isToolCalls = kind === "tool_calls"
   const isCollapsedBlock = isThought || isToolCalls
@@ -74,6 +79,9 @@ export function AssistantMessage({
   const copyMessageLabel = isCopied
     ? t("chat.copiedLabel")
     : t("chat.copyMessage")
+  const speakLabel = isSpeaking
+    ? t("chat.stopSpeaking", "Stop reading")
+    : t("chat.readAloud", "Read aloud")
   const trimmedModelName = modelName?.trim() ?? ""
 
   return (
@@ -232,6 +240,28 @@ export function AssistantMessage({
                 {content}
               </ReactMarkdown>
             </div>
+          )}
+
+          {!isCollapsedBlock && hasText && speechSupported && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className={cn(
+                "bg-background/50 hover:bg-background/80 absolute top-2 right-10 h-7 w-7 transition-opacity",
+                isSpeaking
+                  ? "opacity-100"
+                  : "opacity-0 group-hover:opacity-100",
+              )}
+              onClick={() => toggleSpeech(content)}
+              aria-label={speakLabel}
+              title={speakLabel}
+            >
+              {isSpeaking ? (
+                <IconPlayerStop className="text-muted-foreground h-4 w-4" />
+              ) : (
+                <IconVolume className="text-muted-foreground h-4 w-4" />
+              )}
+            </Button>
           )}
 
           {!isCollapsedBlock && hasText && (

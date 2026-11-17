@@ -32,6 +32,7 @@ export function TTSTab() {
   const [draft, setDraft] = useState<string | null>(null)
   const [testText, setTestText] = useState("")
   const [audioUrl, setAudioUrl] = useState<string | null>(null)
+  const [showAllModels, setShowAllModels] = useState(false)
   const audioRef = useRef<HTMLAudioElement | null>(null)
 
   const query = useQuery({ queryKey, queryFn: getVoiceConfig })
@@ -90,7 +91,12 @@ export function TTSTab() {
   })
 
   const options = useMemo(() => {
-    const models = config?.models ?? []
+    const allModels = config?.models ?? []
+    const capable = (model: (typeof allModels)[number]) =>
+      model.tts_like || model.provider === "mimo"
+    const models = showAllModels
+      ? allModels
+      : allModels.filter((model) => capable(model) || model.name === current)
     const known = models.some((model) => model.name === current)
     if (current !== "" && !known) {
       return [
@@ -101,12 +107,25 @@ export function TTSTab() {
           has_key: false,
           tts_like: false,
           missing: true,
+          capable: false,
         },
-        ...models.map((model) => ({ ...model, missing: false })),
+        ...models.map((model) => ({
+          ...model,
+          missing: false,
+          capable: capable(model),
+        })),
       ]
     }
-    return models.map((model) => ({ ...model, missing: false }))
-  }, [config?.models, current])
+    return models.map((model) => ({
+      ...model,
+      missing: false,
+      capable: capable(model),
+    }))
+  }, [config?.models, current, showAllModels])
+
+  const hasCapableModels = (config?.models ?? []).some(
+    (model) => model.tts_like || model.provider === "mimo",
+  )
 
   return (
     <div className="animate-in fade-in slide-in-from-bottom-2 space-y-6 duration-500">
@@ -183,39 +202,68 @@ export function TTSTab() {
                   )}
                 </p>
               </div>
-              <Select
-                value={current === "" ? autoValue : current}
-                onValueChange={(value) =>
-                  setDraft(value === autoValue ? "" : value)
-                }
-              >
-                <SelectTrigger className="w-80">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={autoValue}>
-                    {t("pages.agent.tools.tts.automatic", "Automatic")}
-                  </SelectItem>
-                  {options.map((option) => (
-                    <SelectItem
-                      key={option.name}
-                      value={option.name}
-                      disabled={option.missing}
-                    >
-                      {option.name}
-                      {option.provider
-                        ? ` — ${option.provider}/${option.model}`
-                        : ""}
-                      {option.missing
-                        ? ` ${t("pages.agent.tools.tts.missing", "(not found)")}`
-                        : ""}
-                      {!option.has_key && !option.missing
-                        ? ` ${t("pages.agent.tools.tts.no_key", "(no API key)")}`
-                        : ""}
+              <div className="w-full space-y-2 sm:w-[420px]">
+                <Select
+                  value={current === "" ? autoValue : current}
+                  onValueChange={(value) =>
+                    setDraft(value === autoValue ? "" : value)
+                  }
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={autoValue}>
+                      {t("pages.agent.tools.tts.automatic", "Automatic")}
                     </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                    {options.map((option) => (
+                      <SelectItem
+                        key={option.name}
+                        value={option.name}
+                        disabled={option.missing}
+                      >
+                        {option.name}
+                        {option.provider
+                          ? ` — ${option.provider}/${option.model}`
+                          : ""}
+                        {option.missing
+                          ? ` ${t("pages.agent.tools.tts.missing", "(not found)")}`
+                          : ""}
+                        {!option.has_key && !option.missing
+                          ? ` ${t("pages.agent.tools.tts.no_key", "(no API key)")}`
+                          : ""}
+                        {!option.capable && !option.missing
+                          ? ` ${t("pages.agent.tools.tts.chat_model", "(chat model, cannot speak)")}`
+                          : ""}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-muted-foreground text-[11px] leading-snug">
+                    {hasCapableModels
+                      ? t(
+                          "pages.agent.tools.tts.filter_hint",
+                          "Only models that provide /audio/speech are listed (usually the model id contains \"tts\"). Chat models cannot speak.",
+                        )
+                      : t(
+                          "pages.agent.tools.tts.no_tts_models",
+                          "None of your models can speak. Add an OpenAI-compatible TTS model (model id usually contains \"tts\") or a MiMo TTS model.",
+                        )}
+                  </p>
+                  <Button
+                    type="button"
+                    variant="link"
+                    size="sm"
+                    className="h-auto shrink-0 px-0 text-[11px]"
+                    onClick={() => setShowAllModels((value) => !value)}
+                  >
+                    {showAllModels
+                      ? t("pages.agent.tools.tts.hide_all", "Hide chat models")
+                      : t("pages.agent.tools.tts.show_all", "Show chat models")}
+                  </Button>
+                </div>
+              </div>
             </div>
 
             <div className="p-5">
