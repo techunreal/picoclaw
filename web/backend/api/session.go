@@ -15,6 +15,7 @@ import (
 
 	"github.com/sipeed/picoclaw/pkg/config"
 	"github.com/sipeed/picoclaw/pkg/memory"
+	ppid "github.com/sipeed/picoclaw/pkg/pid"
 	"github.com/sipeed/picoclaw/pkg/providers"
 	"github.com/sipeed/picoclaw/pkg/providers/messageutil"
 	"github.com/sipeed/picoclaw/pkg/session"
@@ -48,6 +49,7 @@ type sessionListItem struct {
 	Title        string `json:"title"`
 	Preview      string `json:"preview"`
 	Pinned       bool   `json:"pinned,omitempty"`
+	Running      bool   `json:"running,omitempty"`
 	MessageCount int    `json:"message_count"`
 	Created      string `json:"created"`
 	Updated      string `json:"updated"`
@@ -937,6 +939,14 @@ func (h *Handler) handleListSessions(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Mark sessions with a turn currently running in the gateway. This is a
+	// best-effort local call; a stopped gateway simply leaves all flags false.
+	if running := h.activeSessionIDs(); len(running) > 0 {
+		for i := range items {
+			items[i].Running = running[items[i].ID]
+		}
+	}
+
 	// Sort pinned sessions first, then by updated descending.
 	sort.Slice(items, func(i, j int) bool {
 		if items[i].Pinned != items[j].Pinned {
@@ -973,6 +983,58 @@ func (h *Handler) handleListSessions(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(items)
+}
+
+// activeSessionIDs asks the running gateway which sessions have an active
+// turn. It is best-effort: a stopped/unavailable gateway returns an empty set
+// rather than failing the session list.
+func (h *Handler) activeSessionIDs() map[string]bool {
+	if !h.gatewayAvailableForProxy() {
+		return nil
+	}
+	pidData := ppid.ReadPidFileWithCheck(globalConfigDir())
+	if pidData == nil || strings.TrimSpace(pidData.Token) == "" {
+		return nil
+	}
+
+	target := h.gatewayProxyURL()
+	target.Path = "/turns/active"
+	req, err := http.NewRequest(http.MethodGet, target.String(), nil)
+	if err != nil {
+		return nil
+	}
+	req.Header.Set("Authorization", "Bearer "+strings.TrimSpace(pidData.Token))
+
+	client := &http.Client{Timeout: 2 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil
+	}
+
+	var payload struct {
+		Turns []struct {
+			SessionID string `json:"session_id"`
+			ChatID    string `json:"chat_id"`
+		} `json:"turns"`
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&payload); err != nil {
+		return nil
+	}
+	ids := make(map[string]bool, len(payload.Turns))
+	for _, turn := range payload.Turns {
+		id := strings.TrimSpace(turn.SessionID)
+		if id == "" {
+			id = strings.TrimSpace(strings.TrimPrefix(turn.ChatID, "pico:"))
+		}
+		if id != "" {
+			ids[id] = true
+		}
+	}
+	return ids
 }
 
 // handleGetSession returns the full message history for a specific session.
