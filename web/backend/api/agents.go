@@ -1,21 +1,27 @@
 package api
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"hash/fnv"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"sort"
 	"strings"
+	"time"
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/sipeed/picoclaw/pkg/agent"
 	"github.com/sipeed/picoclaw/pkg/config"
+	ppid "github.com/sipeed/picoclaw/pkg/pid"
 	"github.com/sipeed/picoclaw/pkg/routing"
 )
 
@@ -45,6 +51,7 @@ type agentView struct {
 	WorkspaceSource    string                   `json:"workspace_source"`
 	Model              *config.AgentModelConfig `json:"model,omitempty"`
 	EffectiveModel     string                   `json:"effective_model,omitempty"`
+	ModelSource        string                   `json:"model_source,omitempty"`
 	Skills             []string                 `json:"skills,omitempty"`
 	Subagents          *config.SubagentsConfig  `json:"subagents,omitempty"`
 	Avatar             *agentAvatarView         `json:"avatar,omitempty"`
@@ -81,6 +88,7 @@ func (h *Handler) registerAgentRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("PUT /api/agents", h.handleUpdateAgents)
 	mux.HandleFunc("PUT /api/agents/order", h.handleAgentOrder)
 	mux.HandleFunc("PUT /api/agents/hidden", h.handleAgentHidden)
+	mux.HandleFunc("PUT /api/agents/{id}/model", h.handleSetAgentModel)
 	mux.HandleFunc("GET /api/agents/{id}/avatar", h.handleGetAgentAvatar)
 	mux.HandleFunc("POST /api/agents/{id}/avatar", h.handleUploadAgentAvatar)
 	mux.HandleFunc("DELETE /api/agents/{id}/avatar", h.handleDeleteAgentAvatar)
@@ -171,6 +179,249 @@ func (h *Handler) handleUpdateAgents(w http.ResponseWriter, r *http.Request) {
 		"status":           "ok",
 		"restart_required": true,
 	})
+}
+
+// handleSetAgentModel updates one agent's model (or the global default for
+// "main") and asks the running gateway to apply it in-process. It never requires
+// a gateway restart: active turns finish on their old model and the next turn
+// uses the new one.
+//
+//	PUT /api/agents/{id}/model
+func (h *Handler) handleSetAgentModel(w http.ResponseWriter, r *http.Request) {
+	rawID := strings.TrimSpace(r.PathValue("id"))
+	if rawID == "" {
+		writeAgentsAPIError(w, http.StatusBadRequest, "invalid_agent", "Agent id is required.")
+		return
+	}
+
+	var req struct {
+		Model      string `json:"model"`
+		UseDefault bool   `json:"use_default"`
+	}
+	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))
+	if err := dec.Decode(&req); err != nil {
+		writeAgentsAPIError(w, http.StatusBadRequest, "invalid_json", err.Error())
+		return
+	}
+
+	h.configMu.Lock()
+	defer h.configMu.Unlock()
+
+	cfg, err := config.LoadConfig(h.configPath)
+	if err != nil {
+		writeAgentsAPIError(w, http.StatusInternalServerError, "config_load_failed", err.Error())
+		return
+	}
+	normalizeStoredModelNames(cfg)
+
+	isMain := routing.NormalizeAgentID(rawID) == routing.DefaultAgentID
+	var target *config.AgentConfig
+	if !isMain {
+		normID := routing.NormalizeAgentID(rawID)
+		for i := range cfg.Agents.List {
+			if routing.NormalizeAgentID(strings.TrimSpace(cfg.Agents.List[i].ID)) == normID {
+				target = &cfg.Agents.List[i]
+				break
+			}
+		}
+		if target == nil {
+			writeAgentsAPIError(w, http.StatusNotFound, "agent_not_found", "Agent not found.")
+			return
+		}
+	}
+
+	modelName := strings.TrimSpace(req.Model)
+	useDefault := req.UseDefault || modelName == ""
+	if isMain && useDefault {
+		writeAgentsAPIError(w, http.StatusBadRequest, "invalid_model",
+			"Pico must have a global default model.")
+		return
+	}
+	if !useDefault {
+		if err := validateAgentModelName(cfg, modelName); err != nil {
+			writeAgentsAPIError(w, http.StatusBadRequest, "invalid_model", err.Error())
+			return
+		}
+	}
+
+	requests := map[string]string{}
+	effectiveModel := modelName
+	if isMain {
+		cfg.Agents.Defaults.ModelName = modelName
+		cfg.Agents.Defaults.ModelFallbacks = removeModelName(cfg.Agents.Defaults.ModelFallbacks, modelName)
+		normalizeDefaultChainReferences(cfg)
+		requests = h.globalModelRequests(cfg, modelName)
+	} else {
+		if useDefault {
+			target.Model = nil
+			effectiveModel = cfg.Agents.Defaults.GetModelName()
+		} else {
+			target.Model = &config.AgentModelConfig{Primary: modelName}
+			effectiveModel = modelName
+		}
+		if strings.TrimSpace(effectiveModel) == "" {
+			writeAgentsAPIError(w, http.StatusBadRequest, "invalid_model",
+				"Global default model is not configured.")
+			return
+		}
+		requests[routing.NormalizeAgentID(strings.TrimSpace(target.ID))] = effectiveModel
+	}
+
+	if err := config.SaveConfig(h.configPath, cfg); err != nil {
+		writeAgentsAPIError(w, http.StatusInternalServerError, "config_save_failed", err.Error())
+		return
+	}
+
+	applied, pending, gatewayUnavailable, warnings := h.applyGatewayAgentModels(requests)
+	// The saved model change is either applied in-process now or queued behind
+	// an active turn, so it must not trigger a restart prompt.
+	h.markGatewayConfigApplied()
+
+	message := ""
+	if gatewayUnavailable {
+		message = "Model saved. The gateway is not running; it will use the new model when it starts."
+	} else if len(pending) > 0 {
+		message = "Model saved. Some agents will switch after their current turn finishes."
+	} else if !applied {
+		message = "Model saved. The gateway did not apply it immediately; it will use the saved model on its next start."
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"status":              "ok",
+		"agent":               rawID,
+		"model":               effectiveModel,
+		"effective_model":     effectiveModel,
+		"applied":             applied,
+		"pending_agents":      pending,
+		"gateway_unavailable": gatewayUnavailable,
+		"warnings":            warnings,
+		"message":             message,
+		"restart_required":    false,
+	})
+}
+
+// globalModelRequests builds the gateway switch list for a global default
+// change: main plus every agent that inherits the global model. Agents with an
+// explicit override or an AGENT.md frontmatter model stay on their own model.
+func (h *Handler) globalModelRequests(cfg *config.Config, modelName string) map[string]string {
+	requests := map[string]string{routing.DefaultAgentID: modelName}
+	for i := range cfg.Agents.List {
+		agentCfg := &cfg.Agents.List[i]
+		id := routing.NormalizeAgentID(strings.TrimSpace(agentCfg.ID))
+		if id == routing.DefaultAgentID {
+			continue
+		}
+		if agentCfg.Model != nil && strings.TrimSpace(agentCfg.Model.Primary) != "" {
+			continue
+		}
+		workspace, _ := effectiveAgentWorkspace(cfg, *agentCfg)
+		if agent.AgentDefinitionModel(workspace) != "" {
+			continue
+		}
+		requests[id] = modelName
+	}
+	return requests
+}
+
+func validateAgentModelName(cfg *config.Config, modelName string) error {
+	for _, modelCfg := range cfg.ModelList {
+		if modelCfg == nil || strings.TrimSpace(modelCfg.ModelName) != modelName {
+			continue
+		}
+		if modelCfg.Disabled {
+			return fmt.Errorf("model %q is disabled", modelName)
+		}
+		return nil
+	}
+	return fmt.Errorf("model %q is not configured", modelName)
+}
+
+// applyGatewayAgentModels asks the running gateway to switch each agent in the
+// map. It returns whether all switches applied, which agents are pending behind
+// an active turn, and the agents whose gateway call failed.
+func (h *Handler) applyGatewayAgentModels(
+	requests map[string]string,
+) (applied bool, pending []string, gatewayUnavailable bool, warnings []string) {
+	applied = true
+	agentIDs := make([]string, 0, len(requests))
+	for agentID := range requests {
+		agentIDs = append(agentIDs, agentID)
+	}
+	sort.Strings(agentIDs)
+
+	for _, agentID := range agentIDs {
+		modelName := requests[agentID]
+		ok, isPending, err := h.callGatewayAgentModel(agentID, modelName)
+		if err != nil {
+			applied = false
+			if errors.Is(err, errGatewayNotRunning) || errors.Is(err, errGatewayTokenMissing) {
+				gatewayUnavailable = true
+			}
+			warnings = append(warnings, fmt.Sprintf("%s: %v", agentID, err))
+			continue
+		}
+		if !ok {
+			applied = false
+			if isPending {
+				pending = append(pending, agentID)
+			}
+		}
+	}
+	sort.Strings(pending)
+	return applied, pending, gatewayUnavailable, warnings
+}
+
+func (h *Handler) callGatewayAgentModel(agentID, modelName string) (applied bool, pending bool, err error) {
+	if !h.gatewayAvailableForProxy() {
+		return false, false, errGatewayNotRunning
+	}
+	pidData := ppid.ReadPidFileWithCheck(globalConfigDir())
+	if pidData == nil || strings.TrimSpace(pidData.Token) == "" {
+		return false, false, errGatewayTokenMissing
+	}
+
+	payload, _ := json.Marshal(map[string]string{"model": modelName})
+	target := h.gatewayProxyURL()
+	target.Path = "/agents/" + url.PathEscape(agentID) + "/model"
+	req, err := http.NewRequest(http.MethodPost, target.String(), bytes.NewReader(payload))
+	if err != nil {
+		return false, false, err
+	}
+	req.Header.Set("Authorization", "Bearer "+strings.TrimSpace(pidData.Token))
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 15 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return false, false, err
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted {
+		return false, false, fmt.Errorf("gateway status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	var parsed struct {
+		Applied bool `json:"applied"`
+	}
+	_ = json.Unmarshal(body, &parsed)
+	return parsed.Applied, resp.StatusCode == http.StatusAccepted, nil
+}
+
+// markGatewayConfigApplied records that the current config is already active in
+// the running gateway. Model-only changes are applied in-process, so the
+// launcher must not keep showing a "restart required" prompt for them.
+func (h *Handler) markGatewayConfigApplied() {
+	cfg, err := config.LoadConfig(h.configPath)
+	if err != nil {
+		return
+	}
+	gateway.mu.Lock()
+	if gateway.runtimeStatus == "running" {
+		gateway.bootConfigSignature = computeConfigSignature(cfg)
+	}
+	gateway.mu.Unlock()
 }
 
 func (h *Handler) handleAgentOrder(w http.ResponseWriter, r *http.Request) {
@@ -276,6 +527,7 @@ func buildAgentsResponse(cfg *config.Config) agentsResponse {
 	agents := make([]agentView, 0, len(list))
 	for _, agentCfg := range list {
 		workspace, source := effectiveAgentWorkspace(cfg, agentCfg)
+		modelName, modelSource := effectiveAgentModel(cfg, agentCfg)
 		view := agentView{
 			ID:                 agentCfg.ID,
 			Name:               agentCfg.Name,
@@ -284,7 +536,8 @@ func buildAgentsResponse(cfg *config.Config) agentsResponse {
 			EffectiveWorkspace: workspace,
 			WorkspaceSource:    source,
 			Model:              agentCfg.Model,
-			EffectiveModel:     effectiveAgentModel(cfg, agentCfg),
+			EffectiveModel:     modelName,
+			ModelSource:        modelSource,
 			Skills:             agentCfg.Skills,
 			Subagents:          agentCfg.Subagents,
 			Avatar:             resolveAgentAvatarView(agentCfg, workspace),
@@ -628,11 +881,20 @@ func copyFileContents(src, dst string) error {
 	return out.Close()
 }
 
-func effectiveAgentModel(cfg *config.Config, agentCfg config.AgentConfig) string {
-	if agentCfg.Model != nil && strings.TrimSpace(agentCfg.Model.Primary) != "" {
-		return strings.TrimSpace(agentCfg.Model.Primary)
+// effectiveAgentModel mirrors runtime model resolution: AGENT.md frontmatter
+// wins, then the per-agent override, then the global default. It also reports
+// which source produced the value so the UI can show "Global default" badges.
+func effectiveAgentModel(cfg *config.Config, agentCfg config.AgentConfig) (string, string) {
+	workspace, _ := effectiveAgentWorkspace(cfg, agentCfg)
+	if workspace != "" {
+		if model := agent.AgentDefinitionModel(workspace); model != "" {
+			return model, "frontmatter"
+		}
 	}
-	return cfg.Agents.Defaults.GetModelName()
+	if agentCfg.Model != nil && strings.TrimSpace(agentCfg.Model.Primary) != "" {
+		return strings.TrimSpace(agentCfg.Model.Primary), "override"
+	}
+	return cfg.Agents.Defaults.GetModelName(), "global"
 }
 
 // resolveAgentWorkspaceForID resolves the workspace for an agent ID using the

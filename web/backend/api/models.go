@@ -1499,10 +1499,20 @@ func (h *Handler) handleSetDefaultModel(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	applied, pending, gatewayUnavailable, warnings := h.applyGatewayAgentModels(
+		h.globalModelRequests(cfg, modelName),
+	)
+	h.markGatewayConfigApplied()
+
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{
-		"status":        "ok",
-		"default_model": modelName,
+	json.NewEncoder(w).Encode(map[string]any{
+		"status":              "ok",
+		"default_model":       modelName,
+		"applied":             applied,
+		"pending_agents":      pending,
+		"gateway_unavailable": gatewayUnavailable,
+		"warnings":            warnings,
+		"restart_required":    false,
 	})
 }
 
