@@ -391,6 +391,14 @@ func DefaultConfig() *Config {
 				ToolConfig: ToolConfig{
 					Enabled: false,
 				},
+				AllowedDomains: []string{
+					"wikipedia.org",
+					"*.wikipedia.org",
+					"plato.stanford.edu",
+					"britannica.com",
+					"archive.org",
+					"gutenberg.org",
+				},
 				Headless:         boolPtr(true),
 				MaxOutput:        20000,
 				TimeoutSeconds:   60,
