@@ -85,6 +85,7 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar"
 import { chatAtom, pendingAgentChatAtom, pendingSessionAtom } from "@/store/chat"
+import { newChatSession } from "@/features/chat/controller"
 
 interface NavItem {
   title: string
@@ -331,9 +332,15 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
 
   const confirmDelete = async () => {
     if (!deleteTarget) return
+    const target = deleteTarget
     try {
-      await deleteSession(deleteTarget.id)
+      await deleteSession(target.id)
       setDeleteTarget(null)
+      if (target.id === chatState.activeSessionId) {
+        // The open conversation was deleted: clear it and start a fresh chat
+        // for the same agent instead of leaving stale messages on screen.
+        await newChatSession(target.agent_id)
+      }
       refreshSessions()
       toast.success(t("chat.deleted"))
     } catch {
