@@ -497,6 +497,29 @@ export function sendChatMessage({
   }
 }
 
+export function stopActiveTurn() {
+  const connection = connections.get(activeSessionIdRef)
+  const socket = connection?.socket
+  if (!socket || socket.readyState !== WebSocket.OPEN) {
+    return false
+  }
+  const id = `msg-${++msgIdCounter}-${Date.now()}`
+  try {
+    socket.send(
+      JSON.stringify({
+        type: "message.send",
+        id,
+        session_id: activeSessionIdRef,
+        payload: { content: "/stop", media: [] },
+      }),
+    )
+    return true
+  } catch (error) {
+    console.error("Failed to send stop command:", error)
+    return false
+  }
+}
+
 export async function switchChatSession(sessionId: string, agentId?: string) {
   if (sessionId === activeSessionIdRef) {
     if (agentId !== undefined && agentId.trim() !== chatAgentIdRef) {

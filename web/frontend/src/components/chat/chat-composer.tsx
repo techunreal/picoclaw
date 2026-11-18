@@ -1,4 +1,9 @@
-import { IconArrowUp, IconPaperclip, IconX } from "@tabler/icons-react"
+import {
+  IconArrowUp,
+  IconPaperclip,
+  IconPlayerStopFilled,
+  IconX,
+} from "@tabler/icons-react"
 import {
   type ClipboardEvent as ReactClipboardEvent,
   type DragEvent as ReactDragEvent,
@@ -37,6 +42,8 @@ interface ChatComposerProps {
   onDrop: (event: ReactDragEvent<HTMLDivElement>) => void
   onRemoveAttachment: (index: number) => void
   onSend: () => void
+  onStop: () => void
+  isTyping: boolean
   onContextDetail?: () => void
   inputDisabledReason: ChatInputDisabledReason | null
   canSend: boolean
@@ -56,6 +63,8 @@ export function ChatComposer({
   onDrop,
   onRemoveAttachment,
   onSend,
+  onStop,
+  isTyping,
   onContextDetail,
   inputDisabledReason,
   canSend,
@@ -203,7 +212,19 @@ export function ChatComposer({
                   onDetailClick={onContextDetail}
                 />
               )}
-              {canInput ? (
+              {isTyping ? (
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="secondary"
+                  className="size-8 rounded-full"
+                  onClick={onStop}
+                  aria-label={t("chat.stopGenerating", "Stop generating")}
+                  title={t("chat.stopGenerating", "Stop generating")}
+                >
+                  <IconPlayerStopFilled className="size-3.5" />
+                </Button>
+              ) : canInput ? (
                 <span tabIndex={!canSend ? 0 : undefined}>
                   <Button
                     type="button"

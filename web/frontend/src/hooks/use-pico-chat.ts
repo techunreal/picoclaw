@@ -7,6 +7,7 @@ import {
   newIncognitoChatSession,
   sendChatMessage,
   setChatAgent,
+  stopActiveTurn,
   switchChatSession,
 } from "@/features/chat/controller"
 import { chatAtom } from "@/store/chat"
@@ -72,6 +73,7 @@ export function usePicoChat(agentId?: string) {
     activeSessionId,
     contextUsage,
     sendMessage: sendChatMessage,
+    stopActiveTurn,
     switchSession: switchChatSession,
     newChat: newChatSession,
     newIncognitoChat: newIncognitoChatSession,

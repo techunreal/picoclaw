@@ -164,6 +164,7 @@ export function ChatPage() {
     activeSessionId,
     contextUsage,
     sendMessage,
+    stopActiveTurn,
     switchSession,
     newChat,
     newIncognitoChat,
@@ -696,6 +697,10 @@ export function ChatPage() {
         onDrop={handleComposerDrop}
         onRemoveAttachment={handleRemoveAttachment}
         onSend={handleSend}
+        onStop={() => {
+          stopActiveTurn()
+        }}
+        isTyping={isTyping}
         onContextDetail={() => {
           if (sendMessage({ content: "/context", attachments: [] })) {
             setInput("")
