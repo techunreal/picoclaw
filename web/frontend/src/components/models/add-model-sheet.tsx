@@ -94,7 +94,7 @@ const EMPTY_ADD_FORM: AddForm = {
   requestTimeout: "",
   thinkingLevel: "",
   toolSchemaTransform: "",
-  streamingEnabled: false,
+  streamingEnabled: true,
   extraBody: "",
   customHeaders: "",
 }
