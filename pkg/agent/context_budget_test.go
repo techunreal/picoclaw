@@ -865,6 +865,7 @@ func TestTrimHistoryToFitContextWindow_DropsOldestTurns(t *testing.T) {
 		700,
 		nil,
 		0,
+		0,
 	)
 	if !fit {
 		t.Fatal("expected trimmed history to fit context window")
@@ -894,6 +895,7 @@ func TestTrimHistoryToFitContextWindow_ClearsSingleOversizedTurn(t *testing.T) {
 		200,
 		nil,
 		0,
+		0,
 	)
 	if !fit {
 		t.Fatal("expected empty history rebuild to fit context window")
@@ -903,5 +905,51 @@ func TestTrimHistoryToFitContextWindow_ClearsSingleOversizedTurn(t *testing.T) {
 	}
 	if len(messages) != 0 {
 		t.Fatalf("messages len = %d, want 0", len(messages))
+	}
+}
+
+func TestTrimHistoryToFitContextWindow_KeepsMinimumTurns(t *testing.T) {
+	history := []providers.Message{
+		msgUser(strings.Repeat("u1 ", 40)),
+		msgAssistant(strings.Repeat("a1 ", 40)),
+		msgUser(strings.Repeat("u2 ", 40)),
+		msgAssistant(strings.Repeat("a2 ", 40)),
+		msgUser(strings.Repeat("u3 ", 40)),
+		msgAssistant(strings.Repeat("a3 ", 40)),
+	}
+
+	build := func(history []providers.Message) []providers.Message {
+		return append([]providers.Message(nil), history...)
+	}
+
+	// Two turns still exceed the tiny window, so trimming must stop at the
+	// retention floor and report that the prompt does not fit instead of
+	// dropping every message.
+	trimmedHistory, _, fit := trimHistoryToFitContextWindow(
+		history,
+		build,
+		100,
+		nil,
+		0,
+		2,
+	)
+	if fit {
+		t.Fatal("expected prompt to stay over budget when the last two turns do not fit")
+	}
+	if len(trimmedHistory) != 4 {
+		t.Fatalf("trimmed history len = %d, want 4 (last two turns kept)", len(trimmedHistory))
+	}
+	if trimmedHistory[0].Content != history[2].Content {
+		t.Fatalf("first kept message = %q, want the start of the second-to-last turn", trimmedHistory[0].Content)
+	}
+}
+
+func TestContextBudgetError_MessageListsNumbers(t *testing.T) {
+	err := newContextBudgetError(65536, 32768, 40000)
+	msg := err.Error()
+	for _, want := range []string{"40000", "65536", "32768", "last 2 turns"} {
+		if !strings.Contains(msg, want) {
+			t.Fatalf("contextBudgetError message = %q, want it to contain %q", msg, want)
+		}
 	}
 }

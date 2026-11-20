@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -19,6 +20,15 @@ import (
 func (al *AgentLoop) maybePublishError(ctx context.Context, channel, chatID, sessionKey string, err error) bool {
 	if errors.Is(err, context.Canceled) {
 		return false
+	}
+	var budgetErr *contextBudgetError
+	if errors.As(err, &budgetErr) {
+		logger.WarnCF("agent", "Turn rejected: context budget exceeded", map[string]any{
+			"session_key":    sessionKey,
+			"context_window": budgetErr.ContextWindow,
+			"max_tokens":     budgetErr.MaxTokens,
+			"prompt_tokens":  budgetErr.PromptTokens,
+		})
 	}
 	al.PublishResponseIfNeeded(ctx, channel, chatID, sessionKey, formatProcessingError(err))
 	return true
@@ -89,6 +99,47 @@ func (al *AgentLoop) PublishResponseIfNeeded(ctx context.Context, channel, chatI
 			"chat_id":     chatID,
 			"content_len": len(response),
 		})
+}
+
+// publishContextTrimNotice shows a transient notice in the WebUI chat when the
+// prompt had to be trimmed to fit the context window. Best effort: publish
+// failures never fail the turn.
+func (al *AgentLoop) publishContextTrimNotice(ctx context.Context, channel, chatID, sessionKey string, dropped int) {
+	if dropped <= 0 || !strings.EqualFold(strings.TrimSpace(channel), "pico") {
+		return
+	}
+	if strings.TrimSpace(chatID) == "" || ctx.Err() != nil {
+		return
+	}
+
+	pubCtx, pubCancel := context.WithTimeout(ctx, 5*time.Second)
+	defer pubCancel()
+
+	raw := map[string]string{metadataKeyMessageKind: messageKindToolFeedback}
+	content := fmt.Sprintf(
+		"\u26a0\ufe0f Context window was full: %d older message(s) were trimmed; the summary and the last %d turns were kept. Start a new chat for long tasks.",
+		dropped,
+		contextBudgetMinTurns,
+	)
+
+	if err := al.bus.PublishOutbound(pubCtx, bus.OutboundMessage{
+		Context: bus.InboundContext{
+			Channel: channel,
+			ChatID:  chatID,
+			Raw:     raw,
+		},
+		SessionKey: sessionKey,
+		Content:    content,
+	}); err != nil {
+		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) ||
+			errors.Is(err, bus.ErrBusClosed) {
+			return
+		}
+		logger.DebugCF("agent", "Failed to publish context trim notice (best-effort)", map[string]any{
+			"channel": channel,
+			"error":   err.Error(),
+		})
+	}
 }
 
 func (al *AgentLoop) targetReasoningChannelID(channelName string) (chatID string) {

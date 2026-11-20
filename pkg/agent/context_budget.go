@@ -6,9 +6,44 @@
 package agent
 
 import (
+	"fmt"
+
 	"github.com/sipeed/picoclaw/pkg/providers"
 	"github.com/sipeed/picoclaw/pkg/tokenizer"
 )
+
+// contextBudgetMinTurns is the number of most recent turns that context
+// trimming must always keep. A turn starts at a user message.
+const contextBudgetMinTurns = 2
+
+// contextBudgetError reports that the prompt still does not fit the model
+// context window after compaction and trimming down to the retention floor.
+// The turn is failed instead of being sent with an empty history.
+type contextBudgetError struct {
+	ContextWindow int
+	MaxTokens     int
+	PromptTokens  int
+}
+
+func newContextBudgetError(contextWindow, maxTokens, promptTokens int) *contextBudgetError {
+	return &contextBudgetError{
+		ContextWindow: contextWindow,
+		MaxTokens:     maxTokens,
+		PromptTokens:  promptTokens,
+	}
+}
+
+func (e *contextBudgetError) Error() string {
+	return fmt.Sprintf(
+		"Context window exceeded: the prompt needs about %d tokens but the model window is %d "+
+			"(max_tokens reserves %d). The summary and the last %d turns still do not fit. "+
+			"Start a new chat, raise this model's context window, or lower its max_tokens override.",
+		e.PromptTokens,
+		e.ContextWindow,
+		e.MaxTokens,
+		contextBudgetMinTurns,
+	)
+}
 
 // parseTurnBoundaries returns the starting index of each Turn in the history.
 // A Turn is a complete "user input → LLM iterations → final response" cycle
@@ -96,6 +131,16 @@ func EstimateToolDefsTokens(defs []providers.ToolDefinition) int {
 	return tokenizer.EstimateToolDefsTokens(defs)
 }
 
+// estimatePromptTokens returns the estimated prompt size in tokens, including
+// tool definitions but excluding the output reservation.
+func estimatePromptTokens(messages []providers.Message, toolDefs []providers.ToolDefinition) int {
+	msgTokens := 0
+	for _, m := range messages {
+		msgTokens += EstimateMessageTokens(m)
+	}
+	return msgTokens + EstimateToolDefsTokens(toolDefs)
+}
+
 // isOverContextBudget checks whether the assembled messages plus tool definitions
 // and output reserve would exceed the model's context window. This enables
 // proactive compression before calling the LLM, rather than reacting to 400 errors.
@@ -105,13 +150,7 @@ func isOverContextBudget(
 	toolDefs []providers.ToolDefinition,
 	maxTokens int,
 ) bool {
-	msgTokens := 0
-	for _, m := range messages {
-		msgTokens += EstimateMessageTokens(m)
-	}
-
-	toolTokens := EstimateToolDefsTokens(toolDefs)
-	total := msgTokens + toolTokens + maxTokens
+	total := estimatePromptTokens(messages, toolDefs) + maxTokens
 
 	return total > contextWindow
 }
@@ -119,13 +158,23 @@ func isOverContextBudget(
 // trimHistoryToFitContextWindow rebuilds the prompt from progressively newer
 // history slices until it fits within the context window. Oldest complete turns
 // are dropped first so tool-call sequences remain intact.
+//
+// minTurns is the number of most recent turns that must be kept. A turn starts
+// at a user message, so trimming never leaves the model without the current
+// task: the summary and the last minTurns turns survive even when the prompt
+// still does not fit (fit reports false in that case).
 func trimHistoryToFitContextWindow(
 	history []providers.Message,
 	build func([]providers.Message) []providers.Message,
 	contextWindow int,
 	toolDefs []providers.ToolDefinition,
 	maxTokens int,
+	minTurns int,
 ) ([]providers.Message, []providers.Message, bool) {
+	if minTurns < 0 {
+		minTurns = 0
+	}
+
 	messages := build(history)
 	if !isOverContextBudget(contextWindow, messages, toolDefs, maxTokens) {
 		return history, messages, true
@@ -133,6 +182,10 @@ func trimHistoryToFitContextWindow(
 
 	trimmedHistory := append([]providers.Message(nil), history...)
 	for len(trimmedHistory) > 0 {
+		// Stop at the retention floor: never drop the most recent turns.
+		if len(parseTurnBoundaries(trimmedHistory)) <= minTurns {
+			break
+		}
 		dropUntil := nextHistoryTrimStart(trimmedHistory)
 		if dropUntil <= 0 || dropUntil >= len(trimmedHistory) {
 			trimmedHistory = nil
@@ -146,7 +199,8 @@ func trimHistoryToFitContextWindow(
 		}
 	}
 
-	return nil, messages, false
+	messages = build(trimmedHistory)
+	return trimmedHistory, messages, !isOverContextBudget(contextWindow, messages, toolDefs, maxTokens)
 }
 
 func nextHistoryTrimStart(history []providers.Message) int {

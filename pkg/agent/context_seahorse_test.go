@@ -1060,7 +1060,9 @@ func TestSeahorseSteeringMessageIngested(t *testing.T) {
 // Summarize is triggered but tokens are below ContextWindow threshold,
 // condensed compaction should NOT run.
 func TestSeahorseSummarizeSkipsCondensedWhenBelowThreshold(t *testing.T) {
-	contextWindow := 1000
+	// Large enough that the proactive context-budget guard does not reject the
+	// turn; this test only checks that condensation stays below threshold.
+	contextWindow := 60000
 	cfg := &config.Config{
 		Agents: config.AgentsConfig{
 			Defaults: config.AgentDefaults{

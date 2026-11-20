@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/sipeed/picoclaw/pkg/providers"
@@ -9,6 +10,13 @@ import (
 func formatProcessingError(err error) string {
 	if err == nil {
 		return ""
+	}
+
+	// Context budget failures already carry a user-facing explanation; do not
+	// wrap them in the generic processing error prefix.
+	var budgetErr *contextBudgetError
+	if errors.As(err, &budgetErr) {
+		return err.Error()
 	}
 
 	if kind, ok := providers.ClassifyAuthError(err); ok {

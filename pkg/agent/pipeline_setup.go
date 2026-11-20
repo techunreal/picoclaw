@@ -94,6 +94,7 @@ func (p *Pipeline) SetupTurn(ctx context.Context, ts *turnState) (*turnExecution
 				ts.agent.ContextWindow,
 				toolDefs,
 				ts.agent.MaxTokens,
+				contextBudgetMinTurns,
 			)
 			if dropped := originalHistoryCount - len(history); dropped > 0 {
 				logger.WarnCF("agent", "Trimmed rebuilt history after proactive compaction", map[string]any{
@@ -104,14 +105,23 @@ func (p *Pipeline) SetupTurn(ctx context.Context, ts *turnState) (*turnExecution
 					"max_tokens":      ts.agent.MaxTokens,
 					"still_overlimit": !fit,
 				})
-			} else if !fit {
-				logger.WarnCF("agent", "Context still exceeds budget "+
-					"after proactive compaction rebuild", map[string]any{
+				if fit {
+					p.al.publishContextTrimNotice(ctx, ts.channel, ts.chatID, ts.sessionKey, dropped)
+				}
+			}
+			if !fit {
+				logger.WarnCF("agent", "Context still exceeds budget after compaction and trimming; refusing to call the model", map[string]any{
 					"session_key":    ts.sessionKey,
 					"history_msgs":   len(history),
 					"context_window": ts.agent.ContextWindow,
 					"max_tokens":     ts.agent.MaxTokens,
+					"prompt_tokens":  estimatePromptTokens(messages, toolDefs),
 				})
+				return nil, newContextBudgetError(
+					ts.agent.ContextWindow,
+					ts.agent.MaxTokens,
+					estimatePromptTokens(messages, toolDefs),
+				)
 			}
 		}
 	}

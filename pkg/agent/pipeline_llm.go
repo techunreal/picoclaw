@@ -448,6 +448,7 @@ func (p *Pipeline) CallLLM(
 				ts.agent.ContextWindow,
 				exec.providerToolDefs,
 				ts.agent.MaxTokens,
+				contextBudgetMinTurns,
 			)
 			exec.history = append(trimmedStableHistory, protectedTurnTail...)
 			exec.messages = buildMessages(trimmedStableHistory)

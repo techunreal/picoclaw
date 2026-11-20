@@ -95,6 +95,7 @@ func TestTrimHistoryToFitContextWindow_WithProtectedTurnTailKeepsActiveTurn(t *t
 		120,
 		nil,
 		0,
+		0,
 	)
 
 	if fit {
