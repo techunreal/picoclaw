@@ -132,10 +132,14 @@ func DetectModelContextWindow(m *config.ModelConfig) int {
 	}
 
 	value := probeContextWindow(base, modelID, m.APIKey())
-	contextWindowCache.Store(key, cachedContextWindow{
-		value:     value,
-		expiresAt: time.Now().Add(10 * time.Minute),
-	})
+	// Cache only successful probes. A transient failure (server busy, timeout)
+	// must not pin a wrong zero for the whole cache lifetime.
+	if value > 0 {
+		contextWindowCache.Store(key, cachedContextWindow{
+			value:     value,
+			expiresAt: time.Now().Add(10 * time.Minute),
+		})
+	}
 	return value
 }
 
