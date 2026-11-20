@@ -18,6 +18,8 @@ export interface ModelInfo {
   auth_method?: string
   // Optional per-model input context size in tokens.
   context_window?: number
+  // Optional per-model output limit. Overrides agents.defaults.max_tokens.
+  max_tokens?: number
   // Advanced fields
   connect_mode?: string
   workspace?: string

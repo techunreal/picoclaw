@@ -31,8 +31,54 @@ func (p *countingStatefulProvider) GetDefaultModel() string { return "test-model
 
 func (p *countingStatefulProvider) Close() { p.closeCount++ }
 
-func TestAgentInstanceCloseClosesSharedStatefulProviderOnce(t *testing.T) {
-	provider := &countingStatefulProvider{}
+func TestResolveModelMaxTokensPrecedence(t *testing.T) {
+	cfg := &config.Config{
+		Agents: config.AgentsConfig{
+			Defaults: config.AgentDefaults{MaxTokens: 32768},
+		},
+		ModelList: []*config.ModelConfig{
+			{ModelName: "local", Provider: "openai-compatible", Model: "local", APIBase: "http://127.0.0.1:8080/v1", MaxTokens: 8192},
+			{ModelName: "cloud", Provider: "openai", Model: "gpt-x"},
+		},
+	}
+
+	if got := resolveModelMaxTokens(cfg, &cfg.Agents.Defaults, "local"); got != 8192 {
+		t.Fatalf("per-model override = %d, want 8192", got)
+	}
+	if got := resolveModelMaxTokens(cfg, &cfg.Agents.Defaults, "cloud"); got != 32768 {
+		t.Fatalf("global fallback = %d, want 32768", got)
+	}
+
+	cfg.Agents.Defaults.MaxTokens = 0
+	if got := resolveModelMaxTokens(cfg, &cfg.Agents.Defaults, "cloud"); got != 8192 {
+		t.Fatalf("builtin fallback = %d, want 8192", got)
+	}
+}
+
+func TestResolveSwitchContextWindowHeuristicIgnoresModelMaxTokens(t *testing.T) {
+	cfg := &config.Config{
+		Agents: config.AgentsConfig{
+			Defaults: config.AgentDefaults{MaxTokens: 32768},
+		},
+		ModelList: []*config.ModelConfig{
+			// Detection is not supported for the "openai" protocol here, so the
+			// heuristic path runs without any network probe.
+			{ModelName: "local", Provider: "openai", Model: "local", MaxTokens: 8192},
+		},
+	}
+
+	if got := resolveSwitchContextWindow(cfg, &cfg.Agents.Defaults, "local"); got != 131072 {
+		t.Fatalf("heuristic window = %d, want 131072 (global max_tokens * 4)", got)
+	}
+
+	// An explicit per-model context window always wins.
+	cfg.ModelList[0].ContextWindow = 65536
+	if got := resolveSwitchContextWindow(cfg, &cfg.Agents.Defaults, "local"); got != 65536 {
+		t.Fatalf("explicit window = %d, want 65536", got)
+	}
+}
+
+func TestAgentInstanceCloseClosesSharedStatefulProviderOnce(t *testing.T) {	provider := &countingStatefulProvider{}
 	agent := &AgentInstance{
 		Provider:      provider,
 		LightProvider: provider,

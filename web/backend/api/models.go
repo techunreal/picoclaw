@@ -56,6 +56,7 @@ type modelResponse struct {
 	Workspace            string                      `json:"workspace,omitempty"`
 	RPM                  int                         `json:"rpm,omitempty"`
 	MaxTokensField       string                      `json:"max_tokens_field,omitempty"`
+	MaxTokens            int                         `json:"max_tokens,omitempty"`
 	RequestTimeout       int                         `json:"request_timeout,omitempty"`
 	ThinkingLevel        string                      `json:"thinking_level,omitempty"`
 	ToolSchemaTransform  string                      `json:"tool_schema_transform,omitempty"`
@@ -227,6 +228,39 @@ func defaultModelAllowedForModelConfig(mc *config.ModelConfig, defaultProvider s
 		return true
 	}
 	return mc != nil && providers.IsCustomOpenAICompatibleProvider(provider, mc.APIBase)
+}
+
+// modelRestartRequired reports whether the model is referenced by the default
+// model chain or by an agent. Such a change only takes effect after the gateway
+// restarts, so the API can tell the UI to offer a restart.
+func modelRestartRequired(cfg *config.Config, name string) bool {
+	name = strings.TrimSpace(name)
+	if cfg == nil || name == "" {
+		return false
+	}
+	if strings.TrimSpace(cfg.Agents.Defaults.GetModelName()) == name {
+		return true
+	}
+	for _, fallback := range cfg.Agents.Defaults.ModelFallbacks {
+		if strings.TrimSpace(fallback) == name {
+			return true
+		}
+	}
+	for i := range cfg.Agents.List {
+		agent := cfg.Agents.List[i]
+		if agent.Model == nil {
+			continue
+		}
+		if strings.TrimSpace(agent.Model.Primary) == name {
+			return true
+		}
+		for _, fallback := range agent.Model.Fallbacks {
+			if strings.TrimSpace(fallback) == name {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func validateIncomingModelConfig(mc *config.ModelConfig, existing *config.ModelConfig) error {
@@ -679,6 +713,7 @@ func (h *Handler) handleListModels(w http.ResponseWriter, r *http.Request) {
 			Workspace:            m.Workspace,
 			RPM:                  m.RPM,
 			MaxTokensField:       m.MaxTokensField,
+			MaxTokens:            m.MaxTokens,
 			RequestTimeout:       m.RequestTimeout,
 			ThinkingLevel:        m.ThinkingLevel,
 			ToolSchemaTransform:  m.ToolSchemaTransform,
@@ -812,10 +847,11 @@ func (h *Handler) handleAddModel(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{
-		"status":         "ok",
-		"index":          len(cfg.ModelList) - 1,
-		"api_key_reused": apiKeyReused,
-		"api_key_count":  len(mc.ModelConfig.APIKeys.Values()),
+		"status":           "ok",
+		"index":            len(cfg.ModelList) - 1,
+		"api_key_reused":   apiKeyReused,
+		"api_key_count":    len(mc.ModelConfig.APIKeys.Values()),
+		"restart_required": modelRestartRequired(cfg, mc.ModelConfig.ModelName),
 	})
 }
 
@@ -1008,6 +1044,11 @@ func (h *Handler) updateModel(
 	if _, ok := rawFields["streaming"]; !ok {
 		mc.Streaming = cfg.ModelList[idx].Streaming
 	}
+	// Preserve the stored output override when the caller omits it; an explicit
+	// 0 clears the override and falls back to the global default.
+	if _, ok := rawFields["max_tokens"]; !ok {
+		mc.ModelConfig.MaxTokens = cfg.ModelList[idx].MaxTokens
+	}
 	if _, ok := rawFields["input_cost_per_million"]; !ok {
 		mc.InputCostPerMTokens = cfg.ModelList[idx].InputCostPerMTokens
 	}
@@ -1107,6 +1148,7 @@ func (h *Handler) updateModel(
 
 	w.Header().Set("Content-Type", "application/json")
 	response := map[string]any{"status": "ok"}
+	response["restart_required"] = modelRestartRequired(cfg, newModelName)
 	if oldModelName != "" && newModelName != "" && oldModelName != newModelName {
 		rename := map[string]any{
 			"from":     oldModelName,

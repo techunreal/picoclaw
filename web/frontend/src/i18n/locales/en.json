@@ -393,7 +393,9 @@
     "fix": "Fix",
     "saveChangesTitle": "You have unsaved configuration changes",
     "restartRequiredTitle": "Gateway restart required",
-    "restartRequiredDesc": "The latest {{name}} configuration has been saved. Restart the gateway for it to take effect."
+    "restartRequiredDesc": "The latest {{name}} configuration has been saved. Restart the gateway for it to take effect.",
+    "restartNow": "Restart now",
+    "restartFailed": "Could not restart PicoClaw."
   },
   "labels": {
     "loading": "Loading..."
@@ -633,6 +635,9 @@
       "maxTokensFieldHint": "Override the request field name for max tokens, e.g. max_completion_tokens.",
       "contextWindow": "Context Window",
       "contextWindowHint": "Input context size in tokens for this model. Leave empty to auto-detect (self-hosted) or use the global default.",
+      "maxTokensOverride": "Max Output Tokens (override)",
+      "maxTokensOverrideHint": "Optional. Overrides the global max_tokens for this model. A smaller value frees more of the context window for input and avoids history trimming.",
+      "maxTokensOverridePlaceholder": "use global default",
       "toolSchemaTransform": "Tool Schema Transform",
       "toolSchemaTransformHint": "Optional compatibility transform for tool JSON schemas. Leave blank for native behavior. Supported values: simple.",
       "streamingEnabled": "Streaming Output",

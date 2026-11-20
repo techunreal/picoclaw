@@ -71,6 +71,7 @@ interface EditForm {
   rpm: string
   maxTokensField: string
   contextWindow: string
+  maxTokens: string
   requestTimeout: string
   thinkingLevel: string
   toolSchemaTransform: string
@@ -107,6 +108,7 @@ function buildInitialEditForm(model: ModelInfo): EditForm {
     rpm: model.rpm ? String(model.rpm) : "",
     maxTokensField: model.max_tokens_field ?? "",
     contextWindow: model.context_window ? String(model.context_window) : "",
+    maxTokens: model.max_tokens ? String(model.max_tokens) : "",
     requestTimeout: model.request_timeout ? String(model.request_timeout) : "",
     thinkingLevel: model.thinking_level ?? "",
     toolSchemaTransform: model.tool_schema_transform ?? "",
@@ -153,6 +155,7 @@ export function EditModelSheet({
     rpm: "",
     maxTokensField: "",
     contextWindow: "",
+    maxTokens: "",
     requestTimeout: "",
     thinkingLevel: "",
     toolSchemaTransform: "",
@@ -463,6 +466,7 @@ export function EditModelSheet({
         rpm: form.rpm ? Number(form.rpm) : undefined,
         max_tokens_field: form.maxTokensField.trim() || undefined,
         context_window: form.contextWindow.trim() ? Number(form.contextWindow) : undefined,
+        max_tokens: form.maxTokens.trim() ? Number(form.maxTokens) : 0,
         request_timeout: form.requestTimeout
           ? Number(form.requestTimeout)
           : undefined,
@@ -484,7 +488,7 @@ export function EditModelSheet({
         t,
         t("models.edit.saveSuccess"),
         trimmedModelName,
-        gateway?.restartRequired === true,
+        response?.restart_required === true || gateway?.restartRequired === true,
       )
       onSaved()
       onClose()
@@ -882,6 +886,19 @@ export function EditModelSheet({
                     value={form.contextWindow}
                     onChange={setField("contextWindow")}
                     placeholder={t("models.field.providerDefault")}
+                  />
+                </Field>
+
+                <Field
+                  label={t("models.field.maxTokensOverride")}
+                  hint={t("models.field.maxTokensOverrideHint")}
+                >
+                  <Input
+                    type="number"
+                    min={0}
+                    value={form.maxTokens}
+                    onChange={setField("maxTokens")}
+                    placeholder={t("models.field.maxTokensOverridePlaceholder")}
                   />
                 </Field>
 

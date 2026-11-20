@@ -240,20 +240,18 @@ func NewAgentInstance(
 		maxIter = 20
 	}
 
-	maxTokens := defaults.MaxTokens
-	if maxTokens == 0 {
-		maxTokens = 8192
-	}
+	maxTokens := resolveModelMaxTokens(cfg, defaults, model)
 
 	contextWindow := defaults.ContextWindow
+	modelCfg := providers.FindModelConfigForContext(cfg, model)
 	// A per-model context window wins over the global default.
-	if modelCfg := providers.FindModelConfigForContext(cfg, model); modelCfg != nil && modelCfg.ContextWindow > 0 {
+	if modelCfg != nil && modelCfg.ContextWindow > 0 {
 		contextWindow = modelCfg.ContextWindow
 	}
 	if contextWindow == 0 {
 		// Ask the endpoint for its advertised context length first (llama.cpp,
 		// vLLM, LM Studio and compatible servers expose it in /models).
-		if modelCfg := providers.FindModelConfigForContext(cfg, model); modelCfg != nil {
+		if modelCfg != nil {
 			contextWindow = providers.DetectModelContextWindow(modelCfg)
 			if contextWindow > 0 {
 				logger.InfoCF("agent", "Model context window detected", map[string]any{
@@ -273,13 +271,14 @@ func NewAgentInstance(
 		}
 	}
 	if contextWindow == 0 {
-		// Default heuristic: 4x the output token limit.
-		// Most models have context windows well above their output limits
-		// (e.g., GPT-4o 128k ctx / 16k out, Claude 200k ctx / 8k out).
-		// 4x is a conservative lower bound that avoids premature
-		// summarization while remaining safe — the reactive
-		// forceCompression handles any overshoot.
-		contextWindow = maxTokens * 4
+		// Heuristic base: the global output default, not the per-model
+		// override. Lowering a model's output limit must not shrink the
+		// assumed window.
+		base := defaults.MaxTokens
+		if base <= 0 {
+			base = 8192
+		}
+		contextWindow = base * 4
 	}
 
 	temperature := 0.7
@@ -920,8 +919,8 @@ func (a *AgentInstance) SwitchModel(cfg *config.Config, modelName string) (strin
 		nextCandidateProviders,
 	)
 
-	nextContextWindow := resolveSwitchContextWindow(cfg, &cfg.Agents.Defaults, modelName, a.MaxTokens)
-	nextMaxTokens := a.MaxTokens
+	nextMaxTokens := resolveModelMaxTokens(cfg, &cfg.Agents.Defaults, modelName)
+	nextContextWindow := resolveSwitchContextWindow(cfg, &cfg.Agents.Defaults, modelName)
 	if nextContextWindow > 0 && nextMaxTokens > nextContextWindow/2 {
 		nextMaxTokens = nextContextWindow / 2
 	}
@@ -966,13 +965,29 @@ func (a *AgentInstance) SwitchModelSerialized(cfg *config.Config, modelName stri
 	return a.SwitchModel(cfg, modelName)
 }
 
+// resolveModelMaxTokens returns the output token limit for a model: the
+// per-model override when set, otherwise the global default, falling back to a
+// safe minimum when neither is configured.
+func resolveModelMaxTokens(cfg *config.Config, defaults *config.AgentDefaults, model string) int {
+	maxTokens := 0
+	if defaults != nil {
+		maxTokens = defaults.MaxTokens
+	}
+	if modelCfg := providers.FindModelConfigForContext(cfg, model); modelCfg != nil && modelCfg.MaxTokens > 0 {
+		maxTokens = modelCfg.MaxTokens
+	}
+	if maxTokens == 0 {
+		maxTokens = 8192
+	}
+	return maxTokens
+}
+
 // resolveSwitchContextWindow mirrors NewAgentInstance's context resolution so a
 // runtime model switch cannot leave the agent with a stale context window.
 func resolveSwitchContextWindow(
 	cfg *config.Config,
 	defaults *config.AgentDefaults,
 	model string,
-	maxTokens int,
 ) int {
 	contextWindow := defaults.ContextWindow
 	if modelCfg := providers.FindModelConfigForContext(cfg, model); modelCfg != nil && modelCfg.ContextWindow > 0 {
@@ -984,7 +999,11 @@ func resolveSwitchContextWindow(
 		}
 	}
 	if contextWindow == 0 {
-		contextWindow = maxTokens * 4
+		base := defaults.MaxTokens
+		if base <= 0 {
+			base = 8192
+		}
+		contextWindow = base * 4
 	}
 	return contextWindow
 }

@@ -860,6 +860,11 @@ type ModelConfig struct {
 	ExtraBody           map[string]any       `json:"extra_body,omitempty"`            // Additional fields to inject into request body
 	CustomHeaders       map[string]string    `json:"custom_headers,omitempty"`        // Additional headers to inject into every HTTP request
 
+	// MaxTokens overrides agents.defaults.max_tokens for this model when it is
+	// greater than zero. The value is the output reservation, so a smaller
+	// override leaves more of the context window for input.
+	MaxTokens int `json:"max_tokens,omitempty"`
+
 	// ContextWindow is the model input context size in tokens. When zero the
 	// global default, endpoint detection, or a heuristic is used instead.
 	ContextWindow int `json:"context_window,omitempty"`
@@ -928,6 +933,13 @@ func (c *ModelConfig) Validate() error {
 	// Reject consecutive slashes
 	if strings.Contains(c.Model, "//") {
 		return fmt.Errorf("model identifier must not contain //")
+	}
+
+	if c.MaxTokens < 0 {
+		return fmt.Errorf("max_tokens must not be negative")
+	}
+	if c.MaxTokens > 0 && c.ContextWindow > 0 && c.MaxTokens > c.ContextWindow {
+		return fmt.Errorf("max_tokens (%d) must not exceed context_window (%d)", c.MaxTokens, c.ContextWindow)
 	}
 	return nil
 }

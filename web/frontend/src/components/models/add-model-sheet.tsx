@@ -70,6 +70,7 @@ interface AddForm {
   rpm: string
   maxTokensField: string
   contextWindow: string
+  maxTokens: string
   requestTimeout: string
   thinkingLevel: string
   toolSchemaTransform: string
@@ -91,6 +92,7 @@ const EMPTY_ADD_FORM: AddForm = {
   rpm: "",
   maxTokensField: "",
   contextWindow: "",
+  maxTokens: "",
   requestTimeout: "",
   thinkingLevel: "",
   toolSchemaTransform: "",
@@ -407,7 +409,7 @@ export function AddModelSheet({
       const modelName = form.modelName.trim()
       const provider = canonicalProvider
       const modelId = form.model.trim()
-      await addModel({
+      const saved = await addModel({
         model_name: modelName,
         provider: provider || undefined,
         model: modelId,
@@ -422,6 +424,7 @@ export function AddModelSheet({
         rpm: form.rpm ? Number(form.rpm) : undefined,
         max_tokens_field: form.maxTokensField.trim() || undefined,
         context_window: form.contextWindow.trim() ? Number(form.contextWindow) : undefined,
+        max_tokens: form.maxTokens.trim() ? Number(form.maxTokens) : 0,
         request_timeout: form.requestTimeout
           ? Number(form.requestTimeout)
           : undefined,
@@ -439,7 +442,7 @@ export function AddModelSheet({
         t,
         t("models.add.saveSuccess"),
         modelName,
-        gateway?.restartRequired === true,
+        saved?.restart_required === true || gateway?.restartRequired === true,
       )
       onSaved()
       onClose()
@@ -805,6 +808,19 @@ export function AddModelSheet({
                     value={form.contextWindow}
                     onChange={setField("contextWindow")}
                     placeholder={t("models.field.providerDefault")}
+                  />
+                </Field>
+
+                <Field
+                  label={t("models.field.maxTokensOverride")}
+                  hint={t("models.field.maxTokensOverrideHint")}
+                >
+                  <Input
+                    type="number"
+                    min={0}
+                    value={form.maxTokens}
+                    onChange={setField("maxTokens")}
+                    placeholder={t("models.field.maxTokensOverridePlaceholder")}
                   />
                 </Field>
 
