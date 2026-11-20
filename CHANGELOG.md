@@ -6,6 +6,15 @@ All notable changes to this fork of PicoClaw. Versions use the
 Earlier versions up to `0.1.27` are recorded as git tags. This file starts
 with the first batch that was built locally before tagging.
 
+## [0.1.44] - 2026-11-20
+
+### Fixed
+- The chat Stop button stays visible while a turn is running. Typing in the
+  composer switches back to Send so an inter-message can still be sent.
+
+### Documentation
+- README refreshed for 0.1.44 and the current feature set.
+
 ## [0.1.43] - 2026-11-20
 
 ### Added
