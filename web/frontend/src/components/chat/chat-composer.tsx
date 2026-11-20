@@ -44,6 +44,9 @@ interface ChatComposerProps {
   onSend: () => void
   onStop: () => void
   isTyping: boolean
+  // True while the server reports an active turn for this session, even if the
+  // stream is between messages and isTyping has already dropped.
+  turnRunning?: boolean
   onContextDetail?: () => void
   inputDisabledReason: ChatInputDisabledReason | null
   canSend: boolean
@@ -65,6 +68,7 @@ export function ChatComposer({
   onSend,
   onStop,
   isTyping,
+  turnRunning,
   onContextDetail,
   inputDisabledReason,
   canSend,
@@ -212,7 +216,7 @@ export function ChatComposer({
                   onDetailClick={onContextDetail}
                 />
               )}
-              {isTyping ? (
+              {(isTyping || turnRunning) && !hasInput ? (
                 <Button
                   type="button"
                   size="icon"

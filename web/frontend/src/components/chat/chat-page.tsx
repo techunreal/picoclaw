@@ -151,6 +151,9 @@ export function ChatPage() {
   const activeSessionAgent = sessionsQuery.data?.find(
     (session) => session.id === activeSessionIdForAgent,
   )?.agent_id
+  const activeSessionRunning =
+    sessionsQuery.data?.find((session) => session.id === activeSessionIdForAgent)
+      ?.running === true
   const [selectedAgentId, setSelectedAgentId] = useState("main")
   useEffect(() => {
     if (activeSessionAgent) setSelectedAgentId(activeSessionAgent)
@@ -701,6 +704,7 @@ export function ChatPage() {
           stopActiveTurn()
         }}
         isTyping={isTyping}
+        turnRunning={activeSessionRunning}
         onContextDetail={() => {
           if (sendMessage({ content: "/context", attachments: [] })) {
             setInput("")
