@@ -130,6 +130,26 @@ func SessionName(channel, chatID string) string {
 	return "pc-" + sanitized + "-" + shortHash(raw)
 }
 
+// cleanChildEnv drops Windows compatibility-layer switches before launching
+// agent-browser. Windows injects __COMPAT_LAYER (for example
+// "DetectorsAppHealth" after the Program Compatibility Assistant starts
+// auditing a program) and every child inherits it. Chromium refuses to start
+// under such a shim: it exits immediately with code 0 and no stderr, which
+// agent-browser reports as "Auto-launch failed: Chrome exited early". Removing
+// the variable keeps browser launches independent of how PicoClaw itself was
+// started.
+func cleanChildEnv(env []string) []string {
+	cleaned := make([]string, 0, len(env))
+	for _, entry := range env {
+		name, _, _ := strings.Cut(entry, "=")
+		if strings.EqualFold(name, "__COMPAT_LAYER") {
+			continue
+		}
+		cleaned = append(cleaned, entry)
+	}
+	return cleaned
+}
+
 // Run executes one agent-browser command inside a session.
 func (c *Client) Run(ctx context.Context, session string, argv ...string) (string, error) {
 	if len(argv) == 0 {
@@ -156,7 +176,7 @@ func (c *Client) Run(ctx context.Context, session string, argv ...string) (strin
 
 	cmd := exec.CommandContext(runCtx, c.binary, args...)
 	applyHiddenProcAttrs(cmd)
-	cmd.Env = append(os.Environ(),
+	cmd.Env = append(cleanChildEnv(os.Environ()),
 		"AGENT_BROWSER_PROXY="+c.proxyURL,
 		"AGENT_BROWSER_PROXY_USERNAME=",
 		"AGENT_BROWSER_PROXY_PASSWORD=",

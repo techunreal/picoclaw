@@ -127,3 +127,36 @@ func TestNew_ResolvesBinaryAndPolicy(t *testing.T) {
 		t.Fatalf("policy = %s, want a restrictive default", data)
 	}
 }
+
+func TestCleanChildEnvDropsWindowsCompatLayer(t *testing.T) {
+	env := []string{
+		"PATH=C:\\Windows\\system32",
+		"__COMPAT_LAYER=DetectorsAppHealth",
+		"__compat_layer=AnotherShim",
+		"TEMP=C:\\Temp",
+	}
+	cleaned := cleanChildEnv(env)
+	if len(cleaned) != 2 {
+		t.Fatalf("cleanChildEnv() kept %d entries, want 2: %v", len(cleaned), cleaned)
+	}
+	for _, entry := range cleaned {
+		if strings.HasPrefix(strings.ToLower(entry), "__compat_layer=") {
+			t.Fatalf("cleanChildEnv() kept a compatibility layer: %q", entry)
+		}
+	}
+}
+
+func TestCleanChildEnvKeepsUnrelatedVariables(t *testing.T) {
+	env := []string{
+		"AGENT_BROWSER_ARGS=--headless=new",
+		"__COMPAT_LAYER=DetectorsAppHealth",
+		"SYSTEMROOT=C:\\Windows",
+	}
+	cleaned := cleanChildEnv(env)
+	if len(cleaned) != 2 {
+		t.Fatalf("cleanChildEnv() = %v, want the two unrelated variables", cleaned)
+	}
+	if cleaned[0] != "AGENT_BROWSER_ARGS=--headless=new" || cleaned[1] != "SYSTEMROOT=C:\\Windows" {
+		t.Fatalf("cleanChildEnv() = %v, order or contents changed", cleaned)
+	}
+}
