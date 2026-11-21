@@ -410,7 +410,7 @@ func (s *SessionConfig) DeriveDmScope() {
 		s.DmScope = "per-peer"
 	}
 	// Dimensions not matching any known scope mapping (custom array)
-	// is fine â€” DmScope stays empty and the UI can handle it.
+	// is fine — DmScope stays empty and the UI can handle it.
 }
 
 // RoutingConfig controls the intelligent model routing feature.
@@ -418,11 +418,11 @@ func (s *SessionConfig) DeriveDmScope() {
 // (message length, code blocks, tool call history, conversation depth, attachments).
 // Messages scoring below Threshold are sent to LightModel; all others use the
 // agent's primary model. This reduces cost and latency for simple tasks without
-// requiring any keyword matching â€” all scoring is language-agnostic.
+// requiring any keyword matching — all scoring is language-agnostic.
 type RoutingConfig struct {
 	Enabled    bool    `json:"enabled"`
 	LightModel string  `json:"light_model"` // model_name from model_list to use for simple tasks
-	Threshold  float64 `json:"threshold"`   // complexity score in [0,1]; score >= threshold â†’ primary model
+	Threshold  float64 `json:"threshold"`   // complexity score in [0,1]; score >= threshold → primary model
 }
 
 // SubTurnConfig configures the SubTurn execution system.
@@ -1500,15 +1500,15 @@ func LoadConfig(path string) (*Config, error) {
 
 		migrateErr := migrateV0ToV1(m)
 		if migrateErr != nil {
-			return nil, fmt.Errorf("V0â†’V1 migration failed: %w", migrateErr)
+			return nil, fmt.Errorf("V0→V1 migration failed: %w", migrateErr)
 		}
 		migrateErr = migrateV1ToV2(m)
 		if migrateErr != nil {
-			return nil, fmt.Errorf("V1â†’V2 migration failed: %w", migrateErr)
+			return nil, fmt.Errorf("V1→V2 migration failed: %w", migrateErr)
 		}
 		migrateErr = migrateV2ToV3(m)
 		if migrateErr != nil {
-			return nil, fmt.Errorf("V2â†’V3 migration failed: %w", migrateErr)
+			return nil, fmt.Errorf("V2→V3 migration failed: %w", migrateErr)
 		}
 
 		var migrated []byte
@@ -1531,7 +1531,7 @@ func LoadConfig(path string) (*Config, error) {
 			_ = SaveConfig(path, cfg)
 		}(cfg)
 	case 1:
-		// V1â†’V3 migration: rename channelsâ†’channel_list, infer Enabled, migrate channel configs
+		// V1→V3 migration: rename channels→channel_list, infer Enabled, migrate channel configs
 		logger.InfoF(
 			"config migrate start",
 			map[string]any{"from": versionInfo.Version, "to": CurrentVersion},
@@ -1558,11 +1558,11 @@ func LoadConfig(path string) (*Config, error) {
 
 		migrateErr := migrateV1ToV2(m)
 		if migrateErr != nil {
-			return nil, fmt.Errorf("V1â†’V2 migration failed: %w", migrateErr)
+			return nil, fmt.Errorf("V1→V2 migration failed: %w", migrateErr)
 		}
 		migrateErr = migrateV2ToV3(m)
 		if migrateErr != nil {
-			return nil, fmt.Errorf("V2â†’V3 migration failed: %w", migrateErr)
+			return nil, fmt.Errorf("V2→V3 migration failed: %w", migrateErr)
 		}
 
 		var migrated []byte
@@ -1589,7 +1589,7 @@ func LoadConfig(path string) (*Config, error) {
 			map[string]any{"from": versionInfo.Version, "to": CurrentVersion},
 		)
 	case 2:
-		// V2â†’V3 migration: rename channelsâ†’channel_list, convert flatâ†’nested
+		// V2→V3 migration: rename channels→channel_list, convert flat→nested
 		logger.InfoF(
 			"config migrate start",
 			map[string]any{"from": versionInfo.Version, "to": CurrentVersion},
@@ -1614,7 +1614,7 @@ func LoadConfig(path string) (*Config, error) {
 		}
 		migrateErr := migrateV2ToV3(m)
 		if migrateErr != nil {
-			return nil, fmt.Errorf("V2â†’V3 migration failed: %w", migrateErr)
+			return nil, fmt.Errorf("V2→V3 migration failed: %w", migrateErr)
 		}
 
 		var migrated []byte
