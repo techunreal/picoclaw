@@ -102,6 +102,11 @@ export function ProfileImportDialog({
   const models = modelsQuery.data?.models ?? []
   const skills = useMemo(() => skillsQuery.data?.skills ?? [], [skillsQuery.data])
   const selectedSkills = form.skills ?? []
+  const selectedSkillBytes = selectedSkills.reduce((sum, name) => {
+    const skill = skills.find((item) => item.name === name)
+    return sum + (skill?.size ?? 0)
+  }, 0)
+  const selectedSkillTokens = Math.round(selectedSkillBytes / 4)
 
   const setFolderInput = (node: HTMLInputElement | null) => {
     if (!node) return
@@ -513,6 +518,9 @@ export function ProfileImportDialog({
                   loading={skillsQuery.isLoading}
                   disabled={importing}
                 />
+                <p className="text-muted-foreground text-xs">
+                  {t("agents.skillTokenHint", { tokens: selectedSkillTokens })}
+                </p>
               </fieldset>
 
               <fieldset className="flex flex-col gap-4">

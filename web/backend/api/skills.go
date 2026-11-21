@@ -50,6 +50,9 @@ type skillSupportItem struct {
 	RegistryURL      string `json:"registry_url,omitempty"`
 	InstalledVersion string `json:"installed_version,omitempty"`
 	InstalledAt      int64  `json:"installed_at,omitempty"`
+	// Size is the SKILL.md size in bytes. Used by the UI to estimate how many
+	// prompt tokens an active skill adds per turn.
+	Size int64 `json:"size,omitempty"`
 }
 
 type skillDetailResponse struct {
@@ -1230,6 +1233,9 @@ func enrichSkillInfo(cfg *config.Config, skill skills.SkillInfo) (skillSupportIt
 		OriginKind:   "builtin",
 		Editable:     skill.Source == "workspace",
 		NameMismatch: skill.Name != directory,
+	}
+	if info, err := os.Stat(skill.Path); err == nil {
+		item.Size = info.Size()
 	}
 
 	switch skill.Source {

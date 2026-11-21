@@ -126,16 +126,58 @@ func TestBuildProfilePreview_MapsIdentity(t *testing.T) {
 	if _, ok := preview.targets["SOUL.md"]; !ok {
 		t.Fatal("SOUL.md was not mapped")
 	}
-	if _, ok := preview.targets["IDENTITY.md"]; !ok {
-		t.Fatal("IDENTITY.md was not mapped")
+	if _, ok := preview.targets["IDENTITY.md"]; ok {
+		t.Fatal("IDENTITY.md must not be copied to the agent workspace")
 	}
 	if len(preview.Ignored) != 2 {
 		t.Fatalf("ignored = %#v, want adapters and RESEARCH", preview.Ignored)
 	}
 }
 
-func TestBuildProfilePreview_CombinedFallback(t *testing.T) {
+func TestBuildProfilePreview_ReadsFrontmatterIdentity(t *testing.T) {
 	preview, err := buildProfilePreview(map[string][]byte{
+		"agent/AGENTS.md": []byte("---\nname: Ada\ndescription: Strict reviewer\nemoji: \"🦉\"\n---\n\n# Ada\n"),
+	})
+	if err != nil {
+		t.Fatalf("buildProfilePreview() error = %v", err)
+	}
+	if preview.Identity.Name != "Ada" ||
+		preview.Identity.Description != "Strict reviewer" ||
+		preview.Identity.Emoji != "🦉" {
+		t.Fatalf("identity = %#v", preview.Identity)
+	}
+}
+
+func TestEnsureAgentFrontmatterMergesFields(t *testing.T) {
+	input := []byte("---\nname: Old\ncustom: keep\n---\n\nBody\n")
+	output := string(ensureAgentFrontmatter(
+		input,
+		"New",
+		"Desc",
+		"🔍",
+		[]string{lockedAgentSkill},
+	))
+	for _, want := range []string{
+		"name: New",
+		"custom: keep",
+		"description: Desc",
+		"skills:",
+		lockedAgentSkill,
+		"Body",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("frontmatter output missing %q:\n%s", want, output)
+		}
+	}
+	if got := parseProfileFrontmatterIdentity([]byte(output)).Emoji; got != "🔍" {
+		t.Fatalf("emoji round-trip = %q, want 🔍\n%s", got, output)
+	}
+	if strings.Count(output, "---") != 2 {
+		t.Fatalf("frontmatter output should have exactly one block:\n%s", output)
+	}
+}
+
+func TestBuildProfilePreview_CombinedFallback(t *testing.T) {	preview, err := buildProfilePreview(map[string][]byte{
 		"agent/COMBINED.md": []byte("# Combined profile\n"),
 		"agent/IDENTITY.md": []byte("- **Name:** Ada\n"),
 	})
@@ -184,7 +226,7 @@ func TestImportAgentProfile_Folder(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &preview); err != nil {
 		t.Fatalf("Unmarshal() error = %v", err)
 	}
-	if preview.Root != "socrates" || len(preview.Files) != 3 {
+	if preview.Root != "socrates" || len(preview.Files) != 2 {
 		t.Fatalf("preview = %#v", preview)
 	}
 
@@ -217,6 +259,10 @@ func TestImportAgentProfile_Folder(t *testing.T) {
 	workspace := filepath.Join(filepath.Dir(cfg.Agents.Defaults.Workspace), "agents", "socrates")
 	if content, err := os.ReadFile(filepath.Join(workspace, "AGENT.md")); err != nil || !strings.Contains(string(content), "Mission") {
 		t.Fatalf("AGENT.md = %q, err = %v", content, err)
+	} else if !strings.Contains(string(content), "name: Sokrates") ||
+		!strings.Contains(string(content), "skills:") ||
+		!strings.Contains(string(content), lockedAgentSkill) {
+		t.Fatalf("AGENT.md frontmatter missing resolved metadata: %q", content)
 	}
 	if _, err := os.Stat(filepath.Join(workspace, "SOUL.md")); err != nil {
 		t.Fatalf("SOUL.md missing: %v", err)
@@ -224,8 +270,8 @@ func TestImportAgentProfile_Folder(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(workspace, "adapters")); !os.IsNotExist(err) {
 		t.Fatalf("adapters should not be imported: %v", err)
 	}
-	if agent.Skills != nil && len(agent.Skills) == 0 {
-		t.Fatal("skills list should be explicit or nil, not empty")
+	if len(agent.Skills) == 0 || agent.Skills[0] != lockedAgentSkill {
+		t.Fatalf("skills = %v, want the locked skill only", agent.Skills)
 	}
 
 	// A second import without overwrite must fail with 409.

@@ -17,6 +17,8 @@ export interface SkillSupportItem {
   registry_url?: string
   installed_version?: string
   installed_at?: number
+  // SKILL.md size in bytes; used to estimate prompt tokens per turn.
+  size?: number
 }
 
 export interface SkillDetailResponse extends SkillSupportItem {

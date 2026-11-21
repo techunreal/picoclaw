@@ -214,6 +214,7 @@
     "importCombinedBadge": "COMBINED.md",
     "importShowPreview": "Show content",
     "importIgnored": "{{count}} file(s) ignored (adapters and extras)",
+    "skillTokenHint": "Selected skills add about {{tokens}} tokens to every turn.",
     "importId": "Agent ID",
     "importIdRequired": "Agent ID is required.",
     "importExistingHint": "This agent already exists. Importing updates its settings and profile files.",

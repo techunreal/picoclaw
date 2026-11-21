@@ -20,6 +20,7 @@ import (
 
 	"github.com/sipeed/picoclaw/pkg/config"
 	"github.com/sipeed/picoclaw/pkg/routing"
+	"gopkg.in/yaml.v3"
 )
 
 const (
@@ -34,9 +35,10 @@ const (
 var identityBulletPattern = regexp.MustCompile(`(?mi)^\s*[-*]?\s*\*\*(name|emoji|vibe):\*\*\s*(.+?)\s*$`)
 
 type profileIdentity struct {
-	Name  string `json:"name,omitempty"`
-	Emoji string `json:"emoji,omitempty"`
-	Vibe  string `json:"vibe,omitempty"`
+	Name        string `json:"name,omitempty"`
+	Description string `json:"description,omitempty"`
+	Emoji       string `json:"emoji,omitempty"`
+	Vibe        string `json:"vibe,omitempty"`
 }
 
 type profileFilePreview struct {
@@ -184,16 +186,23 @@ func (h *Handler) handleImportAgentProfile(w http.ResponseWriter, r *http.Reques
 	}
 	workspace, _ := effectiveAgentWorkspace(cfg, *target)
 
-	if isNew && target.Skills == nil {
-		if items, err := buildSkillSupportItemsForWorkspace(cfg, workspace); err == nil {
-			names := make([]string, 0, len(items))
-			for _, item := range items {
-				names = append(names, item.Name)
-			}
-			if len(names) > 0 {
-				target.Skills = withLockedAgentSkill(normalizeStringList(names, maxAgentSkills))
-			}
-		}
+	// Imported profiles must not inherit every workspace skill: an active skill
+	// is injected in full on every turn. Default to the locked runtime skill
+	// only; the UI can send an explicit selection.
+	if isNew {
+		target.Skills = withLockedAgentSkill(normalizeStringList(target.Skills, maxAgentSkills))
+	}
+
+	// Write the resolved metadata into AGENT.md frontmatter so the runtime and
+	// the agent list agree, even when the source profile had no frontmatter.
+	if data, ok := preview.targets["AGENT.md"]; ok {
+		preview.targets["AGENT.md"] = ensureAgentFrontmatter(
+			data,
+			name,
+			preview.Identity.Description,
+			preview.Identity.Emoji,
+			target.Skills,
+		)
 	}
 
 	conflicts := profileConflicts(workspace, preview.targets)
@@ -220,7 +229,7 @@ func (h *Handler) handleImportAgentProfile(w http.ResponseWriter, r *http.Reques
 	}
 
 	written := make([]string, 0, len(preview.targets))
-	for _, targetFile := range []string{"AGENT.md", "SOUL.md", "IDENTITY.md"} {
+	for _, targetFile := range []string{"AGENT.md", "SOUL.md"} {
 		data, ok := preview.targets[targetFile]
 		if !ok {
 			continue
@@ -267,7 +276,7 @@ func mergeProfileAvatar(existing *config.AgentAvatar, emoji string) *config.Agen
 
 func profileConflicts(workspace string, targets map[string][]byte) []string {
 	conflicts := make([]string, 0)
-	for _, target := range []string{"AGENT.md", "SOUL.md", "IDENTITY.md"} {
+	for _, target := range []string{"AGENT.md", "SOUL.md"} {
 		if _, ok := targets[target]; !ok {
 			continue
 		}
@@ -480,15 +489,31 @@ func buildProfilePreview(files map[string][]byte) (*profilePreview, error) {
 	}
 	var identityData []byte
 	if source, data, ok := find("IDENTITY.md"); ok {
-		preview.targets["IDENTITY.md"] = data
-		targets[source] = "IDENTITY.md"
+		// IDENTITY.md is a metadata fallback only: read name/emoji from it, but
+		// do not copy it into the agent workspace. With AGENT.md present the
+		// runtime ignores IDENTITY.md anyway.
 		identityData = data
+		targets[source] = ""
 	}
+	identity := parseProfileFrontmatterIdentity(preview.targets["AGENT.md"])
 	if identityData != nil {
-		preview.Identity = parseProfileIdentity(string(identityData))
+		fallback := parseProfileIdentity(string(identityData))
+		if identity.Name == "" {
+			identity.Name = fallback.Name
+		}
+		if identity.Description == "" {
+			identity.Description = fallback.Description
+		}
+		if identity.Emoji == "" {
+			identity.Emoji = fallback.Emoji
+		}
+		if identity.Vibe == "" {
+			identity.Vibe = fallback.Vibe
+		}
 	}
+	preview.Identity = identity
 
-	for _, target := range []string{"AGENT.md", "SOUL.md", "IDENTITY.md"} {
+	for _, target := range []string{"AGENT.md", "SOUL.md"} {
 		if data, ok := preview.targets[target]; ok {
 			preview.Files = append(preview.Files, profileFilePreview{
 				Source:  sourceForTarget(targets, target),
@@ -505,9 +530,13 @@ func buildProfilePreview(files map[string][]byte) (*profilePreview, error) {
 		preview.Notes = append(preview.Notes,
 			"AGENTS.md was not found; COMBINED.md will be used as AGENT.md.")
 	}
+	if identityData != nil {
+		preview.Notes = append(preview.Notes,
+			"IDENTITY.md was read for name/emoji only; it is not copied to the agent workspace.")
+	}
 	if preview.Identity.Emoji == "" {
 		preview.Notes = append(preview.Notes,
-			"No emoji found in IDENTITY.md; you can pick one before importing.")
+			"No emoji found in AGENTS.md frontmatter or IDENTITY.md; you can pick one before importing.")
 	}
 	return preview, nil
 }
@@ -680,6 +709,89 @@ func ignoredProfileEntries(files map[string][]byte, mapped map[string]string) ([
 		names = names[:maxIgnoredList]
 	}
 	return names, count
+}
+
+// parseProfileFrontmatterIdentity reads name/description/emoji/vibe from the
+// YAML frontmatter of AGENTS.md/AGENT.md. It is the primary metadata source;
+// IDENTITY.md is only a fallback.
+func parseProfileFrontmatterIdentity(data []byte) profileIdentity {
+	identity := profileIdentity{}
+	frontmatter, _ := splitProfileFrontmatter(string(data))
+	if strings.TrimSpace(frontmatter) == "" {
+		return identity
+	}
+	fields := make(map[string]any)
+	if err := yaml.Unmarshal([]byte(frontmatter), &fields); err != nil {
+		return identity
+	}
+	get := func(key string) string {
+		value, ok := fields[key]
+		if !ok {
+			return ""
+		}
+		text, ok := value.(string)
+		if !ok {
+			return ""
+		}
+		return strings.TrimSpace(text)
+	}
+	identity.Name = get("name")
+	identity.Description = get("description")
+	identity.Emoji = get("emoji")
+	identity.Vibe = get("vibe")
+	return identity
+}
+
+// splitProfileFrontmatter splits an optional leading YAML frontmatter block from
+// a profile file and returns the frontmatter and the body.
+func splitProfileFrontmatter(content string) (string, string) {
+	normalized := strings.ReplaceAll(content, "\r\n", "\n")
+	if !strings.HasPrefix(normalized, "---\n") {
+		return "", normalized
+	}
+	rest := normalized[4:]
+	end := strings.Index(rest, "\n---")
+	if end < 0 {
+		return "", normalized
+	}
+	frontmatter := rest[:end]
+	body := strings.TrimPrefix(rest[end+4:], "\n")
+	return frontmatter, body
+}
+
+// ensureAgentFrontmatter merges resolved metadata into the AGENT.md
+// frontmatter, preserving unknown keys and the body. It never produces a file
+// with two frontmatter blocks.
+func ensureAgentFrontmatter(data []byte, name, description, emoji string, skills []string) []byte {
+	frontmatter, body := splitProfileFrontmatter(string(data))
+	fields := make(map[string]any)
+	if strings.TrimSpace(frontmatter) != "" {
+		if err := yaml.Unmarshal([]byte(frontmatter), &fields); err != nil {
+			fields = make(map[string]any)
+		}
+	}
+	if value := strings.TrimSpace(name); value != "" {
+		fields["name"] = value
+	}
+	if value := strings.TrimSpace(description); value != "" {
+		fields["description"] = value
+	}
+	if value := strings.TrimSpace(emoji); value != "" {
+		fields["emoji"] = value
+	}
+	if len(skills) > 0 {
+		fields["skills"] = append([]string(nil), skills...)
+	}
+	encoded, err := yaml.Marshal(fields)
+	if err != nil {
+		return data
+	}
+	var builder strings.Builder
+	builder.WriteString("---\n")
+	builder.Write(encoded)
+	builder.WriteString("---\n\n")
+	builder.WriteString(strings.TrimLeft(body, "\n"))
+	return []byte(builder.String())
 }
 
 func truncatePreview(value string, limit int) string {
