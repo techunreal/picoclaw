@@ -6,6 +6,25 @@ All notable changes to this fork of PicoClaw. Versions use the
 Earlier versions up to `0.1.27` are recorded as git tags. This file starts
 with the first batch that was built locally before tagging.
 
+## [0.1.45] - 2026-11-21
+
+### Added
+- Profile import can choose a tools allowlist; the selection is written to the
+  `AGENT.md` frontmatter.
+- The import preview estimates how many prompt tokens the selected skills add
+  per turn.
+
+### Changed
+- Imported profiles start with only the locked runtime skill instead of every
+  workspace skill.
+- On import, `name`, `description`, `emoji`, `skills` and `tools` are merged into
+  `AGENT.md` frontmatter. `IDENTITY.md` is read as a metadata fallback only and
+  is no longer copied to the agent workspace.
+
+### Fixed
+- Remaining mojibake in `config.go` comments and messages. Adds
+  `scripts/check-encoding.ps1` and `.editorconfig` to prevent recurrence.
+
 ## [0.1.44] - 2026-11-20
 
 ### Fixed
