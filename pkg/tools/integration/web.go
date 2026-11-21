@@ -1458,9 +1458,16 @@ func (p *BaiduSearchProvider) Search(
 }
 
 type WebSearchTool struct {
-	provider         SearchProvider
-	maxResults       int
-	providerResolver func(query string) (SearchProvider, int)
+	provider          SearchProvider
+	maxResults        int
+	providerResolver  func(query string) (SearchProvider, int)
+	candidateResolver func(query string) []searchCandidate
+}
+
+type searchCandidate struct {
+	name       string
+	provider   SearchProvider
+	maxResults int
 }
 
 type WebSearchToolOptions struct {
@@ -1564,8 +1571,10 @@ var (
 		"glm_search",
 		"baidu_search",
 	}
-	autoPrimaryWebSearchProviders  = []string{"perplexity", "brave", "kagi", "searxng", "tavily", "gemini"}
-	autoFallbackWebSearchProviders = []string{"baidu_search", "glm_search"}
+	autoFreeWebSearchProviders = []string{"duckduckgo", "searxng", "sogou"}
+	autoPaidWebSearchProviders = []string{
+		"tavily", "brave", "kagi", "perplexity", "gemini", "baidu_search", "glm_search",
+	}
 )
 
 func isKnownWebSearchProvider(name string) bool {
@@ -1615,41 +1624,33 @@ func (opts WebSearchToolOptions) normalizedProviderName() string {
 	return providerName
 }
 
-func (opts WebSearchToolOptions) resolveProviderName(query string) (string, error) {
+func (opts WebSearchToolOptions) providerCandidates(query string) []string {
 	providerName := opts.normalizedProviderName()
 	if providerName != "" && providerName != "auto" && opts.providerReady(providerName) {
-		return providerName, nil
+		// An explicit provider is strict: no fallback.
+		return []string{providerName}
 	}
 
-	sogouReady := opts.providerReady("sogou")
-	duckReady := opts.providerReady("duckduckgo")
-
-	for _, name := range autoPrimaryWebSearchProviders {
+	candidates := make([]string, 0, len(knownWebSearchProviders))
+	for _, name := range autoFreeWebSearchProviders {
 		if opts.providerReady(name) {
-			return name, nil
+			candidates = append(candidates, name)
 		}
 	}
-
-	if sogouReady && duckReady {
-		if prefersDuckDuckGoQuery(query) {
-			return "duckduckgo", nil
-		}
-		return "sogou", nil
-	}
-	if sogouReady {
-		return "sogou", nil
-	}
-	if duckReady {
-		return "duckduckgo", nil
-	}
-
-	for _, name := range autoFallbackWebSearchProviders {
+	for _, name := range autoPaidWebSearchProviders {
 		if opts.providerReady(name) {
-			return name, nil
+			candidates = append(candidates, name)
 		}
 	}
+	return candidates
+}
 
-	return "", nil
+func (opts WebSearchToolOptions) resolveProviderName(query string) (string, error) {
+	candidates := opts.providerCandidates(query)
+	if len(candidates) == 0 {
+		return "", nil
+	}
+	return candidates[0], nil
 }
 
 func (opts WebSearchToolOptions) providerByName(name string) (SearchProvider, int, error) {
@@ -1871,7 +1872,7 @@ func prefersDuckDuckGoQuery(text string) bool {
 	return false
 }
 
-func (opts WebSearchToolOptions) buildProviderResolver() (func(query string) (SearchProvider, int), error) {
+func (opts WebSearchToolOptions) buildCandidateResolver() (func(query string) []searchCandidate, error) {
 	providersByName := make(map[string]SearchProvider, len(knownWebSearchProviders))
 	maxResultsByName := make(map[string]int, len(knownWebSearchProviders))
 
@@ -1890,33 +1891,64 @@ func (opts WebSearchToolOptions) buildProviderResolver() (func(query string) (Se
 		maxResultsByName[name] = maxResults
 	}
 
-	return func(query string) (SearchProvider, int) {
-		name, err := opts.resolveProviderName(query)
-		if err != nil {
-			return nil, 0
+	return func(query string) []searchCandidate {
+		names := opts.providerCandidates(query)
+		candidates := make([]searchCandidate, 0, len(names))
+		for _, name := range names {
+			provider, ok := providersByName[name]
+			if !ok {
+				continue
+			}
+			candidates = append(candidates, searchCandidate{
+				name:       name,
+				provider:   provider,
+				maxResults: maxResultsByName[name],
+			})
 		}
-		provider, ok := providersByName[name]
-		if !ok {
-			return nil, 0
-		}
-		return provider, maxResultsByName[name]
+		return candidates
 	}, nil
 }
 
-func NewWebSearchTool(opts WebSearchToolOptions) (*WebSearchTool, error) {
-	resolver, err := opts.buildProviderResolver()
+// buildProviderResolver keeps the single-provider resolver used by tests and
+// older construction paths. New tools use buildCandidateResolver so a failed
+// provider can fall through to the next one.
+func (opts WebSearchToolOptions) buildProviderResolver() (func(query string) (SearchProvider, int), error) {
+	resolver, err := opts.buildCandidateResolver()
 	if err != nil {
 		return nil, err
 	}
-	provider, maxResults := resolver("")
-	if provider == nil {
+	return func(query string) (SearchProvider, int) {
+		candidates := resolver(query)
+		if len(candidates) == 0 {
+			return nil, 0
+		}
+		return candidates[0].provider, candidates[0].maxResults
+	}, nil
+}
+
+func searchOutputEmpty(output string) bool {
+	trimmed := strings.TrimSpace(output)
+	if trimmed == "" {
+		return true
+	}
+	return strings.HasPrefix(trimmed, "No results for:") ||
+		strings.HasPrefix(trimmed, "No results found or extraction failed.")
+}
+
+func NewWebSearchTool(opts WebSearchToolOptions) (*WebSearchTool, error) {
+	resolver, err := opts.buildCandidateResolver()
+	if err != nil {
+		return nil, err
+	}
+	candidates := resolver("")
+	if len(candidates) == 0 {
 		return nil, nil
 	}
 
 	return &WebSearchTool{
-		provider:         provider,
-		maxResults:       maxResults,
-		providerResolver: resolver,
+		provider:          candidates[0].provider,
+		maxResults:        candidates[0].maxResults,
+		candidateResolver: resolver,
 	}, nil
 }
 
@@ -1964,17 +1996,23 @@ func (t *WebSearchTool) Execute(ctx context.Context, args map[string]any) *ToolR
 	if t.providerResolver != nil {
 		provider, maxResults = t.providerResolver(query)
 	}
-	if provider == nil {
+	candidates := []searchCandidate(nil)
+	if t.candidateResolver != nil {
+		candidates = t.candidateResolver(query)
+	} else if provider != nil {
+		candidates = []searchCandidate{{
+			name:       "provider",
+			provider:   provider,
+			maxResults: maxResults,
+		}}
+	}
+	if len(candidates) == 0 {
 		return ErrorResult("search provider is not configured")
 	}
 
-	count64, err := getInt64Arg(args, "count", int64(maxResults))
+	count64, err := getInt64Arg(args, "count", int64(candidates[0].maxResults))
 	if err != nil {
 		return ErrorResult(err.Error())
-	}
-	count := maxResults
-	if count64 > 0 && count64 <= 10 {
-		count = min(int(count64), maxResults)
 	}
 
 	rangeCode, err := normalizeSearchRange("")
@@ -1992,15 +2030,37 @@ func (t *WebSearchTool) Execute(ctx context.Context, args map[string]any) *ToolR
 		}
 	}
 
-	result, err := provider.Search(ctx, query, count, rangeCode)
-	if err != nil {
-		return ErrorResult(fmt.Sprintf("search failed: %v", err))
+	var lastErr error
+	for _, candidate := range candidates {
+		count := candidate.maxResults
+		if count64 > 0 && count64 <= 10 {
+			count = min(int(count64), candidate.maxResults)
+		}
+		result, searchErr := candidate.provider.Search(ctx, query, count, rangeCode)
+		if searchErr != nil {
+			lastErr = searchErr
+			logger.WarnCF("web_search", "Provider failed; trying the next one", map[string]any{
+				"provider": candidate.name,
+				"error":    searchErr.Error(),
+			})
+			continue
+		}
+		if searchOutputEmpty(result) {
+			lastErr = fmt.Errorf("%s returned no results", candidate.name)
+			logger.WarnCF("web_search", "Provider returned no results; trying the next one",
+				map[string]any{"provider": candidate.name})
+			continue
+		}
+		return &ToolResult{
+			ForLLM:  result,
+			ForUser: result,
+		}
 	}
 
-	return &ToolResult{
-		ForLLM:  result,
-		ForUser: result,
+	if lastErr != nil {
+		return ErrorResult(fmt.Sprintf("search failed: %v", lastErr))
 	}
+	return ErrorResult("search returned no results")
 }
 
 type WebFetchTool struct {

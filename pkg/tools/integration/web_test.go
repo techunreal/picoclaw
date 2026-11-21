@@ -2041,7 +2041,7 @@ func TestPrefersDuckDuckGoQuery_DoesNotUseGlobalLanguageFallback(t *testing.T) {
 	}
 }
 
-func TestWebTool_SogouPriorityAndExplicitProvider(t *testing.T) {
+func TestWebTool_DuckDuckGoPriorityAndExplicitProvider(t *testing.T) {
 	tool, err := NewWebSearchTool(WebSearchToolOptions{
 		SogouEnabled:         true,
 		SogouMaxResults:      5,
@@ -2051,8 +2051,8 @@ func TestWebTool_SogouPriorityAndExplicitProvider(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewWebSearchTool() error: %v", err)
 	}
-	if _, ok := tool.provider.(*SogouSearchProvider); !ok {
-		t.Fatalf("expected SogouSearchProvider, got %T", tool.provider)
+	if _, ok := tool.provider.(*DuckDuckGoSearchProvider); !ok {
+		t.Fatalf("expected DuckDuckGoSearchProvider (free first), got %T", tool.provider)
 	}
 
 	tool, err = NewWebSearchTool(WebSearchToolOptions{
@@ -2070,7 +2070,7 @@ func TestWebTool_SogouPriorityAndExplicitProvider(t *testing.T) {
 	}
 }
 
-func TestWebTool_AutoProviderPrefersConfiguredProvidersBeforeSogou(t *testing.T) {
+func TestWebTool_AutoProviderPrefersFreeDuckDuckGoBeforePaidBrave(t *testing.T) {
 	tool, err := NewWebSearchTool(WebSearchToolOptions{
 		SogouEnabled:         true,
 		SogouMaxResults:      5,
@@ -2083,12 +2083,12 @@ func TestWebTool_AutoProviderPrefersConfiguredProvidersBeforeSogou(t *testing.T)
 	if err != nil {
 		t.Fatalf("NewWebSearchTool() error: %v", err)
 	}
-	if _, ok := tool.provider.(*BraveSearchProvider); !ok {
-		t.Fatalf("expected BraveSearchProvider, got %T", tool.provider)
+	if _, ok := tool.provider.(*DuckDuckGoSearchProvider); !ok {
+		t.Fatalf("expected DuckDuckGoSearchProvider (free before paid), got %T", tool.provider)
 	}
 }
 
-func TestWebTool_AutoProviderPrefersConfiguredProvidersBeforeGemini(t *testing.T) {
+func TestWebTool_AutoProviderPrefersFreeProvidersBeforeGemini(t *testing.T) {
 	opts := WebSearchToolOptions{
 		GeminiEnabled:        true,
 		GeminiAPIKey:         "google-key",
@@ -2107,16 +2107,16 @@ func TestWebTool_AutoProviderPrefersConfiguredProvidersBeforeGemini(t *testing.T
 	if err != nil {
 		t.Fatalf("ResolveWebSearchProviderName() error: %v", err)
 	}
-	if name != "brave" {
-		t.Fatalf("provider = %q, want brave", name)
+	if name != "duckduckgo" {
+		t.Fatalf("provider = %q, want duckduckgo", name)
 	}
 
 	name, err = ResolveWebSearchProviderName(opts, "今天上海天气")
 	if err != nil {
 		t.Fatalf("ResolveWebSearchProviderName() error: %v", err)
 	}
-	if name != "brave" {
-		t.Fatalf("provider = %q, want brave", name)
+	if name != "duckduckgo" {
+		t.Fatalf("provider = %q, want duckduckgo", name)
 	}
 }
 
@@ -2363,6 +2363,7 @@ func TestResolveWebSearchProviderName_FallsBackFromUnknownProvider(t *testing.T)
 
 type stubSearchProvider struct {
 	result string
+	err    error
 	calls  []string
 }
 
@@ -2373,7 +2374,81 @@ func (p *stubSearchProvider) Search(
 	_ string,
 ) (string, error) {
 	p.calls = append(p.calls, query)
+	if p.err != nil {
+		return "", p.err
+	}
 	return p.result, nil
+}
+
+func TestWebSearchProviderCandidatesFreeBeforePaid(t *testing.T) {
+	opts := WebSearchToolOptions{
+		DuckDuckGoEnabled: true,
+		SearXNGEnabled:    true,
+		SearXNGBaseURL:    "http://localhost:8080",
+		TavilyEnabled:     true,
+		TavilyAPIKeys:     []string{"tavily-key"},
+		BraveEnabled:      true,
+		BraveAPIKeys:      []string{"brave-key"},
+	}
+	got := opts.providerCandidates("golang concurrency")
+	want := []string{"duckduckgo", "searxng", "tavily", "brave"}
+	if len(got) != len(want) {
+		t.Fatalf("candidates = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("candidates = %v, want %v", got, want)
+		}
+	}
+}
+
+func TestWebTool_FallsBackWhenProviderFails(t *testing.T) {
+	failing := &stubSearchProvider{err: fmt.Errorf("boom")}
+	working := &stubSearchProvider{result: "Results for: q (via test)\n1. result"}
+	tool := &WebSearchTool{
+		provider:   failing,
+		maxResults: 5,
+		candidateResolver: func(string) []searchCandidate {
+			return []searchCandidate{
+				{name: "free", provider: failing, maxResults: 5},
+				{name: "paid", provider: working, maxResults: 5},
+			}
+		},
+	}
+
+	result := tool.Execute(context.Background(), map[string]any{"query": "q"})
+	if result.IsError {
+		t.Fatalf("Execute() returned error: %s", result.ForLLM)
+	}
+	if len(failing.calls) != 1 || len(working.calls) != 1 {
+		t.Fatalf("calls: failing=%d working=%d, want 1 each", len(failing.calls), len(working.calls))
+	}
+	if !strings.Contains(result.ForLLM, "result") {
+		t.Fatalf("ForLLM = %q, want the working provider output", result.ForLLM)
+	}
+}
+
+func TestWebTool_FallsBackWhenProviderReturnsNoResults(t *testing.T) {
+	empty := &stubSearchProvider{result: "No results for: q"}
+	working := &stubSearchProvider{result: "Results for: q (via test)\n1. result"}
+	tool := &WebSearchTool{
+		provider:   empty,
+		maxResults: 5,
+		candidateResolver: func(string) []searchCandidate {
+			return []searchCandidate{
+				{name: "free", provider: empty, maxResults: 5},
+				{name: "paid", provider: working, maxResults: 5},
+			}
+		},
+	}
+
+	result := tool.Execute(context.Background(), map[string]any{"query": "q"})
+	if result.IsError {
+		t.Fatalf("Execute() returned error: %s", result.ForLLM)
+	}
+	if len(empty.calls) != 1 || len(working.calls) != 1 {
+		t.Fatalf("calls: empty=%d working=%d, want 1 each", len(empty.calls), len(working.calls))
+	}
 }
 
 func TestWebTool_AutoProviderRoutesQueryLanguageBetweenSogouAndDuckDuckGo(t *testing.T) {
