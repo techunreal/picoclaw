@@ -156,6 +156,8 @@ func TestEnsureAgentFrontmatterMergesFields(t *testing.T) {
 		"Desc",
 		"🔍",
 		[]string{lockedAgentSkill},
+		[]string{"read_file", "web_search"},
+		true,
 	))
 	for _, want := range []string{
 		"name: New",
@@ -341,6 +343,44 @@ func TestImportAgentProfile_AppliesAgentSettings(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(workspace, "AGENT.md")); err != nil {
 		t.Fatalf("AGENT.md missing: %v", err)
+	}
+}
+
+func TestImportAgentProfile_WritesToolsFrontmatter(t *testing.T) {
+	configPath, cleanup := setupOAuthTestEnv(t)
+	defer cleanup()
+
+	mux := agentsTestMux(t, configPath)
+	files := exampleProfileFiles()
+	fields := map[string]string{
+		"agent": `{"id":"socrates","name":"Sokrates"}`,
+		"tools": `["read_file","web_search","read_file"]`,
+	}
+	body, contentType := profileMultipartBody(t, fields, files)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/agents/import", body)
+	req.Header.Set("Content-Type", contentType)
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("import status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+
+	cfg, err := config.LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+	workspace := filepath.Join(filepath.Dir(cfg.Agents.Defaults.Workspace), "agents", "socrates")
+	content, err := os.ReadFile(filepath.Join(workspace, "AGENT.md"))
+	if err != nil {
+		t.Fatalf("AGENT.md: %v", err)
+	}
+	for _, want := range []string{"tools:", "- read_file", "- web_search"} {
+		if !strings.Contains(string(content), want) {
+			t.Fatalf("AGENT.md missing %q:\n%s", want, content)
+		}
+	}
+	if strings.Count(string(content), "- read_file") != 1 {
+		t.Fatalf("tools should be deduplicated:\n%s", content)
 	}
 }
 

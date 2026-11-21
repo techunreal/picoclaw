@@ -24,6 +24,7 @@ import {
 } from "@/api/agents"
 import { getModels } from "@/api/models"
 import { getSkills } from "@/api/skills"
+import { getTools } from "@/api/tools"
 import {
   AgentAvatarPicker,
   AgentModelField,
@@ -101,6 +102,19 @@ export function ProfileImportDialog({
   })
   const models = modelsQuery.data?.models ?? []
   const skills = useMemo(() => skillsQuery.data?.skills ?? [], [skillsQuery.data])
+  const toolsQuery = useQuery({
+    queryKey: ["tools", "import-picker"],
+    queryFn: getTools,
+  })
+  const enabledTools = useMemo(
+    () =>
+      (toolsQuery.data?.tools ?? []).filter((tool) => tool.status === "enabled"),
+    [toolsQuery.data],
+  )
+  const [selectedTools, setSelectedTools] = useState<string[] | undefined>(
+    undefined,
+  )
+  const [toolsTouched, setToolsTouched] = useState(false)
   const selectedSkills = form.skills ?? []
   const selectedSkillBytes = selectedSkills.reduce((sum, name) => {
     const skill = skills.find((item) => item.name === name)
@@ -135,6 +149,11 @@ export function ProfileImportDialog({
     setSkillsDefaultsApplied(true)
   }, [open, skillsDefaultsApplied, skillsQuery.isLoading, skills, form.skills])
 
+  useEffect(() => {
+    if (!preview || selectedTools !== undefined || toolsQuery.isLoading) return
+    setSelectedTools(enabledTools.map((tool) => tool.name))
+  }, [preview, selectedTools, toolsQuery.isLoading, enabledTools])
+
   const reset = () => {
     setUpload(null)
     setSourceLabel("")
@@ -146,6 +165,8 @@ export function ProfileImportDialog({
     setWorkspaceTouched(false)
     setOverwrite(false)
     setSkillsDefaultsApplied(false)
+    setSelectedTools(undefined)
+    setToolsTouched(false)
     setPendingAvatar(null)
     setLoadedExistingID(null)
   }
@@ -197,6 +218,8 @@ export function ProfileImportDialog({
     setPreview(null)
     setError(null)
     setPendingAvatar(null)
+    setSelectedTools(undefined)
+    setToolsTouched(false)
     setPreviewing(true)
     try {
       const result = await inspectAgentProfile(next)
@@ -255,6 +278,11 @@ export function ProfileImportDialog({
     setImporting(true)
     setError(null)
     try {
+      const toolsToSubmit = existingAgent
+        ? toolsTouched
+          ? selectedTools
+          : undefined
+        : selectedTools
       const result = await importAgentProfile(upload, {
         agent: {
           ...form,
@@ -264,6 +292,7 @@ export function ProfileImportDialog({
           skills: form.skills,
         },
         overwrite,
+        tools: toolsToSubmit,
       })
       if (pendingAvatar) {
         try {
@@ -521,6 +550,52 @@ export function ProfileImportDialog({
                 <p className="text-muted-foreground text-xs">
                   {t("agents.skillTokenHint", { tokens: selectedSkillTokens })}
                 </p>
+
+                <fieldset className="flex flex-col gap-2">
+                  <legend className="mb-1 text-sm font-semibold">
+                    {t("agents.sectionTools")}
+                  </legend>
+                  <p className="text-muted-foreground text-xs">
+                    {t("agents.toolsHint")}
+                  </p>
+                  {toolsQuery.isLoading ? (
+                    <p className="text-muted-foreground text-xs">
+                      {t("labels.loading")}
+                    </p>
+                  ) : (
+                    <div className="grid max-h-44 grid-cols-1 gap-2 overflow-auto rounded-md border p-2 sm:grid-cols-2">
+                      {enabledTools.map((tool) => (
+                        <label
+                          key={tool.name}
+                          className="flex items-start gap-2 text-sm"
+                        >
+                          <input
+                            type="checkbox"
+                            className="mt-1 size-4 accent-violet-500"
+                            checked={selectedTools?.includes(tool.name) ?? false}
+                            onChange={(event) => {
+                              const checked = event.target.checked
+                              setToolsTouched(true)
+                              setSelectedTools((current) => {
+                                const list = current ?? []
+                                return checked
+                                  ? Array.from(new Set([...list, tool.name]))
+                                  : list.filter((name) => name !== tool.name)
+                              })
+                            }}
+                          />
+                          <span>
+                            <span className="font-medium">{tool.name}</span>
+                            <span className="text-muted-foreground">
+                              {" — "}
+                              {tool.description}
+                            </span>
+                          </span>
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                </fieldset>
               </fieldset>
 
               <fieldset className="flex flex-col gap-4">

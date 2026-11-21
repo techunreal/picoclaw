@@ -294,11 +294,15 @@ export function importAgentProfile(
   values: {
     agent: AgentConfig
     overwrite?: boolean
+    tools?: string[]
   },
 ): Promise<ProfileImportResult> {
   const body = buildProfileFormData(upload)
   body.append("agent", JSON.stringify(values.agent))
   body.append("overwrite", values.overwrite ? "true" : "false")
+  if (values.tools !== undefined) {
+    body.append("tools", JSON.stringify(values.tools))
+  }
   return request<ProfileImportResult>("/api/agents/import", {
     method: "POST",
     body,

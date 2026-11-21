@@ -119,6 +119,11 @@ func (h *Handler) handleImportAgentProfile(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	overwrite := strings.EqualFold(strings.TrimSpace(r.FormValue("overwrite")), "true")
+	toolsProvided, tools, err := parseProfileToolsForm(r.FormValue("tools"))
+	if err != nil {
+		writeAgentsAPIError(w, http.StatusBadRequest, "invalid_tools", err.Error())
+		return
+	}
 
 	cfg, err := config.LoadConfig(h.configPath)
 	if err != nil {
@@ -202,6 +207,8 @@ func (h *Handler) handleImportAgentProfile(w http.ResponseWriter, r *http.Reques
 			preview.Identity.Description,
 			preview.Identity.Emoji,
 			target.Skills,
+			tools,
+			toolsProvided,
 		)
 	}
 
@@ -762,7 +769,7 @@ func splitProfileFrontmatter(content string) (string, string) {
 // ensureAgentFrontmatter merges resolved metadata into the AGENT.md
 // frontmatter, preserving unknown keys and the body. It never produces a file
 // with two frontmatter blocks.
-func ensureAgentFrontmatter(data []byte, name, description, emoji string, skills []string) []byte {
+func ensureAgentFrontmatter(data []byte, name, description, emoji string, skills, tools []string, toolsProvided bool) []byte {
 	frontmatter, body := splitProfileFrontmatter(string(data))
 	fields := make(map[string]any)
 	if strings.TrimSpace(frontmatter) != "" {
@@ -782,6 +789,9 @@ func ensureAgentFrontmatter(data []byte, name, description, emoji string, skills
 	if len(skills) > 0 {
 		fields["skills"] = append([]string(nil), skills...)
 	}
+	if toolsProvided {
+		fields["tools"] = append([]string(nil), tools...)
+	}
 	encoded, err := yaml.Marshal(fields)
 	if err != nil {
 		return data
@@ -792,6 +802,34 @@ func ensureAgentFrontmatter(data []byte, name, description, emoji string, skills
 	builder.WriteString("---\n\n")
 	builder.WriteString(strings.TrimLeft(body, "\n"))
 	return []byte(builder.String())
+}
+
+// parseProfileToolsForm reads the optional tools form field. An absent field
+// means "keep the current frontmatter" (inherit all tools); an explicit empty
+// array means "no tools".
+func parseProfileToolsForm(raw string) (bool, []string, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return false, nil, nil
+	}
+	var list []string
+	if err := json.Unmarshal([]byte(raw), &list); err != nil {
+		return false, nil, errors.New("tools must be a JSON array of tool names")
+	}
+	seen := make(map[string]struct{}, len(list))
+	tools := make([]string, 0, len(list))
+	for _, item := range list {
+		name := strings.ToLower(strings.TrimSpace(item))
+		if name == "" {
+			continue
+		}
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		seen[name] = struct{}{}
+		tools = append(tools, name)
+	}
+	return true, tools, nil
 }
 
 func truncatePreview(value string, limit int) string {
