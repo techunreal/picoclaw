@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
 
@@ -25,6 +25,10 @@ export function BrowserApprovalWatcher() {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const [active, setActive] = useState<BrowserApproval | null>(null)
+  // Approvals answered in this tab. A poll that started before the answer can
+  // still return the approval; without this the same dialog reopens and the
+  // second answer fails with "already answered".
+  const answered = useRef<Set<string>>(new Set())
 
   const approvalsQuery = useQuery({
     queryKey,
@@ -36,7 +40,9 @@ export function BrowserApprovalWatcher() {
     if (active) {
       return
     }
-    const next = approvalsQuery.data?.[0]
+    const next = approvalsQuery.data?.find(
+      (approval) => !answered.current.has(approval.id),
+    )
     if (next) {
       setActive(next)
     }
@@ -72,7 +78,15 @@ export function BrowserApprovalWatcher() {
   }
 
   const answer = (decision: BrowserApprovalDecision) => {
-    resolveMutation.mutate({ id: active.id, decision })
+    const approval = active
+    if (!approval) {
+      return
+    }
+    answered.current.add(approval.id)
+    queryClient.setQueryData<BrowserApproval[]>(queryKey, (current) =>
+      (current ?? []).filter((item) => item.id !== approval.id),
+    )
+    resolveMutation.mutate({ id: approval.id, decision })
   }
 
   return (

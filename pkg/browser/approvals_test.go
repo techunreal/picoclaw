@@ -65,3 +65,49 @@ func TestApprovalStore_TimeoutDenies(t *testing.T) {
 		t.Fatalf("pending approvals left behind: %v", pending)
 	}
 }
+
+func TestApprovalStore_DoubleResolveIsIdempotent(t *testing.T) {
+	store := NewApprovalStore()
+	result := make(chan ApprovalDecision, 1)
+	go func() {
+		result <- store.Request(context.Background(), "example.com", 5*time.Second)
+	}()
+
+	var id string
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if pending := store.List(); len(pending) == 1 {
+			id = pending[0].ID
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if id == "" {
+		t.Fatal("approval was not registered")
+	}
+
+	first, ok := store.Resolve(id, AllowOnce)
+	if !ok {
+		t.Fatal("first Resolve() failed")
+	}
+	second, ok := store.Resolve(id, AllowOnce)
+	if !ok {
+		t.Fatal("second Resolve() must succeed for the same request")
+	}
+	if second.ID != first.ID || second.Domain != first.Domain {
+		t.Fatalf("second Resolve() = %+v, want %+v", second, first)
+	}
+	if pending := store.List(); len(pending) != 0 {
+		t.Fatalf("answered approval is still pending: %v", pending)
+	}
+	if decision := <-result; decision != AllowOnce {
+		t.Fatalf("decision = %q, want once", decision)
+	}
+}
+
+func TestApprovalStore_ResolveUnknownFails(t *testing.T) {
+	store := NewApprovalStore()
+	if _, ok := store.Resolve("missing", AllowOnce); ok {
+		t.Fatal("Resolve(unknown) must fail")
+	}
+}

@@ -19,6 +19,10 @@ tools.
   longer passes `__COMPAT_LAYER` to agent-browser. When Windows started the app
   under `DetectorsAppHealth`, Chromium exited instantly with code 0 and the tool
   showed `Auto-launch failed: Chrome exited early`.
+- **Browser permission dialog:** an answered request is not shown a second time,
+  and repeated answers are treated as the same decision instead of failing with
+  "expired or already answered". The action policy now also allows `press` and
+  `back`, so keyboard keys and Back work.
 - **Search fallback:** `web_search` tries free providers first (DuckDuckGo,
   SearXNG, Sogou) and then paid ones (Tavily, Brave, Kagi, Perplexity, Gemini,
   Baidu, GLM). Errors and empty results fall through to the next ready provider;

@@ -31,20 +31,31 @@ type approvalWaiter struct {
 	expires time.Time
 }
 
+// resolvedApproval remembers an answered request for a short while so a second
+// answer (another tab, or a duplicate click that raced a poll) succeeds
+// silently instead of failing with "already answered".
+type resolvedApproval struct {
+	request  PendingApproval
+	decision ApprovalDecision
+	at       time.Time
+}
+
 // ApprovalStore tracks domain approvals and the domains approved for the
 // lifetime of this process. Persistent "always allow" entries are also written
 // to config by the launcher API.
 type ApprovalStore struct {
-	mu      sync.Mutex
-	pending map[string]*approvalWaiter
-	always  map[string]struct{}
+	mu       sync.Mutex
+	pending  map[string]*approvalWaiter
+	resolved map[string]resolvedApproval
+	always   map[string]struct{}
 }
 
 // NewApprovalStore creates an empty approval store.
 func NewApprovalStore() *ApprovalStore {
 	return &ApprovalStore{
-		pending: make(map[string]*approvalWaiter),
-		always:  make(map[string]struct{}),
+		pending:  make(map[string]*approvalWaiter),
+		resolved: make(map[string]resolvedApproval),
+		always:   make(map[string]struct{}),
 	}
 }
 
@@ -119,7 +130,8 @@ func (s *ApprovalStore) List() []PendingApproval {
 }
 
 // Resolve answers a pending request. It returns the request and false when the
-// ID is unknown or already resolved.
+// ID is unknown. Answering the same request again within a short window returns
+// the original decision instead of an error.
 func (s *ApprovalStore) Resolve(id string, decision ApprovalDecision) (PendingApproval, bool) {
 	switch decision {
 	case AllowOnce, AllowAlways, Deny:
@@ -131,9 +143,19 @@ func (s *ApprovalStore) Resolve(id string, decision ApprovalDecision) (PendingAp
 	waiter, ok := s.pending[id]
 	if ok {
 		delete(s.pending, id)
+		s.resolved[id] = resolvedApproval{
+			request:  waiter.request,
+			decision: decision,
+			at:       time.Now(),
+		}
+		s.pruneResolvedLocked()
 	}
+	previous, wasResolved := s.resolved[id]
 	s.mu.Unlock()
 	if !ok {
+		if wasResolved {
+			return previous.request, true
+		}
 		return PendingApproval{}, false
 	}
 
@@ -145,6 +167,20 @@ func (s *ApprovalStore) Resolve(id string, decision ApprovalDecision) (PendingAp
 		s.AddAlwaysAllowed(waiter.request.Domain)
 	}
 	return waiter.request, true
+}
+
+// pruneResolvedLocked drops remembered answers older than a minute. Callers
+// must hold s.mu.
+func (s *ApprovalStore) pruneResolvedLocked() {
+	if len(s.resolved) == 0 {
+		return
+	}
+	cutoff := time.Now().Add(-time.Minute)
+	for id, entry := range s.resolved {
+		if entry.at.Before(cutoff) {
+			delete(s.resolved, id)
+		}
+	}
 }
 
 // AddAlwaysAllowed remembers a domain until the process restarts.

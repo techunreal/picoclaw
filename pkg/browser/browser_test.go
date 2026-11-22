@@ -128,6 +128,42 @@ func TestNew_ResolvesBinaryAndPolicy(t *testing.T) {
 	}
 }
 
+func TestActionPolicyAllowsEveryToolAction(t *testing.T) {
+	dir := t.TempDir()
+	binary := filepath.Join(dir, "agent-browser.exe")
+	if err := os.WriteFile(binary, []byte("fake"), 0o755); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	if _, err := New(Options{
+		BinaryPath:     binary,
+		AllowedDomains: []string{"example.com"},
+		StateDir:       filepath.Join(dir, "state"),
+	}); err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "state", "action-policy.json"))
+	if err != nil {
+		t.Fatalf("policy file missing: %v", err)
+	}
+	policy := string(data)
+	// The browser tool exposes open, snapshot, click, fill, press, scroll, back,
+	// wait, screenshot and close. agent-browser checks the raw action names, so
+	// press and back must be present even though earlier policies omitted them.
+	for _, action := range []string{
+		"navigate", "snapshot", "click", "fill", "press", "scroll", "back",
+		"wait", "screenshot", "close",
+	} {
+		if !strings.Contains(policy, `"`+action+`"`) {
+			t.Fatalf("policy = %s, missing action %q", policy, action)
+		}
+	}
+	for _, blocked := range []string{"eval", "download", "upload"} {
+		if strings.Contains(policy, `"`+blocked+`"`) {
+			t.Fatalf("policy = %s, must not allow %q", policy, blocked)
+		}
+	}
+}
+
 func TestCleanChildEnvDropsWindowsCompatLayer(t *testing.T) {
 	env := []string{
 		"PATH=C:\\Windows\\system32",

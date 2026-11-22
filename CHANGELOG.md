@@ -19,6 +19,13 @@ with the first batch that was built locally before tagging.
   shim. When Windows started PicoClaw under `DetectorsAppHealth`, Chromium exited
   immediately with code 0 and the tool reported `Auto-launch failed: Chrome
   exited early`; the agent-browser child now runs with that variable removed.
+- The browser permission dialog no longer reopens the request that was just
+  answered. A poll response that started before the answer could put the same
+  request back on screen, so the second answer failed with "expired or already
+  answered". Answers are now deduplicated in the UI, and the gateway treats a
+  repeated answer for the same request as the same decision.
+- The generated browser action policy allowed neither `press` nor `back`, so
+  keyboard keys (`Enter`, `Tab`, ...) and Back failed with "denied by policy".
 
 ## [0.1.45] - 2026-11-21
 
