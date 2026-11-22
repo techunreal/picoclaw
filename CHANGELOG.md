@@ -6,6 +6,20 @@ All notable changes to this fork of PicoClaw. Versions use the
 Earlier versions up to `0.1.27` are recorded as git tags. This file starts
 with the first batch that was built locally before tagging.
 
+## [0.1.46] - 2026-11-22
+
+### Added
+- `web_search` tries providers in order instead of picking one: free providers
+  first (DuckDuckGo, SearXNG, Sogou), then paid ones (Tavily, Brave, Kagi,
+  Perplexity, Gemini, Baidu, GLM). A provider error or an empty result moves on to
+  the next ready provider. An explicitly selected provider stays strict.
+
+### Fixed
+- Browser launches no longer inherit the Windows `__COMPAT_LAYER` compatibility
+  shim. When Windows started PicoClaw under `DetectorsAppHealth`, Chromium exited
+  immediately with code 0 and the tool reported `Auto-launch failed: Chrome
+  exited early`; the agent-browser child now runs with that variable removed.
+
 ## [0.1.45] - 2026-11-21
 
 ### Added
