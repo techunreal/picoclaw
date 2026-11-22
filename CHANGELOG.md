@@ -6,7 +6,7 @@ All notable changes to this fork of PicoClaw. Versions use the
 Earlier versions up to `0.1.27` are recorded as git tags. This file starts
 with the first batch that was built locally before tagging.
 
-## [Unreleased]
+## [0.1.49] - 2026-11-22
 
 ### Changed
 - The context meter now counts the skills that `AGENT.md` or the agent config
