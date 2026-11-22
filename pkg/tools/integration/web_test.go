@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/sipeed/picoclaw/pkg/logger"
 )
@@ -1067,8 +1068,8 @@ func TestNewWebFetchToolWithProxy(t *testing.T) {
 		logger.ErrorCF("agent", "Failed to create web fetch tool", map[string]any{"error": err.Error()})
 	}
 
-	if tool.maxChars != 50000 {
-		t.Fatalf("default maxChars = %d, want %d", tool.maxChars, 50000)
+	if tool.maxChars != 12000 {
+		t.Fatalf("default maxChars = %d, want %d", tool.maxChars, 12000)
 	}
 }
 
@@ -1192,6 +1193,15 @@ func TestWebTool_TavilySearch_Success(t *testing.T) {
 		}
 		if payload["query"] != "test query" {
 			t.Errorf("Expected query 'test query', got %v", payload["query"])
+		}
+		if payload["search_depth"] != "basic" {
+			t.Errorf("Expected default search_depth basic, got %v", payload["search_depth"])
+		}
+		if payload["chunks_per_source"] != float64(1) {
+			t.Errorf("Expected default chunks_per_source 1, got %v", payload["chunks_per_source"])
+		}
+		if payload["include_usage"] != true {
+			t.Errorf("Expected include_usage true, got %v", payload["include_usage"])
 		}
 
 		// Return mock response
@@ -2489,4 +2499,124 @@ type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (fn roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
 	return fn(req)
+}
+
+func TestTruncateSearchOutput(t *testing.T) {
+	long := "Results for: q (via test)\n" + strings.Repeat("a line of result text\n", 80)
+	got := truncateSearchOutput(long, 120)
+	if got == long {
+		t.Fatal("truncateSearchOutput() did not truncate")
+	}
+	if !strings.HasSuffix(got, "... (truncated)") {
+		t.Fatalf("truncateSearchOutput() = %q, want a truncation marker", got)
+	}
+	if utf8.RuneCountInString(got) > 120+len("\n... (truncated)") {
+		t.Fatalf("truncateSearchOutput() kept too many runes: %d", utf8.RuneCountInString(got))
+	}
+}
+
+func TestTruncateSearchOutput_KeepsShortOutput(t *testing.T) {
+	short := "Results for: q (via test)\n1. One"
+	if got := truncateSearchOutput(short, 500); got != short {
+		t.Fatalf("truncateSearchOutput() = %q, want %q", got, short)
+	}
+}
+
+func TestWebSearchToolAppliesOutputCap(t *testing.T) {
+	provider := &stubSearchProvider{
+		result: "Results for: q (via stub)\n" + strings.Repeat("x", 400),
+	}
+	tool := &WebSearchTool{
+		provider:       provider,
+		maxResults:     5,
+		maxOutputChars: 80,
+		candidateResolver: func(string) []searchCandidate {
+			return []searchCandidate{{name: "stub", provider: provider, maxResults: 5}}
+		},
+	}
+
+	result := tool.Execute(context.Background(), map[string]any{"query": "q"})
+	if result.IsError {
+		t.Fatalf("Execute() error: %s", result.ForLLM)
+	}
+	if !strings.Contains(result.ForLLM, "(truncated)") {
+		t.Fatalf("ForLLM = %q, want a truncation marker", result.ForLLM)
+	}
+}
+
+func TestWebTool_TavilyClampsResultContent(t *testing.T) {
+	longContent := strings.Repeat("z", 900)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]any{
+			"results": []map[string]any{{
+				"title":   "Long result",
+				"url":     "https://example.com/long",
+				"content": longContent,
+			}},
+			"usage": map[string]any{"credits": 1},
+		})
+	}))
+	defer server.Close()
+
+	tool, err := NewWebSearchTool(WebSearchToolOptions{
+		TavilyEnabled:         true,
+		TavilyAPIKeys:         []string{"test-key"},
+		TavilyBaseURL:         server.URL,
+		TavilyMaxResults:      5,
+		TavilySearchDepth:     "basic",
+		TavilyChunksPerSource: 1,
+		TavilyMaxContentChars: 120,
+	})
+	if err != nil {
+		t.Fatalf("NewWebSearchTool() error: %v", err)
+	}
+
+	result := tool.Execute(context.Background(), map[string]any{"query": "q"})
+	if result.IsError {
+		t.Fatalf("Execute() error: %s", result.ForLLM)
+	}
+	if strings.Contains(result.ForLLM, longContent) {
+		t.Fatal("Execute() returned the full Tavily content, want a clamped value")
+	}
+	if !strings.Contains(result.ForLLM, "…") {
+		t.Fatalf("Execute() = %q, want an ellipsis after clamping", result.ForLLM)
+	}
+}
+
+func TestWebTool_WebFetch_ClampsRequestedMaxChars(t *testing.T) {
+	withPrivateWebFetchHostsAllowed(t)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(strings.Repeat("y", 5000)))
+	}))
+	defer server.Close()
+
+	tool, err := NewWebFetchTool(300, format, testFetchLimit)
+	if err != nil {
+		t.Fatalf("NewWebFetchTool() error: %v", err)
+	}
+
+	result := tool.Execute(context.Background(), map[string]any{
+		"url":      server.URL,
+		"maxChars": float64(50000),
+	})
+	if result.IsError {
+		t.Fatalf("Execute() error: %s", result.ForLLM)
+	}
+
+	var payload struct {
+		Text      string `json:"text"`
+		Truncated bool   `json:"truncated"`
+	}
+	if err := json.Unmarshal([]byte(result.ForLLM), &payload); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if !payload.Truncated {
+		t.Fatal("expected truncated=true when the request exceeds the tool cap")
+	}
+	if utf8.RuneCountInString(payload.Text) > 300+len("\n[Content truncated due to size limit]") {
+		t.Fatalf("text kept %d runes, want at most the tool cap", utf8.RuneCountInString(payload.Text))
+	}
 }

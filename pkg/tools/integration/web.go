@@ -17,6 +17,7 @@ import (
 	"sync/atomic"
 	"time"
 	"unicode"
+	"unicode/utf8"
 
 	kagiopenapi "github.com/kagisearch/kagi-openapi-golang"
 
@@ -35,7 +36,7 @@ const (
 	perplexityTimeout = 30 * time.Second // Perplexity (LLM-based, slower)
 	fetchTimeout      = 60 * time.Second // WebFetchTool
 
-	defaultMaxChars = 50000
+	defaultMaxChars = 12000
 	maxRedirects    = 5
 )
 
@@ -385,10 +386,13 @@ func (p *BraveSearchProvider) Search(
 }
 
 type TavilySearchProvider struct {
-	keyPool *APIKeyPool
-	baseURL string
-	proxy   string
-	client  *http.Client
+	keyPool         *APIKeyPool
+	baseURL         string
+	proxy           string
+	client          *http.Client
+	searchDepth     string
+	chunksPerSource int
+	maxContentChars int
 }
 
 func (p *TavilySearchProvider) Search(
@@ -415,14 +419,26 @@ func (p *TavilySearchProvider) Search(
 			break
 		}
 
+		depth := p.searchDepth
+		if depth == "" {
+			depth = config.DefaultTavilySearchDepth
+		}
+		chunks := p.chunksPerSource
+		if chunks <= 0 {
+			chunks = config.DefaultTavilyChunksPerSource
+		}
 		payload := map[string]any{
 			"api_key":             apiKey,
 			"query":               query,
-			"search_depth":        "advanced",
+			"search_depth":        depth,
 			"include_answer":      false,
 			"include_images":      false,
 			"include_raw_content": false,
+			"include_usage":       true,
 			"max_results":         count,
+		}
+		if depth != "ultra-fast" {
+			payload["chunks_per_source"] = chunks
 		}
 		if timeRange := mapTavilyTimeRange(rangeCode); timeRange != "" {
 			payload["time_range"] = timeRange
@@ -472,6 +488,9 @@ func (p *TavilySearchProvider) Search(
 				URL     string `json:"url"`
 				Content string `json:"content"`
 			} `json:"results"`
+			Usage struct {
+				Credits float64 `json:"credits"`
+			} `json:"usage"`
 		}
 
 		if err := json.Unmarshal(body, &searchResp); err != nil {
@@ -483,6 +502,19 @@ func (p *TavilySearchProvider) Search(
 			return fmt.Sprintf("No results for: %s", query), nil
 		}
 
+		if searchResp.Usage.Credits > 0 {
+			logger.InfoCF("web_search", "Tavily search completed", map[string]any{
+				"credits": searchResp.Usage.Credits,
+				"depth":   depth,
+				"results": len(results),
+			})
+		}
+
+		maxContent := p.maxContentChars
+		if maxContent <= 0 {
+			maxContent = config.DefaultTavilyMaxContentChars
+		}
+
 		var lines []string
 		lines = append(lines, fmt.Sprintf("Results for: %s (via Tavily)", query))
 		for i, item := range results {
@@ -490,8 +522,8 @@ func (p *TavilySearchProvider) Search(
 				break
 			}
 			lines = append(lines, fmt.Sprintf("%d. %s\n   %s", i+1, item.Title, item.URL))
-			if item.Content != "" {
-				lines = append(lines, fmt.Sprintf("   %s", item.Content))
+			if content := strings.TrimSpace(item.Content); content != "" {
+				lines = append(lines, fmt.Sprintf("   %s", clampText(content, maxContent)))
 			}
 		}
 
@@ -1460,6 +1492,7 @@ func (p *BaiduSearchProvider) Search(
 type WebSearchTool struct {
 	provider          SearchProvider
 	maxResults        int
+	maxOutputChars    int
 	providerResolver  func(query string) (SearchProvider, int)
 	candidateResolver func(query string) []searchCandidate
 }
@@ -1479,6 +1512,10 @@ type WebSearchToolOptions struct {
 	TavilyBaseURL         string
 	TavilyMaxResults      int
 	TavilyEnabled         bool
+	TavilySearchDepth     string
+	TavilyChunksPerSource int
+	TavilyMaxContentChars int
+	SearchMaxChars        int
 	KagiAPIKeys           []string
 	KagiBaseURL           string
 	KagiMaxResults        int
@@ -1519,6 +1556,10 @@ func WebSearchToolOptionsFromConfig(cfg *config.Config) WebSearchToolOptions {
 		TavilyBaseURL:         cfg.Tools.Web.Tavily.BaseURL,
 		TavilyMaxResults:      cfg.Tools.Web.Tavily.MaxResults,
 		TavilyEnabled:         cfg.Tools.Web.Tavily.Enabled,
+		TavilySearchDepth:     cfg.Tools.Web.Tavily.GetSearchDepth(),
+		TavilyChunksPerSource: cfg.Tools.Web.Tavily.GetChunksPerSource(),
+		TavilyMaxContentChars: cfg.Tools.Web.Tavily.GetMaxContentChars(),
+		SearchMaxChars:        cfg.Tools.Web.GetSearchMaxChars(),
 		KagiAPIKeys:           cfg.Tools.Web.Kagi.APIKeys.Values(),
 		KagiBaseURL:           cfg.Tools.Web.Kagi.BaseURL,
 		KagiMaxResults:        cfg.Tools.Web.Kagi.MaxResults,
@@ -1755,10 +1796,13 @@ func (opts WebSearchToolOptions) providerByName(name string) (SearchProvider, in
 			maxResults = min(opts.TavilyMaxResults, 10)
 		}
 		return &TavilySearchProvider{
-			keyPool: NewAPIKeyPool(opts.TavilyAPIKeys),
-			baseURL: opts.TavilyBaseURL,
-			proxy:   opts.Proxy,
-			client:  client,
+			keyPool:         NewAPIKeyPool(opts.TavilyAPIKeys),
+			baseURL:         opts.TavilyBaseURL,
+			proxy:           opts.Proxy,
+			client:          client,
+			searchDepth:     opts.TavilySearchDepth,
+			chunksPerSource: opts.TavilyChunksPerSource,
+			maxContentChars: opts.TavilyMaxContentChars,
 		}, maxResults, nil
 	case "kagi":
 		if !opts.providerReady("kagi") {
@@ -1935,6 +1979,40 @@ func searchOutputEmpty(output string) bool {
 		strings.HasPrefix(trimmed, "No results found or extraction failed.")
 }
 
+// truncateSearchOutput caps a provider response so a chatty provider cannot
+// fill the model's context with one call. The cut prefers a line boundary and
+// marks the truncation explicitly.
+func truncateSearchOutput(output string, limit int) string {
+	if limit <= 0 {
+		return output
+	}
+	runes := []rune(output)
+	if len(runes) <= limit {
+		return output
+	}
+	cut := limit
+	for i := limit - 1; i > limit/2; i-- {
+		if runes[i] == '\n' {
+			cut = i
+			break
+		}
+	}
+	trimmed := strings.TrimRight(string(runes[:cut]), "\n")
+	return trimmed + "\n... (truncated)"
+}
+
+// clampText shortens s to at most limit runes and marks the cut.
+func clampText(s string, limit int) string {
+	if limit <= 0 {
+		return s
+	}
+	runes := []rune(s)
+	if len(runes) <= limit {
+		return s
+	}
+	return strings.TrimRight(string(runes[:limit]), " ") + "…"
+}
+
 func NewWebSearchTool(opts WebSearchToolOptions) (*WebSearchTool, error) {
 	resolver, err := opts.buildCandidateResolver()
 	if err != nil {
@@ -1948,6 +2026,7 @@ func NewWebSearchTool(opts WebSearchToolOptions) (*WebSearchTool, error) {
 	return &WebSearchTool{
 		provider:          candidates[0].provider,
 		maxResults:        candidates[0].maxResults,
+		maxOutputChars:    opts.SearchMaxChars,
 		candidateResolver: resolver,
 	}, nil
 }
@@ -2052,8 +2131,8 @@ func (t *WebSearchTool) Execute(ctx context.Context, args map[string]any) *ToolR
 			continue
 		}
 		return &ToolResult{
-			ForLLM:  result,
-			ForUser: result,
+			ForLLM:  truncateSearchOutput(result, t.maxOutputChars),
+			ForUser: truncateSearchOutput(result, t.maxOutputChars),
 		}
 	}
 
@@ -2135,7 +2214,7 @@ func (t *WebFetchTool) Name() string {
 }
 
 func (t *WebFetchTool) Description() string {
-	return "Fetch a URL and extract readable content (HTML to text). Use this to get weather info, news, articles, or any web content."
+	return "Fetch a URL and extract readable content (HTML to text). Use this to get weather info, news, articles, or any web content. The returned text is capped by the server's fetch limit."
 }
 
 func (t *WebFetchTool) Parameters() map[string]any {
@@ -2186,8 +2265,10 @@ func (t *WebFetchTool) Execute(ctx context.Context, args map[string]any) *ToolRe
 
 	maxChars := t.maxChars
 	if mc, ok := args["maxChars"].(float64); ok {
-		if int(mc) > 100 {
-			maxChars = int(mc)
+		// The tool's maxChars is a hard ceiling; a smaller request is honored,
+		// a larger one is clamped so one page cannot dominate the prompt.
+		if requested := int(mc); requested > 100 && requested < maxChars {
+			maxChars = requested
 		}
 	}
 
@@ -2320,9 +2401,10 @@ func (t *WebFetchTool) Execute(ctx context.Context, args map[string]any) *ToolRe
 		extractor = "raw"
 	}
 
-	truncated := len(text) > maxChars
+	truncated := utf8.RuneCountInString(text) > maxChars
 	if truncated {
-		text = text[:maxChars] + "\n[Content truncated due to size limit]"
+		runes := []rune(text)
+		text = string(runes[:maxChars]) + "\n[Content truncated due to size limit]"
 	}
 
 	result := map[string]any{

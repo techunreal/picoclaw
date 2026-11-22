@@ -6,6 +6,18 @@ All notable changes to this fork of PicoClaw. Versions use the
 Earlier versions up to `0.1.27` are recorded as git tags. This file starts
 with the first batch that was built locally before tagging.
 
+## [Unreleased]
+
+### Changed
+- `web_fetch` caps extracted text with `tools.web.fetch_max_chars` (default
+  12,000). A larger `maxChars` request from the model is clamped, so one page
+  cannot dominate the prompt.
+- `web_search` caps each provider response with `tools.web.search_max_chars`
+  (default 12,000) and marks the cut at a line boundary.
+- Tavily now defaults to `search_depth: basic` (1 credit instead of 2),
+  `chunks_per_source: 1` and a 600-character content clamp. All three are
+  configurable. Credit usage is logged when Tavily reports it.
+
 ## [0.1.46] - 2026-11-22
 
 ### Added

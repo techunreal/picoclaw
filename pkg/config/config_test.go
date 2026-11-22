@@ -3330,3 +3330,52 @@ func testChannelsConfigWithTokens() ChannelsConfig {
 	}
 	return channels
 }
+
+func TestWebToolsConfig_ContentLimits(t *testing.T) {
+	var web WebToolsConfig
+	if got := web.GetFetchMaxChars(); got != defaultWebFetchMaxChars {
+		t.Fatalf("GetFetchMaxChars() = %d, want %d", got, defaultWebFetchMaxChars)
+	}
+	if got := web.GetSearchMaxChars(); got != defaultWebSearchMaxChars {
+		t.Fatalf("GetSearchMaxChars() = %d, want %d", got, defaultWebSearchMaxChars)
+	}
+	web.FetchMaxChars = 8000
+	web.SearchMaxChars = 9000
+	if got := web.GetFetchMaxChars(); got != 8000 {
+		t.Fatalf("GetFetchMaxChars() = %d, want 8000", got)
+	}
+	if got := web.GetSearchMaxChars(); got != 9000 {
+		t.Fatalf("GetSearchMaxChars() = %d, want 9000", got)
+	}
+}
+
+func TestTavilyConfig_DefaultsAndClamps(t *testing.T) {
+	var tavily TavilyConfig
+	if got := tavily.GetSearchDepth(); got != DefaultTavilySearchDepth {
+		t.Fatalf("GetSearchDepth() = %q, want %q", got, DefaultTavilySearchDepth)
+	}
+	if got := tavily.GetChunksPerSource(); got != DefaultTavilyChunksPerSource {
+		t.Fatalf("GetChunksPerSource() = %d, want %d", got, DefaultTavilyChunksPerSource)
+	}
+	if got := tavily.GetMaxContentChars(); got != DefaultTavilyMaxContentChars {
+		t.Fatalf("GetMaxContentChars() = %d, want %d", got, DefaultTavilyMaxContentChars)
+	}
+
+	tavily.SearchDepth = "ADVANCED"
+	tavily.ChunksPerSource = 9
+	tavily.MaxContentChars = 250
+	if got := tavily.GetSearchDepth(); got != "advanced" {
+		t.Fatalf("GetSearchDepth() = %q, want advanced", got)
+	}
+	if got := tavily.GetChunksPerSource(); got != 3 {
+		t.Fatalf("GetChunksPerSource() = %d, want 3 (clamped)", got)
+	}
+	if got := tavily.GetMaxContentChars(); got != 250 {
+		t.Fatalf("GetMaxContentChars() = %d, want 250", got)
+	}
+
+	tavily.SearchDepth = "something-else"
+	if got := tavily.GetSearchDepth(); got != "basic" {
+		t.Fatalf("GetSearchDepth() = %q, want basic fallback", got)
+	}
+}

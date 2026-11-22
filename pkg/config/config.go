@@ -998,6 +998,52 @@ type TavilyConfig struct {
 	APIKeys    SecureStrings `json:"api_keys,omitzero" yaml:"api_keys,omitempty" env:"PICOCLAW_TOOLS_WEB_TAVILY_API_KEYS"`
 	BaseURL    string        `json:"base_url"          yaml:"-"                  env:"PICOCLAW_TOOLS_WEB_TAVILY_BASE_URL"`
 	MaxResults int           `json:"max_results"       yaml:"-"                  env:"PICOCLAW_TOOLS_WEB_TAVILY_MAX_RESULTS"`
+	// SearchDepth selects Tavily's latency/credit tradeoff: "basic" (1 credit)
+	// or "advanced" (2 credits). Empty means basic.
+	SearchDepth string `json:"search_depth,omitempty" env:"PICOCLAW_TOOLS_WEB_TAVILY_SEARCH_DEPTH"`
+	// ChunksPerSource limits how much content Tavily returns per result (1-3).
+	// Fewer chunks keep the search output small; the agent can fetch full pages
+	// when it needs detail.
+	ChunksPerSource int `json:"chunks_per_source,omitempty" env:"PICOCLAW_TOOLS_WEB_TAVILY_CHUNKS_PER_SOURCE"`
+	// MaxContentChars clamps each result's content before it enters the prompt.
+	MaxContentChars int `json:"max_content_chars,omitempty" env:"PICOCLAW_TOOLS_WEB_TAVILY_MAX_CONTENT_CHARS"`
+}
+
+const (
+	// DefaultTavilySearchDepth is basic: 1 credit per search instead of 2.
+	DefaultTavilySearchDepth = "basic"
+	// DefaultTavilyChunksPerSource keeps one content chunk per result.
+	DefaultTavilyChunksPerSource = 1
+	// DefaultTavilyMaxContentChars clamps each result before it reaches the prompt.
+	DefaultTavilyMaxContentChars = 600
+)
+
+// GetSearchDepth returns basic unless advanced was configured explicitly.
+func (c *TavilyConfig) GetSearchDepth() string {
+	switch strings.ToLower(strings.TrimSpace(c.SearchDepth)) {
+	case "advanced":
+		return "advanced"
+	case "basic", "fast", "ultra-fast":
+		return strings.ToLower(strings.TrimSpace(c.SearchDepth))
+	default:
+		return DefaultTavilySearchDepth
+	}
+}
+
+// GetChunksPerSource returns 1-3 chunks per result (default 1).
+func (c *TavilyConfig) GetChunksPerSource() int {
+	if c.ChunksPerSource <= 0 {
+		return DefaultTavilyChunksPerSource
+	}
+	return min(c.ChunksPerSource, 3)
+}
+
+// GetMaxContentChars returns the per-result content clamp (default 600).
+func (c *TavilyConfig) GetMaxContentChars() int {
+	if c.MaxContentChars <= 0 {
+		return DefaultTavilyMaxContentChars
+	}
+	return c.MaxContentChars
 }
 
 // APIKey returns the Tavily API key
@@ -1126,10 +1172,37 @@ type WebToolsConfig struct {
 	PreferNative bool `yaml:"-" json:"prefer_native" env:"PICOCLAW_TOOLS_WEB_PREFER_NATIVE"`
 	// Proxy is an optional proxy URL for web tools (http/https/socks5/socks5h).
 	// For authenticated proxies, prefer HTTP_PROXY/HTTPS_PROXY env vars instead of embedding credentials in config.
-	Proxy                string              `yaml:"-" json:"proxy,omitempty"                  env:"PICOCLAW_TOOLS_WEB_PROXY"`
-	FetchLimitBytes      int64               `yaml:"-" json:"fetch_limit_bytes,omitempty"      env:"PICOCLAW_TOOLS_WEB_FETCH_LIMIT_BYTES"`
+	Proxy           string `yaml:"-" json:"proxy,omitempty"                  env:"PICOCLAW_TOOLS_WEB_PROXY"`
+	FetchLimitBytes int64  `yaml:"-" json:"fetch_limit_bytes,omitempty"      env:"PICOCLAW_TOOLS_WEB_FETCH_LIMIT_BYTES"`
+	// FetchMaxChars is the hard ceiling for extracted text from one web_fetch
+	// call. A larger maxChars request from the model is clamped to this value.
+	FetchMaxChars int `yaml:"-" json:"fetch_max_chars,omitempty" env:"PICOCLAW_TOOLS_WEB_FETCH_MAX_CHARS"`
+	// SearchMaxChars caps one web_search provider output before it enters the
+	// prompt. Long result pages are truncated at a line boundary.
+	SearchMaxChars       int                 `yaml:"-" json:"search_max_chars,omitempty"       env:"PICOCLAW_TOOLS_WEB_SEARCH_MAX_CHARS"`
 	Format               string              `yaml:"-" json:"format,omitempty"                 env:"PICOCLAW_TOOLS_WEB_FORMAT"`
 	PrivateHostWhitelist FlexibleStringSlice `yaml:"-" json:"private_host_whitelist,omitempty" env:"PICOCLAW_TOOLS_WEB_PRIVATE_HOST_WHITELIST"`
+}
+
+const (
+	defaultWebFetchMaxChars  = 12000
+	defaultWebSearchMaxChars = 12000
+)
+
+// GetFetchMaxChars returns the hard cap for one web_fetch response (default 12k).
+func (c *WebToolsConfig) GetFetchMaxChars() int {
+	if c.FetchMaxChars <= 0 {
+		return defaultWebFetchMaxChars
+	}
+	return c.FetchMaxChars
+}
+
+// GetSearchMaxChars returns the cap for one web_search response (default 12k).
+func (c *WebToolsConfig) GetSearchMaxChars() int {
+	if c.SearchMaxChars <= 0 {
+		return defaultWebSearchMaxChars
+	}
+	return c.SearchMaxChars
 }
 
 type CronToolsConfig struct {
