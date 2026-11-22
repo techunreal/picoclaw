@@ -5,7 +5,7 @@ by Sipeed. Upstream is MIT-licensed; this fork keeps the same license and adds
 desktop usability, security hardening, agent management, and local document
 tools.
 
-- **Version:** `0.1.46-fork`
+- **Version:** `0.1.47-fork`
 - **Upstream:** https://github.com/sipeed/picoclaw
 - **Fork:** https://github.com/techunreal/picoclaw
 - **License:** MIT (see `LICENSE` and `NOTICE.md`)
@@ -13,8 +13,15 @@ tools.
 > This is not an official Sipeed release. Report fork-specific issues on the
 > fork repository, not upstream.
 
-## What's new in 0.1.46-fork
+## What's new in 0.1.47-fork
 
+- **Smaller web results:** `web_fetch` treats its `maxChars` as a hard ceiling
+  (`tools.web.fetch_max_chars`, default 12,000) and `web_search` caps each
+  provider response (`tools.web.search_max_chars`, default 12,000), so research
+  turns no longer fill the context with a few long pages.
+- **Cheaper Tavily:** `search_depth` now defaults to `basic` (1 credit instead of
+  2), with `chunks_per_source: 1` and a 600-character per-result clamp. All three
+  are configurable under `tools.web.tavily`.
 - **Browser launches fixed under Windows compatibility shims:** PicoClaw no
   longer passes `__COMPAT_LAYER` to agent-browser. When Windows started the app
   under `DetectorsAppHealth`, Chromium exited instantly with code 0 and the tool
@@ -133,7 +140,7 @@ Microsoft Office, Adobe Acrobat, or a system Python install.
 ## Quick start (Windows)
 
 1. Extract the release ZIP (for example
-   `PicoClaw-Windows-x86_64-0.1.46-fork.zip`) to a folder such as
+   `PicoClaw-Windows-x86_64-0.1.47-fork.zip`) to a folder such as
    `C:\Users\<you>\PicoClaw`.
 2. Run `picoclaw-launcher.exe`.
 3. Open `http://localhost:18800` if the browser does not open automatically.
@@ -182,13 +189,13 @@ go build -tags "goolm,stdjson" -o build/picoclaw-launcher.exe ./web/backend
 Release build with version metadata, Office runtime, ZIP, and SHA256:
 
 ```powershell
-powershell -File scripts/build-release.ps1 -Version 0.1.46-fork
+powershell -File scripts/build-release.ps1 -Version 0.1.47-fork
 ```
 
 Lean build without the Office runtime:
 
 ```powershell
-powershell -File scripts/build-release.ps1 -Version 0.1.46-fork -SkipOfficeRuntime
+powershell -File scripts/build-release.ps1 -Version 0.1.47-fork -SkipOfficeRuntime
 ```
 
 ## Tests
@@ -204,7 +211,7 @@ go test -tags "goolm,stdjson" ./... -count=1 -timeout 300s
 - Package E.1: resilience, persistence, model references, deterministic tests,
   curated skills, Office Pack.
 - Package E.2: release, clean install, README, roadmap, fork push.
-- 0.1.4-0.1.46: WebUI, agents, models, profile import, TTS/read-aloud, browser
+- 0.1.4-0.1.47: WebUI, agents, models, profile import, TTS/read-aloud, browser
   allowlist, launcher/firewall, context safety. See [`CHANGELOG.md`](CHANGELOG.md).
 - Portable/USB mode (E.3): future idea.
 
