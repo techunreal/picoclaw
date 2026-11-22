@@ -6,6 +6,16 @@ All notable changes to this fork of PicoClaw. Versions use the
 Earlier versions up to `0.1.27` are recorded as git tags. This file starts
 with the first batch that was built locally before tagging.
 
+## [Unreleased]
+
+### Changed
+- The context meter now counts the skills that `AGENT.md` or the agent config
+  injects on every turn, so `Used` and `/context` match the real prompt instead
+  of under-reporting by thousands of tokens. `/context` shows the system/skill
+  split and the input budget; the ring tooltip shows the skill share.
+- Context usage is pushed while a turn runs: with each tool-call message and
+  again after each tool batch, so the context ring moves before the turn ends.
+
 ## [0.1.48] - 2026-11-22
 
 ### Changed

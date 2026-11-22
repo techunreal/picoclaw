@@ -57,6 +57,8 @@ export interface ContextUsage {
   used_tokens: number
   total_tokens: number
   history_tokens?: number
+  system_tokens?: number
+  skill_tokens?: number
   compress_at_tokens: number
   summarize_at_tokens?: number
   used_percent: number

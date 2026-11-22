@@ -555,6 +555,8 @@ type picoStreamer struct {
 	mu               sync.Mutex
 }
 
+var _ bus.ContextUsageUpdater = (*picoStreamer)(nil)
+
 func (s *picoStreamer) SetModelName(modelName string) {
 	if s == nil {
 		return
@@ -589,6 +591,20 @@ func (s *picoStreamer) FinalizeWithContext(ctx context.Context, content string, 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.updateLocked(ctx, content, true, contextUsage)
+}
+
+// UpdateContextUsage refreshes the context meter on the message that is already
+// streaming. The content is unchanged, so this bypasses the growth throttle.
+func (s *picoStreamer) UpdateContextUsage(ctx context.Context, usage *bus.ContextUsage) error {
+	if s == nil || s.channel == nil || usage == nil {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.messageID == "" {
+		return nil
+	}
+	return s.sendLocked(ctx, s.lastContent, usage)
 }
 
 func (s *picoStreamer) UpdateReasoning(ctx context.Context, content string) error {
@@ -1465,6 +1481,8 @@ func setContextUsagePayload(payload map[string]any, u *bus.ContextUsage) {
 		"used_tokens":         u.UsedTokens,
 		"total_tokens":        u.TotalTokens,
 		"history_tokens":      u.HistoryTokens,
+		"system_tokens":       u.SystemTokens,
+		"skill_tokens":        u.SkillTokens,
 		"compress_at_tokens":  u.CompressAtTokens,
 		"summarize_at_tokens": u.SummarizeAtTokens,
 		"used_percent":        u.UsedPercent,

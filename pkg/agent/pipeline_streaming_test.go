@@ -1167,3 +1167,36 @@ func runConfiguredStreamingTurn(t *testing.T, al *AgentLoop, channel string) str
 	}
 	return got
 }
+
+type usageUpdatingStreamer struct {
+	recordingStreamer
+	usageUpdates []*bus.ContextUsage
+}
+
+func (s *usageUpdatingStreamer) UpdateContextUsage(_ context.Context, usage *bus.ContextUsage) error {
+	s.usageUpdates = append(s.usageUpdates, usage)
+	return nil
+}
+
+func TestStreamingChunkPublisher_UpdateContextUsage(t *testing.T) {
+	streamer := &usageUpdatingStreamer{}
+	publisher := &streamingChunkPublisher{streamer: streamer}
+	usage := &bus.ContextUsage{UsedTokens: 123, TotalTokens: 65536}
+
+	if err := publisher.UpdateContextUsage(context.Background(), usage); err != nil {
+		t.Fatalf("UpdateContextUsage() error = %v", err)
+	}
+	if len(streamer.usageUpdates) != 1 {
+		t.Fatalf("usage updates = %d, want 1", len(streamer.usageUpdates))
+	}
+	if streamer.usageUpdates[0].UsedTokens != 123 {
+		t.Fatalf("used tokens = %d, want 123", streamer.usageUpdates[0].UsedTokens)
+	}
+}
+
+func TestStreamingChunkPublisher_UpdateContextUsageIgnoresPlainStreamer(t *testing.T) {
+	publisher := &streamingChunkPublisher{streamer: &recordingStreamer{}}
+	if err := publisher.UpdateContextUsage(context.Background(), &bus.ContextUsage{UsedTokens: 1}); err != nil {
+		t.Fatalf("UpdateContextUsage() error = %v", err)
+	}
+}

@@ -244,14 +244,17 @@ func (al *AgentLoop) publishPicoToolCallInterim(
 	duplicateToolCallContent := len(visibleToolCalls) > 0 &&
 		utils.ToolCallExplanationDuplicatesContent(content, toolCalls)
 
+	contextUsage := computeContextUsage(ts.agent, ts.sessionKey)
+
 	if strings.TrimSpace(content) != "" && !duplicateToolCallContent {
 		pubCtx, pubCancel := context.WithTimeout(ctx, 3*time.Second)
-		err := al.bus.PublishOutbound(
-			pubCtx,
-			outboundMessageForTurnWithOptions(ts, content, outboundTurnMessageOptions{
-				modelName: modelName,
-			}),
-		)
+		msg := outboundMessageForTurnWithOptions(ts, content, outboundTurnMessageOptions{
+			modelName: modelName,
+		})
+		if contextUsage != nil {
+			msg.ContextUsage = contextUsage
+		}
+		err := al.bus.PublishOutbound(pubCtx, msg)
 		pubCancel()
 		if err != nil && !errors.Is(err, context.DeadlineExceeded) &&
 			!errors.Is(err, context.Canceled) &&
@@ -285,6 +288,9 @@ func (al *AgentLoop) publishPicoToolCallInterim(
 			metadataKeyToolCalls: string(rawToolCalls),
 		},
 	})
+	if contextUsage != nil {
+		msg.ContextUsage = contextUsage
+	}
 
 	pubCtx, pubCancel := context.WithTimeout(ctx, 3*time.Second)
 	err = al.bus.PublishOutbound(pubCtx, msg)

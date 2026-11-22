@@ -85,6 +85,13 @@ type ContextUsageStreamer interface {
 	FinalizeWithContext(ctx context.Context, content string, usage *ContextUsage) error
 }
 
+// ContextUsageUpdater can refresh context-window usage on an open stream
+// without changing the streamed content. The pico channel implements it so the
+// context ring moves while a turn is still running.
+type ContextUsageUpdater interface {
+	UpdateContextUsage(ctx context.Context, usage *ContextUsage) error
+}
+
 // ReasoningStreamer can show incremental model reasoning/thought content
 // separately from the final user-visible answer stream.
 type ReasoningStreamer interface {

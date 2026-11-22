@@ -33,14 +33,7 @@ func computeContextUsage(agent *AgentInstance, sessionKey string) *bus.ContextUs
 	// System message tokens: uses EstimateSystemTokens which mirrors
 	// the full system message composition in BuildMessages (static prompt,
 	// dynamic context, active skills, summary with wrapping prefix).
-	systemTokens := 0
-	if agent.ContextBuilder != nil {
-		summary := agent.Sessions.GetSummary(sessionKey)
-		// Pass nil for active skills: skills are only injected when the user
-		// explicitly activates them via /use, which is rare. Using nil matches
-		// the common case and avoids over-counting all installed skills.
-		systemTokens = agent.ContextBuilder.EstimateSystemTokens(summary, nil)
-	}
+	systemTokens, skillTokens := estimateSystemContextTokens(agent, agent.Sessions.GetSummary(sessionKey))
 
 	// Tool definition tokens
 	toolTokens := 0
@@ -84,8 +77,28 @@ func computeContextUsage(agent *AgentInstance, sessionKey string) *bus.ContextUs
 		UsedTokens:        usedTokens,
 		TotalTokens:       contextWindow,
 		HistoryTokens:     historyTokens,
+		SystemTokens:      systemTokens,
+		SkillTokens:       skillTokens,
 		CompressAtTokens:  compressAt,
 		SummarizeAtTokens: summarizeAt,
 		UsedPercent:       usedPercent,
 	}
+}
+
+// estimateSystemContextTokens returns the system-prompt token estimate and the
+// portion contributed by the agent's configured skills. The runtime injects
+// those skills every turn (AGENT.md frontmatter or the agent config), so the
+// meter must count them too; otherwise it under-reports by thousands of tokens.
+func estimateSystemContextTokens(agent *AgentInstance, summary string) (systemTokens, skillTokens int) {
+	if agent == nil || agent.ContextBuilder == nil {
+		return 0, 0
+	}
+	skills := agent.ContextBuilder.ResolveActiveSkillsForContext(agent.SkillsFilter)
+	base := agent.ContextBuilder.EstimateSystemTokens(summary, nil)
+	withSkills := agent.ContextBuilder.EstimateSystemTokens(summary, skills)
+	skillTokens = withSkills - base
+	if skillTokens < 0 {
+		skillTokens = 0
+	}
+	return withSkills, skillTokens
 }

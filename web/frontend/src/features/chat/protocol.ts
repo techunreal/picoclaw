@@ -95,6 +95,10 @@ function parseContextUsage(
     total_tokens: total,
     history_tokens:
       obj.history_tokens != null ? Number(obj.history_tokens) : undefined,
+    system_tokens:
+      obj.system_tokens != null ? Number(obj.system_tokens) : undefined,
+    skill_tokens:
+      obj.skill_tokens != null ? Number(obj.skill_tokens) : undefined,
     compress_at_tokens: Number(obj.compress_at_tokens) || 0,
     summarize_at_tokens:
       obj.summarize_at_tokens != null

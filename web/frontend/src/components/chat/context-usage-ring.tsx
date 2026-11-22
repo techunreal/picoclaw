@@ -156,6 +156,16 @@ export function ContextUsageRing({
                 </span>
               </div>
             )}
+            {usage.skill_tokens != null && usage.skill_tokens > 0 && (
+              <div className="flex items-center justify-between text-[10px]">
+                <span className="text-muted-foreground">
+                  {t("chat.contextSkills", "Skills")}
+                </span>
+                <span className="tabular-nums">
+                  {formatTokens(usage.skill_tokens)}
+                </span>
+              </div>
+            )}
             <div className="flex items-center justify-between text-[10px]">
               <span className="text-muted-foreground">{t("chat.contextCompressAt")}</span>
               <span className="tabular-nums">

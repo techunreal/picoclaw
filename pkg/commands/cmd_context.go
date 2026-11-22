@@ -30,12 +30,14 @@ func formatContextStats(s *ContextStats) string {
 	}
 	usedWindowPercent := s.UsedTokens * 100 / max(s.TotalTokens, 1)
 	msg := fmt.Sprintf(
-		"Context usage  \nMessages: %d  \nUsed: ~%d / %d tokens (%d%%)  \nHistory: ~%d tokens  \nCompress at: %d tokens  \nSummarize at: %d tokens  \nCompression progress: %d%%  \nRemaining: ~%d tokens",
+		"Context usage  \nMessages: %d  \nUsed: ~%d / %d tokens (%d%%)  \nHistory: ~%d tokens  \nSystem: ~%d tokens (skills ~%d)  \nInput budget: %d tokens (compress at)  \nSummarize at: %d tokens  \nCompression progress: %d%%  \nRemaining: ~%d tokens",
 		s.MessageCount,
 		s.UsedTokens,
 		s.TotalTokens,
 		usedWindowPercent,
 		s.HistoryTokens,
+		s.SystemTokens,
+		s.SkillTokens,
 		s.CompressAtTokens,
 		s.SummarizeAtTokens,
 		s.UsedPercent,

@@ -3,6 +3,8 @@ package pico
 import (
 	"context"
 	"testing"
+
+	"github.com/sipeed/picoclaw/pkg/bus"
 )
 
 func TestSetTurnUsagePayload(t *testing.T) {
@@ -65,5 +67,31 @@ func TestStreamerEmitsUsageOnFinalize(t *testing.T) {
 	}
 	if _, ok := (*last)[PayloadKeyUsage]; !ok {
 		t.Fatalf("expected usage in payload, got %+v", *last)
+	}
+}
+
+func TestContextUsagePayloadIncludesSystemAndSkillTokens(t *testing.T) {
+	payload := map[string]any{}
+	setContextUsagePayload(payload, &bus.ContextUsage{
+		UsedTokens:       1234,
+		TotalTokens:      65536,
+		SystemTokens:     150,
+		SkillTokens:      100,
+		CompressAtTokens: 57344,
+		UsedPercent:      2,
+	})
+	raw, ok := payload["context_usage"].(map[string]any)
+	if !ok {
+		t.Fatalf("context_usage missing: %+v", payload)
+	}
+	if raw["system_tokens"] != 150 || raw["skill_tokens"] != 100 {
+		t.Fatalf("system/skill tokens = %v/%v, want 150/100", raw["system_tokens"], raw["skill_tokens"])
+	}
+}
+
+func TestStreamerUpdateContextUsageWithoutMessageIsNoop(t *testing.T) {
+	s, _ := newCaptureStreamer()
+	if err := s.UpdateContextUsage(context.Background(), &bus.ContextUsage{UsedTokens: 1}); err != nil {
+		t.Fatalf("UpdateContextUsage() error = %v", err)
 	}
 }

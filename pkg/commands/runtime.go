@@ -32,6 +32,8 @@ type ContextStats struct {
 	UsedTokens        int
 	TotalTokens       int // model context window
 	HistoryTokens     int // history-only tokens (what maybeSummarize checks)
+	SystemTokens      int // system prompt, including injected skills
+	SkillTokens       int // portion of SystemTokens from skills
 	CompressAtTokens  int // hard budget compression threshold
 	SummarizeAtTokens int // soft summarization trigger
 	UsedPercent       int // 0-100

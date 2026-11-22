@@ -117,6 +117,10 @@ func (p *Pipeline) ExecuteTools(
 	al := p.al
 	normalizedToolCalls := exec.normalizedToolCalls
 
+	// Push the post-tool context size to the open stream before the next LLM
+	// call starts, so the context ring grows during a long turn.
+	defer publishStreamingContextUsage(turnCtx, ts, exec)
+
 	ts.setPhase(TurnPhaseTools)
 	messages := exec.messages
 	handledAttachments := make([]providers.Attachment, 0)

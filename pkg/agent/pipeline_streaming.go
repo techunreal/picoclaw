@@ -437,6 +437,39 @@ func (p *streamingChunkPublisher) Err() error {
 	return p.err
 }
 
+// UpdateContextUsage refreshes the open stream's context-window usage without
+// changing its content, so the UI meter moves while the turn is still running.
+func (p *streamingChunkPublisher) UpdateContextUsage(ctx context.Context, usage *bus.ContextUsage) error {
+	if p == nil || p.streamer == nil || usage == nil {
+		return nil
+	}
+	updater, ok := p.streamer.(bus.ContextUsageUpdater)
+	if !ok {
+		return nil
+	}
+	return updater.UpdateContextUsage(ctx, usage)
+}
+
+// publishStreamingContextUsage is best effort: a missing streamer or a closed
+// stream never fails the tool loop.
+func publishStreamingContextUsage(ctx context.Context, ts *turnState, exec *turnExecution) {
+	if ts == nil || exec == nil || exec.streamingPublisher == nil {
+		return
+	}
+	usage := computeContextUsage(ts.agent, ts.sessionKey)
+	if usage == nil {
+		return
+	}
+	updateCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	if err := exec.streamingPublisher.UpdateContextUsage(updateCtx, usage); err != nil {
+		logger.DebugCF("agent", "stream context usage update failed", map[string]any{
+			"agent_id": ts.agent.ID,
+			"error":    err.Error(),
+		})
+	}
+}
+
 func (p *streamingChunkPublisher) Finalize(ctx context.Context, content string, contextUsage *bus.ContextUsage) error {
 	if p == nil || p.streamer == nil {
 		return nil

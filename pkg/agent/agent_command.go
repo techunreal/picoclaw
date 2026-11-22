@@ -333,6 +333,8 @@ func (al *AgentLoop) buildCommandsRuntime(
 				UsedTokens:        usage.UsedTokens,
 				TotalTokens:       usage.TotalTokens,
 				HistoryTokens:     usage.HistoryTokens,
+				SystemTokens:      usage.SystemTokens,
+				SkillTokens:       usage.SkillTokens,
 				CompressAtTokens:  usage.CompressAtTokens,
 				SummarizeAtTokens: usage.SummarizeAtTokens,
 				UsedPercent:       usage.UsedPercent,
