@@ -6,6 +6,21 @@ All notable changes to this fork of PicoClaw. Versions use the
 Earlier versions up to `0.1.27` are recorded as git tags. This file starts
 with the first batch that was built locally before tagging.
 
+## [Unreleased]
+
+### Changed
+- DuckDuckGo requests are spaced by two seconds through a process-wide gate.
+  A request that would wait longer than two seconds skips DuckDuckGo and falls
+  through to the next provider instead of stalling the turn.
+- A DuckDuckGo 202, 403 or 429 response, or a challenge page, is reported as a
+  block, logged with the status, and skipped for 60 seconds.
+
+### Fixed
+- DuckDuckGo result URLs are unwrapped through the `uddg` parameter, so the
+  `&rut=...` tracking tail no longer leaks into results and citations.
+- DuckDuckGo titles and snippets are parsed per result block instead of being
+  paired by index, so ads and uneven blocks cannot shift the snippets.
+
 ## [0.1.47] - 2026-11-22
 
 ### Changed

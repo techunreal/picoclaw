@@ -14,10 +14,13 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 	"unicode"
 	"unicode/utf8"
+
+	xhtml "golang.org/x/net/html"
 
 	kagiopenapi "github.com/kagisearch/kagi-openapi-golang"
 
@@ -48,13 +51,6 @@ var (
 	reWhitespace = regexp.MustCompile(`[^\S\n]+`)
 	reBlankLines = regexp.MustCompile(`\n{3,}`)
 
-	// DuckDuckGo result extraction
-	reDDGLink = regexp.MustCompile(
-		`<a[^>]*class="[^"]*result__a[^"]*"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)</a>`,
-	)
-	reDDGSnippet = regexp.MustCompile(
-		`<a class="result__snippet[^"]*".*?>([\s\S]*?)</a>`,
-	)
 	reSogouTitle = regexp.MustCompile(
 		`<a\s+class="?resultLink"?\s+href="([^"]+)"[^>]*id="sogou_vr_\d+_\d+"[^>]*>\s*(.*?)\s*</a>`,
 	)
@@ -1002,8 +998,105 @@ func (p *SogouSearchProvider) Search(
 }
 
 type DuckDuckGoSearchProvider struct {
-	proxy  string
-	client *http.Client
+	proxy    string
+	client   *http.Client
+	endpoint string
+}
+
+var (
+	errSearchProviderBlocked = errors.New("search provider blocked")
+	errSearchProviderBusy    = errors.New("search provider busy")
+)
+
+const (
+	ddgDefaultEndpoint = "https://html.duckduckgo.com/html/"
+	ddgGateMaxWait     = 2 * time.Second
+	ddgMinInterval     = 2 * time.Second
+)
+
+var (
+	// ddgBlockCooldown is a variable so tests can shorten it.
+	ddgBlockCooldown = 60 * time.Second
+	ddgState         = &providerBlockState{}
+	ddgGate          = &providerGate{minInterval: ddgMinInterval}
+)
+
+// providerBlockState keeps one cooldown per provider for the whole process.
+// Web search tools are created per agent, so per-instance state would let
+// concurrent agents keep hammering a blocked provider.
+type providerBlockState struct {
+	mu           sync.Mutex
+	blockedUntil time.Time
+}
+
+func (s *providerBlockState) remaining() time.Duration {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if wait := time.Until(s.blockedUntil); wait > 0 {
+		return wait
+	}
+	return 0
+}
+
+func (s *providerBlockState) block(d time.Duration) {
+	if d <= 0 {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	until := time.Now().Add(d)
+	if until.After(s.blockedUntil) {
+		s.blockedUntil = until
+	}
+}
+
+func (s *providerBlockState) reset() {
+	s.mu.Lock()
+	s.blockedUntil = time.Time{}
+	s.mu.Unlock()
+}
+
+// providerGate spaces requests to one endpoint. A caller that would have to
+// wait longer than ddgGateMaxWait gets errSearchProviderBusy so the tool can
+// fall through to the next provider instead of stalling the turn.
+type providerGate struct {
+	mu          sync.Mutex
+	last        time.Time
+	minInterval time.Duration
+}
+
+func (g *providerGate) acquire(ctx context.Context) error {
+	g.mu.Lock()
+	now := time.Now()
+	slot := g.last.Add(g.minInterval)
+	if slot.Before(now) {
+		slot = now
+	}
+	wait := time.Until(slot)
+	if wait > ddgGateMaxWait {
+		g.mu.Unlock()
+		return errSearchProviderBusy
+	}
+	g.last = slot
+	g.mu.Unlock()
+
+	if wait <= 0 {
+		return nil
+	}
+	timer := time.NewTimer(wait)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
+
+func (g *providerGate) reset() {
+	g.mu.Lock()
+	g.last = time.Time{}
+	g.mu.Unlock()
 }
 
 func (p *DuckDuckGoSearchProvider) Search(
@@ -1012,17 +1105,35 @@ func (p *DuckDuckGoSearchProvider) Search(
 	count int,
 	rangeCode string,
 ) (string, error) {
-	searchURL := fmt.Sprintf("https://html.duckduckgo.com/html/?q=%s", url.QueryEscape(query))
-	if dateFilter := mapDuckDuckGoDateFilter(rangeCode); dateFilter != "" {
-		searchURL += "&df=" + url.QueryEscape(dateFilter)
+	if wait := ddgState.remaining(); wait > 0 {
+		return "", fmt.Errorf("%w: cooling down for %s", errSearchProviderBlocked, wait.Round(time.Second))
+	}
+	if err := ddgGate.acquire(ctx); err != nil {
+		return "", err
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "GET", searchURL, nil)
+	endpoint := strings.TrimSpace(p.endpoint)
+	if endpoint == "" {
+		endpoint = ddgDefaultEndpoint
+	}
+	searchURL, err := url.Parse(endpoint)
+	if err != nil {
+		return "", fmt.Errorf("invalid DuckDuckGo endpoint: %w", err)
+	}
+	params := searchURL.Query()
+	params.Set("q", query)
+	if dateFilter := mapDuckDuckGoDateFilter(rangeCode); dateFilter != "" {
+		params.Set("df", dateFilter)
+	}
+	searchURL.RawQuery = params.Encode()
+
+	req, err := http.NewRequestWithContext(ctx, "GET", searchURL.String(), nil)
 	if err != nil {
 		return "", fmt.Errorf("failed to create request: %w", err)
 	}
-
 	req.Header.Set("User-Agent", userAgent)
+	req.Header.Set("Accept", "text/html,application/xhtml+xml")
+	req.Header.Set("Accept-Language", "en-US,en;q=0.9")
 
 	resp, err := p.client.Do(req)
 	if err != nil {
@@ -1035,69 +1146,215 @@ func (p *DuckDuckGoSearchProvider) Search(
 		return "", fmt.Errorf("failed to read response: %w", err)
 	}
 
+	if isDDGBlockStatus(resp.StatusCode) {
+		ddgState.block(ddgBlockCooldown)
+		logger.WarnCF("web_search", "DuckDuckGo blocked; cooling down", map[string]any{
+			"status":   resp.StatusCode,
+			"cooldown": ddgBlockCooldown.String(),
+		})
+		return "", fmt.Errorf("%w: status %d", errSearchProviderBlocked, resp.StatusCode)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("duckduckgo status %d", resp.StatusCode)
+	}
+
 	return p.extractResults(string(body), count, query)
 }
 
 func (p *DuckDuckGoSearchProvider) extractResults(
-	html string,
+	body string,
 	count int,
 	query string,
 ) (string, error) {
-	// Simple regex based extraction for DDG HTML
-	// Strategy: Find all result containers or key anchors directly
-
-	// Try finding the result links directly first, as they are the most critical
-	// Pattern: <a class="result__a" href="...">Title</a>
-	// The previous regex was a bit strict. Let's make it more flexible for attributes order/content
-	matches := reDDGLink.FindAllStringSubmatch(html, count+5)
-
-	if len(matches) == 0 {
+	results := parseDDGResults(body, count)
+	if len(results) == 0 {
+		if hasDDGChallengeMarker(body) {
+			ddgState.block(ddgBlockCooldown)
+			logger.WarnCF("web_search", "DuckDuckGo challenge page; cooling down", map[string]any{
+				"cooldown": ddgBlockCooldown.String(),
+			})
+			return "", fmt.Errorf("%w: challenge page", errSearchProviderBlocked)
+		}
 		return fmt.Sprintf("No results found or extraction failed. Query: %s", query), nil
 	}
 
-	var lines []string
+	lines := make([]string, 0, len(results)*2+1)
 	lines = append(lines, fmt.Sprintf("Results for: %s (via DuckDuckGo)", query))
-
-	// Pre-compile snippet regex to run inside the loop
-	// We'll search for snippets relative to the link position or just globally if needed
-	// But simple global search for snippets might mismatch order.
-	// Since we only have the raw HTML string, let's just extract snippets globally and assume order matches (risky but simple for regex)
-	// Or better: Let's assume the snippet follows the link in the HTML
-
-	// A better regex approach: iterate through text and find matches in order
-	// But for now, let's grab all snippets too
-	snippetMatches := reDDGSnippet.FindAllStringSubmatch(html, count+5)
-
-	maxItems := min(len(matches), count)
-
-	for i := range maxItems {
-		urlStr := matches[i][1]
-		title := stripTags(matches[i][2])
-		title = strings.TrimSpace(title)
-
-		// URL decoding if needed
-		if strings.Contains(urlStr, "uddg=") {
-			if u, err := url.QueryUnescape(urlStr); err == nil {
-				_, after, ok := strings.Cut(u, "uddg=")
-				if ok {
-					urlStr = after
-				}
-			}
-		}
-
-		lines = append(lines, fmt.Sprintf("%d. %s\n   %s", i+1, title, urlStr))
-
-		// Attempt to attach snippet if available and index aligns
-		if i < len(snippetMatches) {
-			snippet := stripTags(snippetMatches[i][1])
-			snippet = strings.TrimSpace(snippet)
-			if snippet != "" {
-				lines = append(lines, fmt.Sprintf("   %s", snippet))
-			}
+	for i, item := range results {
+		lines = append(lines, fmt.Sprintf("%d. %s\n   %s", i+1, item.title, item.url))
+		if item.snippet != "" {
+			lines = append(lines, "   "+item.snippet)
 		}
 	}
-
 	return strings.Join(lines, "\n"), nil
+}
+
+type ddgResult struct {
+	title   string
+	url     string
+	snippet string
+}
+
+// parseDDGResults walks the result DOM so every snippet stays attached to its
+// own result block. The previous regex paired links and snippets by index,
+// which could drift when the page contained ads or differently shaped blocks.
+func parseDDGResults(body string, count int) []ddgResult {
+	if count <= 0 {
+		return nil
+	}
+	doc, err := xhtml.Parse(strings.NewReader(body))
+	if err != nil {
+		return nil
+	}
+
+	var results []ddgResult
+	var walk func(*xhtml.Node)
+	walk = func(n *xhtml.Node) {
+		if len(results) >= count {
+			return
+		}
+		if n.Type == xhtml.ElementNode && n.Data == "a" &&
+			(hasClassToken(n, "result__a") || hasClassToken(n, "result-link")) {
+			block := closestDDGResultBlock(n)
+			if block != nil && hasClassToken(block, "result--ad") {
+				return
+			}
+			target := ddgTargetURL(attrValue(n, "href"))
+			title := collapseWhitespace(nodeText(n))
+			snippet := ""
+			if block != nil {
+				snippet = ddgSnippetText(block)
+			}
+			if target != "" && title != "" {
+				results = append(results, ddgResult{title: title, url: target, snippet: snippet})
+			}
+			return
+		}
+		for child := n.FirstChild; child != nil; child = child.NextSibling {
+			walk(child)
+		}
+	}
+	walk(doc)
+	return results
+}
+
+func closestDDGResultBlock(n *xhtml.Node) *xhtml.Node {
+	for parent := n.Parent; parent != nil; parent = parent.Parent {
+		if parent.Type == xhtml.ElementNode && hasClassToken(parent, "result") {
+			return parent
+		}
+	}
+	return nil
+}
+
+func ddgSnippetText(block *xhtml.Node) string {
+	var snippet string
+	var walk func(*xhtml.Node)
+	walk = func(n *xhtml.Node) {
+		if snippet != "" {
+			return
+		}
+		if n.Type == xhtml.ElementNode && n.Data != "a" &&
+			(hasClassToken(n, "result__snippet") || hasClassToken(n, "result-snippet")) {
+			snippet = collapseWhitespace(nodeText(n))
+			return
+		}
+		if n.Type == xhtml.ElementNode && n.Data == "a" &&
+			hasClassToken(n, "result__snippet") {
+			snippet = collapseWhitespace(nodeText(n))
+			return
+		}
+		for child := n.FirstChild; child != nil; child = child.NextSibling {
+			walk(child)
+		}
+	}
+	walk(block)
+	return snippet
+}
+
+func hasClassToken(n *xhtml.Node, token string) bool {
+	if n == nil || n.Type != xhtml.ElementNode {
+		return false
+	}
+	for _, field := range strings.Fields(attrValue(n, "class")) {
+		if strings.EqualFold(field, token) {
+			return true
+		}
+	}
+	return false
+}
+
+func attrValue(n *xhtml.Node, key string) string {
+	for _, attr := range n.Attr {
+		if strings.EqualFold(attr.Key, key) {
+			return attr.Val
+		}
+	}
+	return ""
+}
+
+func nodeText(n *xhtml.Node) string {
+	var b strings.Builder
+	var walk func(*xhtml.Node)
+	walk = func(node *xhtml.Node) {
+		if node.Type == xhtml.TextNode {
+			b.WriteString(node.Data)
+			return
+		}
+		for child := node.FirstChild; child != nil; child = child.NextSibling {
+			walk(child)
+		}
+	}
+	walk(n)
+	return b.String()
+}
+
+func collapseWhitespace(s string) string {
+	return strings.Join(strings.Fields(s), " ")
+}
+
+// ddgTargetURL unwraps DuckDuckGo redirect links (uddg=) and drops the
+// tracking tail such as "&rut=..." that used to leak into citations.
+func ddgTargetURL(raw string) string {
+	raw = strings.TrimSpace(html.UnescapeString(raw))
+	if raw == "" {
+		return ""
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return raw
+	}
+	if target := parsed.Query().Get("uddg"); target != "" {
+		return target
+	}
+	if parsed.Scheme == "" && strings.HasPrefix(raw, "//") {
+		return "https:" + raw
+	}
+	return raw
+}
+
+func isDDGBlockStatus(status int) bool {
+	switch status {
+	case http.StatusAccepted, http.StatusForbidden, http.StatusTooManyRequests:
+		return true
+	default:
+		return false
+	}
+}
+
+func hasDDGChallengeMarker(body string) bool {
+	lower := strings.ToLower(body)
+	for _, marker := range []string{
+		"anomaly",
+		"challenge-form",
+		"are you a robot",
+		"bots use duckduckgo",
+	} {
+		if strings.Contains(lower, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 func stripTags(content string) string {

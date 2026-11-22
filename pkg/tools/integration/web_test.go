@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -2618,5 +2619,139 @@ func TestWebTool_WebFetch_ClampsRequestedMaxChars(t *testing.T) {
 	}
 	if utf8.RuneCountInString(payload.Text) > 300+len("\n[Content truncated due to size limit]") {
 		t.Fatalf("text kept %d runes, want at most the tool cap", utf8.RuneCountInString(payload.Text))
+	}
+}
+
+func resetDDGForTest(t *testing.T) {
+	t.Helper()
+	oldInterval := ddgGate.minInterval
+	oldCooldown := ddgBlockCooldown
+	ddgState.reset()
+	ddgGate.reset()
+	t.Cleanup(func() {
+		ddgState.reset()
+		ddgGate.reset()
+		ddgGate.minInterval = oldInterval
+		ddgBlockCooldown = oldCooldown
+	})
+}
+
+const ddgFixture = `<!doctype html><html><body>
+<div class="result results_links results_links_deep web-result">
+  <h2 class="result__title">
+    <a rel="nofollow" class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com%2Fone%3Fa%3D1%26b%3D2&amp;rut=deadbeef">One <b>Title</b></a>
+  </h2>
+  <a class="result__snippet" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com%2Fone">First <b>snippet</b> text.</a>
+</div>
+<div class="result result--ad">
+  <a class="result__a" href="https://ads.example/promo">Sponsored result</a>
+</div>
+<div class="result results_links results_links_deep web-result">
+  <a class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.org%2Ftwo&amp;rut=abc">Two Title</a>
+  <div class="result__snippet">Second snippet.</div>
+</div>
+</body></html>`
+
+func TestDuckDuckGoSearch_ExtractsAndCleansURLs(t *testing.T) {
+	resetDDGForTest(t)
+	ddgGate.minInterval = 0
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		_, _ = w.Write([]byte(ddgFixture))
+	}))
+	defer server.Close()
+
+	provider := &DuckDuckGoSearchProvider{client: server.Client(), endpoint: server.URL + "/html/"}
+	out, err := provider.Search(context.Background(), "code review", 5, "")
+	if err != nil {
+		t.Fatalf("Search() error: %v", err)
+	}
+	if strings.Contains(out, "rut=") {
+		t.Fatalf("Search() leaked a tracking parameter: %s", out)
+	}
+	if !strings.Contains(out, "https://example.com/one?a=1&b=2") {
+		t.Fatalf("Search() = %s, want the unwrapped first URL", out)
+	}
+	if !strings.Contains(out, "https://example.org/two") {
+		t.Fatalf("Search() = %s, want the second URL", out)
+	}
+	if !strings.Contains(out, "One Title") || !strings.Contains(out, "First snippet text.") {
+		t.Fatalf("Search() = %s, want the first title and snippet", out)
+	}
+	if !strings.Contains(out, "Second snippet.") {
+		t.Fatalf("Search() = %s, want the second snippet", out)
+	}
+	if strings.Contains(out, "ads.example") || strings.Contains(out, "Sponsored result") {
+		t.Fatalf("Search() included an ad result: %s", out)
+	}
+}
+
+func TestDuckDuckGoSearch_BlockStatusSetsCooldown(t *testing.T) {
+	resetDDGForTest(t)
+	ddgGate.minInterval = 0
+	ddgBlockCooldown = time.Minute
+
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		w.WriteHeader(http.StatusAccepted)
+		_, _ = w.Write([]byte("<html><body>anomaly detected</body></html>"))
+	}))
+	defer server.Close()
+
+	provider := &DuckDuckGoSearchProvider{client: server.Client(), endpoint: server.URL}
+	if _, err := provider.Search(context.Background(), "q", 5, ""); !errors.Is(err, errSearchProviderBlocked) {
+		t.Fatalf("Search() error = %v, want errSearchProviderBlocked", err)
+	}
+	if _, err := provider.Search(context.Background(), "q", 5, ""); !errors.Is(err, errSearchProviderBlocked) {
+		t.Fatalf("second Search() error = %v, want a cooldown error", err)
+	}
+	if requests != 1 {
+		t.Fatalf("server requests = %d, want 1 (the second call must be skipped)", requests)
+	}
+}
+
+func TestDuckDuckGoSearch_ChallengePageSetsCooldown(t *testing.T) {
+	resetDDGForTest(t)
+	ddgGate.minInterval = 0
+	ddgBlockCooldown = time.Minute
+
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		w.Header().Set("Content-Type", "text/html")
+		_, _ = w.Write([]byte("<html><body><form id=\"challenge-form\"></form>are you a robot</body></html>"))
+	}))
+	defer server.Close()
+
+	provider := &DuckDuckGoSearchProvider{client: server.Client(), endpoint: server.URL}
+	if _, err := provider.Search(context.Background(), "q", 5, ""); !errors.Is(err, errSearchProviderBlocked) {
+		t.Fatalf("Search() error = %v, want errSearchProviderBlocked", err)
+	}
+	if requests != 1 {
+		t.Fatalf("server requests = %d, want 1", requests)
+	}
+}
+
+func TestDuckDuckGoSearch_SkipsWhenGateSaturated(t *testing.T) {
+	resetDDGForTest(t)
+
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		_, _ = w.Write([]byte(ddgFixture))
+	}))
+	defer server.Close()
+
+	provider := &DuckDuckGoSearchProvider{client: server.Client(), endpoint: server.URL}
+	ddgGate.minInterval = time.Hour
+	ddgGate.last = time.Now()
+
+	if _, err := provider.Search(context.Background(), "q", 5, ""); !errors.Is(err, errSearchProviderBusy) {
+		t.Fatalf("Search() error = %v, want errSearchProviderBusy", err)
+	}
+	if requests != 0 {
+		t.Fatalf("server requests = %d, want 0 when the gate is saturated", requests)
 	}
 }
