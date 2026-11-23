@@ -610,7 +610,8 @@ func TestHandleUpdateWebSearchConfig_PreservesAndReplacesMultiKeys(t *testing.T)
 func TestResolveCurrentWebSearchProvider_PrefersConfiguredProvidersInAutoMode(t *testing.T) {
 	cfg := config.DefaultConfig()
 	cfg.Tools.Web.Provider = "auto"
-	cfg.Tools.Web.Sogou.Enabled = true
+	cfg.Tools.Web.Sogou.Enabled = false
+	cfg.Tools.Web.DuckDuckGo.Enabled = false
 	cfg.Tools.Web.Brave.Enabled = true
 	cfg.Tools.Web.Brave.SetAPIKey("brave-test-key")
 
@@ -623,6 +624,7 @@ func TestResolveCurrentWebSearchProvider_FallsBackWhenExplicitProviderUnavailabl
 	cfg := config.DefaultConfig()
 	cfg.Tools.Web.Provider = "brave"
 	cfg.Tools.Web.Brave.Enabled = true
+	cfg.Tools.Web.DuckDuckGo.Enabled = false
 	cfg.Tools.Web.Sogou.Enabled = true
 
 	if got := resolveCurrentWebSearchProvider(cfg); got != "sogou" {
@@ -633,6 +635,7 @@ func TestResolveCurrentWebSearchProvider_FallsBackWhenExplicitProviderUnavailabl
 func TestResolveCurrentWebSearchProvider_FallsBackWhenProviderIsUnknown(t *testing.T) {
 	cfg := config.DefaultConfig()
 	cfg.Tools.Web.Provider = "totally_unknown"
+	cfg.Tools.Web.DuckDuckGo.Enabled = false
 	cfg.Tools.Web.Sogou.Enabled = true
 
 	if got := resolveCurrentWebSearchProvider(cfg); got != "sogou" {
@@ -640,14 +643,14 @@ func TestResolveCurrentWebSearchProvider_FallsBackWhenProviderIsUnknown(t *testi
 	}
 }
 
-func TestResolveCurrentWebSearchProvider_PrefersStableDefaultForSogouAndDuckDuckGo(t *testing.T) {
+func TestResolveCurrentWebSearchProvider_PrefersDuckDuckGoInAutoMode(t *testing.T) {
 	cfg := config.DefaultConfig()
 	cfg.Tools.Web.Provider = "auto"
 	cfg.Tools.Web.Sogou.Enabled = true
 	cfg.Tools.Web.DuckDuckGo.Enabled = true
 
-	if got := resolveCurrentWebSearchProvider(cfg); got != "sogou" {
-		t.Fatalf("resolveCurrentWebSearchProvider() = %q, want sogou", got)
+	if got := resolveCurrentWebSearchProvider(cfg); got != "duckduckgo" {
+		t.Fatalf("resolveCurrentWebSearchProvider() = %q, want duckduckgo", got)
 	}
 }
 

@@ -6,6 +6,24 @@ All notable changes to this fork of PicoClaw. Versions use the
 Earlier versions up to `0.1.27` are recorded as git tags. This file starts
 with the first batch that was built locally before tagging.
 
+## [0.1.51] - 2026-11-24
+
+### Added
+- Agents can be exported as a ZIP bundle (`manifest.json`, `agent.json`,
+  `README.txt`, `workspace/...`) and imported into another PicoClaw or harness.
+- The Agents page has an Export action and an Import agent action.
+
+### Changed
+- Deleting an agent now permanently deletes its managed workspace (sessions,
+  profiles, memory, screenshots and every other file) after an explicit
+  confirmation. Routing rules and subagent references are cleaned up.
+- A custom workspace outside the managed agents folder is removed from config
+  but left on disk, with a warning in the response.
+
+### Security
+- Agent bundle import limits ZIP size, entry count and extracted size, rejects
+  path traversal and symlinks, and de-duplicates agent IDs.
+
 ## [0.1.50] - 2026-11-23
 
 ### Added

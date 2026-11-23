@@ -5,7 +5,7 @@ by Sipeed. Upstream is MIT-licensed; this fork keeps the same license and adds
 desktop usability, security hardening, agent management, and local document
 tools.
 
-- **Version:** `0.1.50-fork`
+- **Version:** `0.1.51-fork`
 - **Upstream:** https://github.com/sipeed/picoclaw
 - **Fork:** https://github.com/techunreal/picoclaw
 - **License:** MIT (see `LICENSE` and `NOTICE.md`)
@@ -13,7 +13,14 @@ tools.
 > This is not an official Sipeed release. Report fork-specific issues on the
 > fork repository, not upstream.
 
-## What's new in 0.1.50-fork
+## What's new in 0.1.51-fork
+
+- **Permanent agent delete:** the Agents page asks for confirmation and then
+  removes the agent from config and deletes its managed workspace, including
+  sessions, profiles, memory and screenshots.
+- **Agent bundles:** Export downloads a ZIP with `manifest.json`, `agent.json`,
+  `README.txt` and the whole `workspace/`. Import agent restores it on this or
+  another PicoClaw (or another harness via `AGENT.md`/`SOUL.md`).
 
 - **Readable web pages:** `web_fetch` now selects the main content root and
   removes navigation, site headers, footers, asides, forms, hidden nodes and
@@ -164,7 +171,7 @@ Microsoft Office, Adobe Acrobat, or a system Python install.
 ## Quick start (Windows)
 
 1. Extract the release ZIP (for example
-   `PicoClaw-Windows-x86_64-0.1.50-fork.zip`) to a folder such as
+   `PicoClaw-Windows-x86_64-0.1.51-fork.zip`) to a folder such as
    `C:\Users\<you>\PicoClaw`.
 2. Run `picoclaw-launcher.exe`.
 3. Open `http://localhost:18800` if the browser does not open automatically.
@@ -213,13 +220,13 @@ go build -tags "goolm,stdjson" -o build/picoclaw-launcher.exe ./web/backend
 Release build with version metadata, Office runtime, ZIP, and SHA256:
 
 ```powershell
-powershell -File scripts/build-release.ps1 -Version 0.1.50-fork
+powershell -File scripts/build-release.ps1 -Version 0.1.51-fork
 ```
 
 Lean build without the Office runtime:
 
 ```powershell
-powershell -File scripts/build-release.ps1 -Version 0.1.50-fork -SkipOfficeRuntime
+powershell -File scripts/build-release.ps1 -Version 0.1.51-fork -SkipOfficeRuntime
 ```
 
 ## Tests
@@ -235,7 +242,7 @@ go test -tags "goolm,stdjson" ./... -count=1 -timeout 300s
 - Package E.1: resilience, persistence, model references, deterministic tests,
   curated skills, Office Pack.
 - Package E.2: release, clean install, README, roadmap, fork push.
-- 0.1.4-0.1.50: WebUI, agents, models, profile import, TTS/read-aloud, browser
+- 0.1.4-0.1.51: WebUI, agents, models, profile import, TTS/read-aloud, browser
   allowlist, launcher/firewall, context safety. See [`CHANGELOG.md`](CHANGELOG.md).
 - Portable/USB mode (E.3): future idea.
 

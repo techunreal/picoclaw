@@ -2,6 +2,7 @@ import {
   IconAlertTriangle,
   IconArrowDown,
   IconArrowUp,
+  IconDownload,
   IconPlus,
   IconRefresh,
   IconRoute,
@@ -9,7 +10,7 @@ import {
   IconUpload,
   IconUsers,
 } from "@tabler/icons-react"
-import { useState } from "react"
+import { useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { Link } from "@tanstack/react-router"
 
@@ -77,12 +78,17 @@ export function AgentsPage() {
     deleteTarget,
     setDeleteTarget,
     deleteAgent,
+    exportAgent,
+    exportingId,
+    importAgent,
+    isImporting,
     isSaving,
     saveError,
   } = useAgentsPage()
 
   const [tab, setTab] = useState<PageTab>("overview")
   const [importOpen, setImportOpen] = useState(false)
+  const importBundleInputRef = useRef<HTMLInputElement>(null)
   const defaults = listQuery.data?.defaults
   const implicit = listQuery.data?.implicit ?? false
   const listError = listQuery.error
@@ -150,6 +156,28 @@ export function AgentsPage() {
           >
             <IconRefresh className="size-4" />
           </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="gap-1.5"
+            onClick={() => importBundleInputRef.current?.click()}
+            disabled={isImporting}
+          >
+            <IconUpload className="size-4" />
+            {t("agents.importAgent")}
+          </Button>
+          <input
+            ref={importBundleInputRef}
+            type="file"
+            accept=".zip,application/zip"
+            className="hidden"
+            onChange={(event) => {
+              const file = event.target.files?.[0]
+              event.target.value = ""
+              if (file) importAgent(file)
+            }}
+          />
           <Button
             type="button"
             variant="outline"
@@ -256,6 +284,18 @@ export function AgentsPage() {
                         <Button
                           type="button"
                           variant="ghost"
+                          size="icon"
+                          className="text-muted-foreground h-8 w-8"
+                          onClick={() => void exportAgent(selectedAgent)}
+                          disabled={exportingId === selectedAgent.id}
+                          aria-label={t("agents.export")}
+                          title={t("agents.export")}
+                        >
+                          <IconDownload className="size-4" />
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
                           size="sm"
                           onClick={() => openEdit(selectedAgent)}
                         >
@@ -267,8 +307,9 @@ export function AgentsPage() {
                           size="icon"
                           className="text-muted-foreground hover:text-destructive h-8 w-8"
                           onClick={() => setDeleteTarget(selectedAgent)}
+                          disabled={selectedAgent.default}
                           aria-label={t("agents.delete")}
-                          title={t("agents.delete")}
+                          title={selectedAgent.default ? t("agents.defaultBadge") : t("agents.delete")}
                         >
                           <IconTrash className="size-4" />
                         </Button>
@@ -510,13 +551,11 @@ export function AgentsPage() {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              {t("agents.deleteTitle", { id: deleteTarget?.id ?? "" })}
+              {t("agents.deletePermanentTitle", { id: deleteTarget?.id ?? "" })}
             </AlertDialogTitle>
             <AlertDialogDescription>
-              {t("agents.deleteDescription", {
-                count: dispatch.rules.filter(
-                  (rule) => rule.agent === deleteTarget?.id,
-                ).length,
+              {t("agents.deletePermanentDescription", {
+                id: deleteTarget?.id ?? "",
               })}
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -526,12 +565,13 @@ export function AgentsPage() {
             </AlertDialogCancel>
             <AlertDialogAction
               disabled={isSaving}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               onClick={(event) => {
                 event.preventDefault()
                 deleteAgent()
               }}
             >
-              {t("agents.delete")}
+              {t("agents.deletePermanent")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

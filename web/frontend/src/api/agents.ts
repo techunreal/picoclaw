@@ -265,6 +265,61 @@ export function deleteAgentAvatar(agentId: string): Promise<{ status: string }> 
   )
 }
 
+
+export interface DeleteAgentResponse {
+  status: string
+  id: string
+  workspace?: string
+  files_deleted: boolean
+  warning?: string
+  restart_required?: boolean
+}
+
+export function deleteAgent(agentId: string): Promise<DeleteAgentResponse> {
+  return request<DeleteAgentResponse>(
+    `/api/agents/${encodeURIComponent(agentId)}`,
+    { method: "DELETE" },
+  )
+}
+
+export async function exportAgentBundle(agentId: string): Promise<Blob> {
+  const res = await launcherFetch(
+    `/api/agents/${encodeURIComponent(agentId)}/export`,
+  )
+  if (!res.ok) {
+    let message = `Export failed (${res.status}).`
+    try {
+      const body = (await res.json()) as { error?: string }
+      if (typeof body.error === "string" && body.error.trim() !== "") {
+        message = body.error
+      }
+    } catch {
+      // keep generic
+    }
+    throw new AgentApiError("export_failed", message, res.status)
+  }
+  return res.blob()
+}
+
+export interface ImportAgentBundleResponse {
+  status: string
+  agent: string
+  name?: string
+  renamed?: boolean
+  restart_required?: boolean
+}
+
+export function importAgentBundle(
+  file: File,
+): Promise<ImportAgentBundleResponse> {
+  const body = new FormData()
+  body.append("file", file)
+  return request<ImportAgentBundleResponse>("/api/agents/import-bundle", {
+    method: "POST",
+    body,
+  })
+}
+
 function buildProfileFormData(upload: ProfileUpload): FormData {
   const body = new FormData()
   if (upload.zip) {

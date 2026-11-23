@@ -9,7 +9,10 @@ import {
   type AgentView,
   type DispatchConfig,
   type DispatchRule,
+  deleteAgent as deleteAgentRequest,
+  exportAgentBundle,
   getAgents,
+  importAgentBundle,
   toAgentConfig,
   updateAgents,
 } from "@/api/agents"
@@ -89,6 +92,48 @@ export function useAgentsPage() {
     },
   })
 
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => deleteAgentRequest(id),
+    onSuccess: (result, id) => {
+      showSaveSuccessOrRestartToast(
+        t,
+        t("agents.deleted"),
+        t("agents.title"),
+        Boolean(result.restart_required),
+      )
+      if (result.warning) toast.warning(result.warning)
+      setDeleteTarget(null)
+      setSelectedId((current) => {
+        if (current !== id) return current
+        const next = agents.find((agent) => agent.id !== id)
+        return next?.id ?? null
+      })
+      invalidate()
+    },
+    onError: (error) => {
+      toast.error(agentErrorMessage(error, t("agents.deleteFailed")))
+    },
+  })
+
+  const importMutation = useMutation({
+    mutationFn: (file: File) => importAgentBundle(file),
+    onSuccess: (result) => {
+      showSaveSuccessOrRestartToast(
+        t,
+        t("agents.importAgentSuccess", { id: result.agent }),
+        t("agents.title"),
+        Boolean(result.restart_required),
+      )
+      if (result.renamed) {
+        toast.info(t("agents.importRenamed", { id: result.agent }))
+      }
+      invalidate()
+    },
+    onError: (error) => {
+      toast.error(agentErrorMessage(error, t("agents.importAgentFailed")))
+    },
+  })
+
   const persist = (
     nextAgents: AgentConfig[],
     nextDispatch: DispatchConfig | null,
@@ -129,36 +174,6 @@ export function useAgentsPage() {
     }
   }
 
-  const deleteAgent = () => {
-    if (!deleteTarget) return
-    const removedID = deleteTarget.id
-    const remaining = agents
-      .filter((agent) => agent.id !== removedID)
-      .map((agent) => {
-        const config = toAgentConfig(agent)
-        const allow = config.subagents?.allow_agents
-        if (allow && allow.includes(removedID)) {
-          config.subagents = {
-            ...config.subagents,
-            allow_agents: allow.filter((id) => id !== removedID),
-          }
-        }
-        return config
-      })
-    const remainingRules = dispatch.rules.filter(
-      (rule) => rule.agent !== deleteTarget.id,
-    )
-    if (remainingRules.length !== dispatch.rules.length) {
-      toast.info(t("agents.routingRemoved", { count: dispatch.rules.length - remainingRules.length }))
-    }
-    persist(
-      remaining,
-      remainingRules.length > 0 ? { rules: remainingRules } : null,
-      { selectId: remaining[0]?.id },
-    )
-    setDeleteTarget(null)
-  }
-
   const saveRule = (rule: DispatchRule) => {
     const rules = [...dispatch.rules]
     if (ruleEditor?.index === null || ruleEditor?.index === undefined) {
@@ -181,6 +196,39 @@ export function useAgentsPage() {
     const [rule] = rules.splice(index, 1)
     rules.splice(target, 0, rule)
     persist(agents.map(toAgentConfig), { rules })
+  }
+
+  const deleteAgent = () => {
+    if (!deleteTarget || deleteMutation.isPending) return
+    deleteMutation.mutate(deleteTarget.id)
+  }
+
+  const [exportingId, setExportingId] = useState<string | null>(null)
+
+  const exportAgent = async (agent: AgentView) => {
+    if (exportingId) return
+    setExportingId(agent.id)
+    try {
+      const blob = await exportAgentBundle(agent.id)
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement("a")
+      link.href = url
+      link.download = `picoclaw-agent-${agent.id}.zip`
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      URL.revokeObjectURL(url)
+      toast.success(t("agents.exportSuccess"))
+    } catch (error) {
+      toast.error(agentErrorMessage(error, t("agents.exportFailed")))
+    } finally {
+      setExportingId(null)
+    }
+  }
+
+  const importAgent = (file: File) => {
+    if (importMutation.isPending) return
+    importMutation.mutate(file)
   }
 
   return {
@@ -223,7 +271,11 @@ export function useAgentsPage() {
     deleteTarget,
     setDeleteTarget,
     deleteAgent,
-    isSaving: saveMutation.isPending,
+    exportAgent,
+    exportingId,
+    importAgent,
+    isImporting: importMutation.isPending,
+    isSaving: saveMutation.isPending || deleteMutation.isPending || importMutation.isPending,
     saveError: saveMutation.error,
   }
 }
