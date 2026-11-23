@@ -2471,7 +2471,7 @@ func (t *WebFetchTool) Name() string {
 }
 
 func (t *WebFetchTool) Description() string {
-	return "Fetch a URL and extract readable content (HTML to text). Use this to get weather info, news, articles, or any web content. The returned text is capped by the server's fetch limit."
+	return "Fetch a URL and extract the main readable content (HTML to text), skipping menus, headers, footers and hidden nodes. Use this for articles and documentation. The response is capped; when it is truncated, use offset with the returned next_offset to read more."
 }
 
 func (t *WebFetchTool) Parameters() map[string]any {
@@ -2486,6 +2486,11 @@ func (t *WebFetchTool) Parameters() map[string]any {
 				"type":        "integer",
 				"description": "Maximum characters to extract",
 				"minimum":     100.0,
+			},
+			"offset": map[string]any{
+				"type":        "integer",
+				"description": "Character offset to continue reading; pass next_offset from a previous truncated response",
+				"minimum":     0.0,
 			},
 		},
 		"required": []string{"url"},
@@ -2639,8 +2644,16 @@ func (t *WebFetchTool) Execute(ctx context.Context, args map[string]any) *ToolRe
 		extractor = "json"
 
 	case mediaType == "text/html" || looksLikeHTML(bodyStr):
+		readable := extractReadableContent(bodyStr)
 		switch strings.ToLower(t.format) {
 		case "markdown":
+			if readable.ok && strings.TrimSpace(readable.html) != "" {
+				if md, err := utils.HtmlToMarkdown(readable.html); err == nil && strings.TrimSpace(md) != "" {
+					text = prependTitle(readable.title, md)
+					extractor = readable.source
+					break
+				}
+			}
 			var err error
 			text, err = utils.HtmlToMarkdown(bodyStr)
 			if err != nil {
@@ -2649,8 +2662,13 @@ func (t *WebFetchTool) Execute(ctx context.Context, args map[string]any) *ToolRe
 			extractor = "markdown"
 
 		default:
-			text = t.extractText(bodyStr)
-			extractor = "text"
+			if readable.ok {
+				text = prependTitle(readable.title, readable.text)
+				extractor = readable.source
+			} else {
+				text = t.extractText(bodyStr)
+				extractor = "text"
+			}
 		}
 
 	default:
@@ -2658,19 +2676,48 @@ func (t *WebFetchTool) Execute(ctx context.Context, args map[string]any) *ToolRe
 		extractor = "raw"
 	}
 
-	truncated := utf8.RuneCountInString(text) > maxChars
+	totalChars := utf8.RuneCountInString(text)
+	offset := 0
+	if raw, ok := args["offset"]; ok {
+		switch value := raw.(type) {
+		case float64:
+			if value > 0 {
+				offset = int(value)
+			}
+		case int:
+			if value > 0 {
+				offset = value
+			}
+		}
+	}
+	if offset > totalChars {
+		offset = totalChars
+	}
+
+	runes := []rune(text)
+	end := len(runes)
+	truncated := false
+	if maxChars > 0 && offset+maxChars < len(runes) {
+		end = offset + maxChars
+		truncated = true
+	}
+	text = string(runes[offset:end])
 	if truncated {
-		runes := []rune(text)
-		text = string(runes[:maxChars]) + "\n[Content truncated due to size limit]"
+		text += "\n[Content truncated due to size limit]"
 	}
 
 	result := map[string]any{
-		"url":       urlStr,
-		"status":    resp.StatusCode,
-		"extractor": extractor,
-		"truncated": truncated,
-		"length":    len(text),
-		"text":      text,
+		"url":         urlStr,
+		"status":      resp.StatusCode,
+		"extractor":   extractor,
+		"truncated":   truncated,
+		"length":      len(text),
+		"total_chars": totalChars,
+		"offset":      offset,
+		"text":        text,
+	}
+	if truncated {
+		result["next_offset"] = end
 	}
 
 	resultJSON, marshalErr := json.MarshalIndent(result, "", "  ")
@@ -2678,15 +2725,20 @@ func (t *WebFetchTool) Execute(ctx context.Context, args map[string]any) *ToolRe
 		return ErrorResult(fmt.Sprintf("failed to marshal result: %v", marshalErr))
 	}
 
+	userMessage := fmt.Sprintf(
+		"Fetched %d bytes from %s (extractor: %s, truncated: %v)",
+		len(text),
+		urlStr,
+		extractor,
+		truncated,
+	)
+	if truncated {
+		userMessage += fmt.Sprintf(", next offset: %d", end)
+	}
+
 	return &ToolResult{
-		ForLLM: string(resultJSON),
-		ForUser: fmt.Sprintf(
-			"Fetched %d bytes from %s (extractor: %s, truncated: %v)",
-			len(text),
-			urlStr,
-			extractor,
-			truncated,
-		),
+		ForLLM:  string(resultJSON),
+		ForUser: userMessage,
 	}
 }
 
@@ -2702,25 +2754,7 @@ func looksLikeHTML(body string) bool {
 }
 
 func (t *WebFetchTool) extractText(htmlContent string) string {
-	result := reScript.ReplaceAllLiteralString(htmlContent, "")
-	result = reStyle.ReplaceAllLiteralString(result, "")
-	result = reTags.ReplaceAllLiteralString(result, "")
-
-	result = strings.TrimSpace(result)
-
-	result = reWhitespace.ReplaceAllString(result, " ")
-	result = reBlankLines.ReplaceAllString(result, "\n\n")
-
-	lines := strings.Split(result, "\n")
-	var cleanLines []string
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if line != "" {
-			cleanLines = append(cleanLines, line)
-		}
-	}
-
-	return strings.Join(cleanLines, "\n")
+	return legacyExtractText(htmlContent)
 }
 
 func newSafeDialContext(

@@ -6,6 +6,20 @@ All notable changes to this fork of PicoClaw. Versions use the
 Earlier versions up to `0.1.27` are recorded as git tags. This file starts
 with the first batch that was built locally before tagging.
 
+## [0.1.50] - 2026-11-23
+
+### Added
+- `web_fetch` supports `offset` and returns `total_chars` plus `next_offset`
+  when a response is truncated, so the agent can read the rest of a long page.
+
+### Changed
+- `web_fetch` now extracts the main content instead of stripping every tag. It
+  selects `#mw-content-text`, `article`, `main`, `[role=main]` or `#content`,
+  removes navigation, site headers, footers, asides, forms, hidden nodes and
+  common chrome, keeps article headers, and prepends the page title. A 500
+  character / 20% safety net falls back to the old extractor.
+- The markdown output path uses the same cleaned content root.
+
 ## [0.1.49] - 2026-11-22
 
 ### Changed
