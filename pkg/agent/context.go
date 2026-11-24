@@ -54,6 +54,12 @@ func MemoryAutoWriteEnabled() bool {
 	return memoryAutoWriteEnabled.Load()
 }
 
+// AgentSelfSkillName is the built-in skill that documents how to configure
+// PicoClaw itself. It stays available to every agent, but for agents that
+// bring their own AGENT.md it is injected as a catalog entry only so its large
+// body does not compete with the agent's own identity.
+const AgentSelfSkillName = "picoclaw-agent"
+
 type ContextBuilder struct {
 	workspace      string
 	sharedSkills   string
@@ -62,6 +68,14 @@ type ContextBuilder struct {
 	splitOnMarker  bool
 	agentDiscovery func(agentID string) []AgentDescriptor
 	promptRegistry *PromptRegistry
+
+	// personaMode is set for agents that own their workspace (every agent
+	// except the default one). Those agents define who they are in AGENT.md and
+	// SOUL.md, so the generic "You are picoclaw, a helpful AI assistant" line is
+	// replaced with a neutral one and their skill catalog is scoped to the
+	// skills they actually use.
+	personaMode   bool
+	personaSkills []string
 
 	// Cache for system prompt to avoid rebuilding on every call.
 	// This fixes issue #607: repeated reprocessing of the entire context.
@@ -104,6 +118,68 @@ func (cb *ContextBuilder) WithToolDiscovery(useBM25, useRegex bool) *ContextBuil
 func (cb *ContextBuilder) WithSplitOnMarker(enabled bool) *ContextBuilder {
 	cb.splitOnMarker = enabled
 	return cb
+}
+
+// WithPersonaMode enables the agent-file identity mode for agents that own a
+// dedicated workspace. skills holds the agent's effective skill list; it scopes
+// the prompt's skill catalog. It must be called before the first prompt build
+// (the system prompt is cached).
+func (cb *ContextBuilder) WithPersonaMode(enabled bool, skills []string) *ContextBuilder {
+	cb.personaMode = enabled
+	cb.personaSkills = append([]string(nil), skills...)
+	return cb
+}
+
+// IsPersonaMode reports whether the agent defines its own identity in AGENT.md.
+func (cb *ContextBuilder) IsPersonaMode() bool {
+	return cb != nil && cb.personaMode
+}
+
+// personaCatalogAllowed returns the skills whose catalog entries are shown to a
+// persona agent: the skills it actually uses plus the self-management skill.
+func (cb *ContextBuilder) personaCatalogAllowed() []string {
+	allowed := make([]string, 0, len(cb.personaSkills)+1)
+	seen := make(map[string]struct{}, len(cb.personaSkills)+1)
+	add := func(name string) {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			return
+		}
+		key := strings.ToLower(name)
+		if _, ok := seen[key]; ok {
+			return
+		}
+		seen[key] = struct{}{}
+		allowed = append(allowed, name)
+	}
+	add(AgentSelfSkillName)
+	for _, name := range cb.personaSkills {
+		add(name)
+	}
+	return allowed
+}
+
+// FilterPersonaActiveSkills drops the self-management skill from the
+// full-text injection of a persona agent unless the user explicitly forced it.
+// The skill remains in the catalog, so the agent can read SKILL.md on demand.
+func (cb *ContextBuilder) FilterPersonaActiveSkills(names, forced []string) []string {
+	if !cb.IsPersonaMode() || len(names) == 0 {
+		return names
+	}
+	forcedSet := make(map[string]struct{}, len(forced))
+	for _, name := range forced {
+		forcedSet[strings.ToLower(strings.TrimSpace(name))] = struct{}{}
+	}
+	out := make([]string, 0, len(names))
+	for _, name := range names {
+		if strings.EqualFold(strings.TrimSpace(name), AgentSelfSkillName) {
+			if _, ok := forcedSet[strings.ToLower(strings.TrimSpace(name))]; !ok {
+				continue
+			}
+		}
+		out = append(out, name)
+	}
+	return out
 }
 
 func (cb *ContextBuilder) WithAgentDiscovery(
@@ -230,10 +306,15 @@ func (cb *ContextBuilder) getIdentity(includeToolUseRule bool) string {
 		sharedLine = fmt.Sprintf("- Shared skills (all agents): %s/{skill-name}/SKILL.md\n", sharedSkills)
 	}
 
+	identityLine := "You are picoclaw, a helpful AI assistant."
+	if cb.personaMode {
+		identityLine = "You are an agent running inside PicoClaw. Your identity, role and behavior are defined by the agent files below; they take precedence over this generic framing."
+	}
+
 	return fmt.Sprintf(
 		`# picoclaw 🦞 (%s)
 
-You are picoclaw, a helpful AI assistant.
+%s
 
 ## Workspace
 Your workspace is at: %s
@@ -246,6 +327,7 @@ Your workspace is at: %s
 %s
 `,
 		version,
+		identityLine,
 		workspacePath,
 		workspacePath,
 		workspacePath,
@@ -336,8 +418,14 @@ func (cb *ContextBuilder) buildSystemPromptParts(opts systemPromptBuildOptions) 
 
 	// Skills - show summary, AI can read full content with read_file tool
 	skillsSummary := ""
+	catalogAllowed := opts.AllowedSkills
+	if len(catalogAllowed) == 0 && cb.personaMode {
+		// A persona agent only needs its own skills plus the self-management
+		// skill in the catalog; listing all workspace skills adds noise.
+		catalogAllowed = cb.personaCatalogAllowed()
+	}
 	if opts.IncludeSkillCatalog {
-		skillsSummary = cb.buildSkillsSummary(opts.AllowedSkills)
+		skillsSummary = cb.buildSkillsSummary(catalogAllowed)
 	}
 	if skillsSummary != "" {
 		skillIntro := "The following skills extend your capabilities."

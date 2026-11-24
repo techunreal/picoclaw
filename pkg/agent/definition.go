@@ -88,6 +88,18 @@ func AgentDefinitionModel(workspace string) string {
 	return strings.TrimSpace(definition.Agent.Frontmatter.Model)
 }
 
+// AgentDefinitionSkills returns the skill list declared in AGENT.md
+// frontmatter and whether the field was declared at all. The runtime prefers
+// this list over the agent config, so read-only callers that mirror the prompt
+// must do the same. A nil list with declared=true means "no skills".
+func AgentDefinitionSkills(workspace string) ([]string, bool) {
+	definition := loadAgentDefinition(strings.TrimSpace(workspace))
+	if definition.Agent == nil || definition.Agent.Frontmatter.Skills == nil {
+		return nil, false
+	}
+	return append([]string(nil), definition.Agent.Frontmatter.Skills...), true
+}
+
 func loadAgentDefinition(workspace string) AgentContextDefinition {
 	definition := AgentContextDefinition{}
 	definition.User = loadUserDefinition(workspace)

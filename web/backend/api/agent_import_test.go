@@ -179,7 +179,8 @@ func TestEnsureAgentFrontmatterMergesFields(t *testing.T) {
 	}
 }
 
-func TestBuildProfilePreview_CombinedFallback(t *testing.T) {	preview, err := buildProfilePreview(map[string][]byte{
+func TestBuildProfilePreview_CombinedFallback(t *testing.T) {
+	preview, err := buildProfilePreview(map[string][]byte{
 		"agent/COMBINED.md": []byte("# Combined profile\n"),
 		"agent/IDENTITY.md": []byte("- **Name:** Ada\n"),
 	})
@@ -191,6 +192,36 @@ func TestBuildProfilePreview_CombinedFallback(t *testing.T) {	preview, err := bu
 	}
 	if got := string(preview.targets["AGENT.md"]); !strings.Contains(got, "Combined profile") {
 		t.Fatalf("AGENT.md target = %q", got)
+	}
+}
+
+func TestBuildProfilePreview_ConfigLists(t *testing.T) {
+	preview, err := buildProfilePreview(map[string][]byte{
+		"p/AGENT.md": []byte("---\nname: Ada\ntools: [READ_FILE, web_search]\nskills: [weather, Soul-Forge-Lite]\n---\n\nBody\n"),
+	})
+	if err != nil {
+		t.Fatalf("buildProfilePreview() error = %v", err)
+	}
+	if !preview.ToolsDeclared || len(preview.Tools) != 2 ||
+		preview.Tools[0] != "read_file" || preview.Tools[1] != "web_search" {
+		t.Fatalf("tools = %#v declared=%v", preview.Tools, preview.ToolsDeclared)
+	}
+	if !preview.SkillsDeclared || len(preview.Skills) != 2 ||
+		preview.Skills[0] != "weather" || preview.Skills[1] != "Soul-Forge-Lite" {
+		t.Fatalf("skills = %#v declared=%v", preview.Skills, preview.SkillsDeclared)
+	}
+}
+
+func TestBuildProfilePreview_ConfigListsMissing(t *testing.T) {
+	preview, err := buildProfilePreview(map[string][]byte{
+		"p/AGENT.md": []byte("---\nname: Ada\n---\n\nBody\n"),
+	})
+	if err != nil {
+		t.Fatalf("buildProfilePreview() error = %v", err)
+	}
+	if preview.ToolsDeclared || preview.SkillsDeclared {
+		t.Fatalf("missing lists must not count as declared: tools=%v skills=%v",
+			preview.ToolsDeclared, preview.SkillsDeclared)
 	}
 }
 
@@ -381,6 +412,83 @@ func TestImportAgentProfile_WritesToolsFrontmatter(t *testing.T) {
 	}
 	if strings.Count(string(content), "- read_file") != 1 {
 		t.Fatalf("tools should be deduplicated:\n%s", content)
+	}
+}
+
+func TestImportAgentProfile_DefaultToolBaseline(t *testing.T) {
+	configPath, cleanup := setupOAuthTestEnv(t)
+	defer cleanup()
+
+	mux := agentsTestMux(t, configPath)
+	files := exampleProfileFiles()
+	fields := map[string]string{
+		"agent": `{"id":"socrates","name":"Sokrates"}`,
+	}
+	body, contentType := profileMultipartBody(t, fields, files)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/agents/import", body)
+	req.Header.Set("Content-Type", contentType)
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("import status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+
+	cfg, err := config.LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+	workspace := filepath.Join(filepath.Dir(cfg.Agents.Defaults.Workspace), "agents", "socrates")
+	content, err := os.ReadFile(filepath.Join(workspace, "AGENT.md"))
+	if err != nil {
+		t.Fatalf("AGENT.md: %v", err)
+	}
+	for _, want := range defaultProfileTools {
+		if !strings.Contains(string(content), "- "+want) {
+			t.Fatalf("AGENT.md missing baseline tool %q:\n%s", want, content)
+		}
+	}
+	for _, unwanted := range []string{"- exec", "- browser", "- install_skill"} {
+		if strings.Contains(string(content), unwanted) {
+			t.Fatalf("AGENT.md must not grant %q by default:\n%s", unwanted, content)
+		}
+	}
+}
+
+func TestImportAgentProfile_UsesDeclaredTools(t *testing.T) {
+	configPath, cleanup := setupOAuthTestEnv(t)
+	defer cleanup()
+
+	mux := agentsTestMux(t, configPath)
+	files := []profileUploadFile{{
+		path:    "hero/AGENT.md",
+		content: "---\nname: Hero\ntools: [read_file, web_search]\n---\n\nBody.\n",
+	}}
+	fields := map[string]string{
+		"agent": `{"id":"hero","name":"Hero"}`,
+	}
+	body, contentType := profileMultipartBody(t, fields, files)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/agents/import", body)
+	req.Header.Set("Content-Type", contentType)
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("import status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+
+	cfg, err := config.LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+	workspace := filepath.Join(filepath.Dir(cfg.Agents.Defaults.Workspace), "agents", "hero")
+	content, err := os.ReadFile(filepath.Join(workspace, "AGENT.md"))
+	if err != nil {
+		t.Fatalf("AGENT.md: %v", err)
+	}
+	if !strings.Contains(string(content), "- read_file") || !strings.Contains(string(content), "- web_search") {
+		t.Fatalf("declared tools missing:\n%s", content)
+	}
+	if strings.Contains(string(content), "- list_dir") {
+		t.Fatalf("baseline tools must not be added when the profile declares its own list:\n%s", content)
 	}
 }
 

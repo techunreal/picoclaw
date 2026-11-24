@@ -123,6 +123,10 @@ export interface ProfilePreview {
   ignored: string[]
   ignored_count: number
   notes?: string[]
+  tools?: string[]
+  tools_declared: boolean
+  skills?: string[]
+  skills_declared: boolean
 }
 
 export interface ProfileUpload {

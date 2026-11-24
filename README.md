@@ -1,11 +1,11 @@
-# PicoClaw — Windows fork
+# PicoClaw â€” Windows fork
 
 A Windows-first, WebUI-centered fork of [PicoClaw](https://github.com/sipeed/picoclaw)
 by Sipeed. Upstream is MIT-licensed; this fork keeps the same license and adds
 desktop usability, security hardening, agent management, and local document
 tools.
 
-- **Version:** `0.1.51-fork`
+- **Version:** `0.1.52-fork`
 - **Upstream:** https://github.com/sipeed/picoclaw
 - **Fork:** https://github.com/techunreal/picoclaw
 - **License:** MIT (see `LICENSE` and `NOTICE.md`)
@@ -13,7 +13,24 @@ tools.
 > This is not an official Sipeed release. Report fork-specific issues on the
 > fork repository, not upstream.
 
-## What's new in 0.1.51-fork
+## What's new in 0.1.52-fork
+
+- **Profile agents keep their own identity:** an agent with its own workspace
+  no longer receives "You are picoclaw, a helpful AI assistant." Its identity
+  comes from `AGENT.md` and `SOUL.md`, and the neutral kernel line says so.
+  The default Pico/main agent is unchanged.
+- **Smaller persona prompt:** profile agents see only their assigned skills
+  plus `picoclaw-agent` in the catalog. The 33 KB `picoclaw-agent` body is not
+  injected any more; it can still be read or forced with `/use picoclaw-agent`.
+  For the sample Sokrates agent this cuts the system prompt from ~48.5k to
+  ~9.9k characters (about 19.4k to 4.1k estimated tokens).
+- **Prompt size endpoint:** `GET /api/agents/{id}/prompt-size` shows the
+  identity, workspace, catalog and active-skill shares with the same token
+  heuristic as the context meter.
+- **Safer profile tool defaults:** import preselects the tools declared in
+  `AGENT.md`; without a declaration it uses a safe baseline (file read/write,
+  web search/fetch, message) and warns about exec, browser, cron, spawn and
+  skill installation.
 
 - **Permanent agent delete:** the Agents page asks for confirmation and then
   removes the agent from config and deletes its managed workspace, including
@@ -171,14 +188,14 @@ Microsoft Office, Adobe Acrobat, or a system Python install.
 ## Quick start (Windows)
 
 1. Extract the release ZIP (for example
-   `PicoClaw-Windows-x86_64-0.1.51-fork.zip`) to a folder such as
+   `PicoClaw-Windows-x86_64-0.1.52-fork.zip`) to a folder such as
    `C:\Users\<you>\PicoClaw`.
 2. Run `picoclaw-launcher.exe`.
 3. Open `http://localhost:18800` if the browser does not open automatically.
 4. Create the dashboard password on first run.
 5. Add a model and API key in **Models**.
 6. Click **Start Gateway**.
-7. Chat. Open **Agent → Skills** to see the bundled skills.
+7. Chat. Open **Agent â†’ Skills** to see the bundled skills.
 
 `picoclaw.exe` is the gateway/engine; keep it next to the launcher. The launcher
 finds it automatically.
@@ -220,13 +237,13 @@ go build -tags "goolm,stdjson" -o build/picoclaw-launcher.exe ./web/backend
 Release build with version metadata, Office runtime, ZIP, and SHA256:
 
 ```powershell
-powershell -File scripts/build-release.ps1 -Version 0.1.51-fork
+powershell -File scripts/build-release.ps1 -Version 0.1.52-fork
 ```
 
 Lean build without the Office runtime:
 
 ```powershell
-powershell -File scripts/build-release.ps1 -Version 0.1.51-fork -SkipOfficeRuntime
+powershell -File scripts/build-release.ps1 -Version 0.1.52-fork -SkipOfficeRuntime
 ```
 
 ## Tests
@@ -242,7 +259,7 @@ go test -tags "goolm,stdjson" ./... -count=1 -timeout 300s
 - Package E.1: resilience, persistence, model references, deterministic tests,
   curated skills, Office Pack.
 - Package E.2: release, clean install, README, roadmap, fork push.
-- 0.1.4-0.1.51: WebUI, agents, models, profile import, TTS/read-aloud, browser
+- 0.1.4-0.1.52: WebUI, agents, models, profile import, TTS/read-aloud, browser
   allowlist, launcher/firewall, context safety. See [`CHANGELOG.md`](CHANGELOG.md).
 - Portable/USB mode (E.3): future idea.
 

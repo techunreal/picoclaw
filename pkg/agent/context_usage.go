@@ -94,6 +94,7 @@ func estimateSystemContextTokens(agent *AgentInstance, summary string) (systemTo
 		return 0, 0
 	}
 	skills := agent.ContextBuilder.ResolveActiveSkillsForContext(agent.SkillsFilter)
+	skills = agent.ContextBuilder.FilterPersonaActiveSkills(skills, nil)
 	base := agent.ContextBuilder.EstimateSystemTokens(summary, nil)
 	withSkills := agent.ContextBuilder.EstimateSystemTokens(summary, skills)
 	skillTokens = withSkills - base

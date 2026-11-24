@@ -32,7 +32,11 @@ import {
   AgentSubagentsField,
   AgentWorkspaceField,
 } from "@/components/agent/agents/agent-form-fields"
-import { defaultSkillSelection } from "@/components/agent/agents/agent-form-utils"
+import {
+  defaultImportToolSelection,
+  defaultSkillSelection,
+  selectedRiskyTools,
+} from "@/components/agent/agents/agent-form-utils"
 import { suggestAgentWorkspace } from "@/components/agent/agents/use-agents-page"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -116,6 +120,10 @@ export function ProfileImportDialog({
   )
   const [toolsTouched, setToolsTouched] = useState(false)
   const selectedSkills = form.skills ?? []
+  const riskySelectedTools = useMemo(
+    () => selectedRiskyTools(selectedTools ?? []),
+    [selectedTools],
+  )
   const selectedSkillBytes = selectedSkills.reduce((sum, name) => {
     const skill = skills.find((item) => item.name === name)
     return sum + (skill?.size ?? 0)
@@ -151,7 +159,13 @@ export function ProfileImportDialog({
 
   useEffect(() => {
     if (!preview || selectedTools !== undefined || toolsQuery.isLoading) return
-    setSelectedTools(enabledTools.map((tool) => tool.name))
+    setSelectedTools(
+      defaultImportToolSelection(
+        preview.tools,
+        preview.tools_declared,
+        enabledTools.map((tool) => tool.name),
+      ),
+    )
   }, [preview, selectedTools, toolsQuery.isLoading, enabledTools])
 
   const reset = () => {
@@ -558,6 +572,17 @@ export function ProfileImportDialog({
                   <p className="text-muted-foreground text-xs">
                     {t("agents.toolsHint")}
                   </p>
+                  {preview.tools_declared ? (
+                    <p className="text-muted-foreground text-xs">
+                      {t("agents.toolsFromProfile", {
+                        count: preview.tools?.length ?? 0,
+                      })}
+                    </p>
+                  ) : (
+                    <p className="text-muted-foreground text-xs">
+                      {t("agents.toolsBaselineHint")}
+                    </p>
+                  )}
                   {toolsQuery.isLoading ? (
                     <p className="text-muted-foreground text-xs">
                       {t("labels.loading")}
@@ -593,6 +618,18 @@ export function ProfileImportDialog({
                           </span>
                         </label>
                       ))}
+                    </div>
+                  )}
+                  {riskySelectedTools.length > 0 && (
+                    <div className="rounded-md border border-amber-500/40 bg-amber-500/5 p-2 text-xs">
+                      <p className="font-medium">
+                        {t("agents.toolsRiskyTitle")}
+                      </p>
+                      <p className="text-muted-foreground">
+                        {t("agents.toolsRiskyBody", {
+                          tools: riskySelectedTools.join(", "),
+                        })}
+                      </p>
                     </div>
                   )}
                 </fieldset>

@@ -32,6 +32,21 @@ const (
 	maxIgnoredList       = 50
 )
 
+// defaultProfileTools is used when a newly imported profile does not declare
+// its own tools list. It keeps file access (so the agent can use its memory
+// files) and web lookup, while leaving shell, browser, scheduling, spawning and
+// skill installation opt-in.
+var defaultProfileTools = []string{
+	"read_file",
+	"list_dir",
+	"write_file",
+	"edit_file",
+	"append_file",
+	"web_search",
+	"web_fetch",
+	"message",
+}
+
 var identityBulletPattern = regexp.MustCompile(`(?mi)^\s*[-*]?\s*\*\*(name|emoji|vibe):\*\*\s*(.+?)\s*$`)
 
 type profileIdentity struct {
@@ -57,7 +72,14 @@ type profilePreview struct {
 	Ignored      []string             `json:"ignored"`
 	IgnoredCount int                  `json:"ignored_count"`
 	Notes        []string             `json:"notes,omitempty"`
-	targets      map[string][]byte
+	// Tools and Skills come from the profile's AGENT.md frontmatter. The
+	// import dialog preselects these so the profile's own tool budget is not
+	// silently replaced by every globally enabled tool.
+	Tools          []string `json:"tools,omitempty"`
+	ToolsDeclared  bool     `json:"tools_declared"`
+	Skills         []string `json:"skills,omitempty"`
+	SkillsDeclared bool     `json:"skills_declared"`
+	targets        map[string][]byte
 }
 
 func (h *Handler) registerAgentImportRoutes(mux *http.ServeMux) {
@@ -196,6 +218,16 @@ func (h *Handler) handleImportAgentProfile(w http.ResponseWriter, r *http.Reques
 	// only; the UI can send an explicit selection.
 	if isNew {
 		target.Skills = withLockedAgentSkill(normalizeStringList(target.Skills, maxAgentSkills))
+		// A new profile inherits its declared tool list. Without a declaration,
+		// fall back to the safe baseline instead of every globally enabled tool.
+		if !toolsProvided {
+			if preview.ToolsDeclared {
+				tools = append([]string(nil), preview.Tools...)
+			} else {
+				tools = append([]string(nil), defaultProfileTools...)
+			}
+			toolsProvided = true
+		}
 	}
 
 	// Write the resolved metadata into AGENT.md frontmatter so the runtime and
@@ -520,6 +552,9 @@ func buildProfilePreview(files map[string][]byte) (*profilePreview, error) {
 	}
 	preview.Identity = identity
 
+	preview.Tools, preview.ToolsDeclared, preview.Skills, preview.SkillsDeclared =
+		parseProfileFrontmatterConfigLists(preview.targets["AGENT.md"])
+
 	for _, target := range []string{"AGENT.md", "SOUL.md"} {
 		if data, ok := preview.targets[target]; ok {
 			preview.Files = append(preview.Files, profileFilePreview{
@@ -747,6 +782,59 @@ func parseProfileFrontmatterIdentity(data []byte) profileIdentity {
 	identity.Emoji = get("emoji")
 	identity.Vibe = get("vibe")
 	return identity
+}
+
+// parseProfileFrontmatterConfigLists reads the tools and skills lists declared
+// in the profile's AGENT.md frontmatter. The declared flag distinguishes an
+// explicit empty list ("this agent uses no tools/skills") from a missing field.
+func parseProfileFrontmatterConfigLists(
+	data []byte,
+) (tools []string, toolsDeclared bool, skills []string, skillsDeclared bool) {
+	frontmatter, _ := splitProfileFrontmatter(string(data))
+	if strings.TrimSpace(frontmatter) == "" {
+		return nil, false, nil, false
+	}
+	fields := make(map[string]any)
+	if err := yaml.Unmarshal([]byte(frontmatter), &fields); err != nil {
+		return nil, false, nil, false
+	}
+
+	parse := func(key string, lower bool) ([]string, bool) {
+		value, ok := fields[key]
+		if !ok {
+			return nil, false
+		}
+		items, ok := value.([]any)
+		if !ok {
+			return []string{}, true
+		}
+		out := make([]string, 0, len(items))
+		seen := make(map[string]struct{}, len(items))
+		for _, item := range items {
+			text, ok := item.(string)
+			if !ok {
+				continue
+			}
+			text = strings.TrimSpace(text)
+			if lower {
+				text = strings.ToLower(text)
+			}
+			if text == "" {
+				continue
+			}
+			key := strings.ToLower(text)
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
+			out = append(out, text)
+		}
+		return out, true
+	}
+
+	tools, toolsDeclared = parse("tools", true)
+	skills, skillsDeclared = parse("skills", false)
+	return tools, toolsDeclared, skills, skillsDeclared
 }
 
 // splitProfileFrontmatter splits an optional leading YAML frontmatter block from

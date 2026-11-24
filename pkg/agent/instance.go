@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -126,6 +127,7 @@ func NewAgentInstance(
 	// The default workspace's skills directory is shared by every agent. It is
 	// read once instead of being copied into each agent workspace.
 	sharedWorkspace := expandHome(defaults.Workspace)
+	personaMode := !sameWorkspacePath(workspace, sharedWorkspace)
 	sharedSkills := filepath.Join(sharedWorkspace, "skills")
 	if filepath.Clean(sharedSkills) == filepath.Clean(filepath.Join(workspace, "skills")) {
 		sharedSkills = ""
@@ -233,6 +235,7 @@ func NewAgentInstance(
 		subagents = agentCfg.Subagents
 		skillsFilter = resolveAgentSkillsFilter(agentCfg, definition)
 	}
+	contextBuilder.WithPersonaMode(personaMode, skillsFilter)
 	warnOnUnknownAgentMCPServerDeclarations(agentID, workspace, cfg, definition)
 
 	maxIter := defaults.MaxToolIterations
@@ -686,6 +689,17 @@ func resolveAgentModel(
 		return strings.TrimSpace(agentCfg.Model.Primary)
 	}
 	return defaults.GetModelName()
+}
+
+// sameWorkspacePath reports whether two workspace paths point at the same
+// directory. Windows paths are compared case-insensitively.
+func sameWorkspacePath(a, b string) bool {
+	a = filepath.Clean(strings.TrimSpace(a))
+	b = filepath.Clean(strings.TrimSpace(b))
+	if runtime.GOOS == "windows" {
+		return strings.EqualFold(a, b)
+	}
+	return a == b
 }
 
 // resolveAgentFallbacks resolves the fallback models for an agent.

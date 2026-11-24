@@ -6,6 +6,33 @@ All notable changes to this fork of PicoClaw. Versions use the
 Earlier versions up to `0.1.27` are recorded as git tags. This file starts
 with the first batch that was built locally before tagging.
 
+## [0.1.52] - 2026-11-24
+
+### Added
+- `GET /api/agents/{id}/prompt-size` returns a read-only breakdown of the
+  system prompt (identity, workspace files, skill catalog, active skills) with
+  the same token heuristic as the context meter.
+- The profile import dialog reads the tools and skills declared in the
+  profile's `AGENT.md` and preselects them, with a warning for high-impact
+  tools.
+
+### Changed
+- Agents that own a workspace (every agent except the default Pico/main agent)
+  now get a neutral kernel identity line instead of "You are picoclaw, a
+  helpful AI assistant". Product header, workspace layout and rules are
+  unchanged.
+- Those agents only see their assigned skills plus `picoclaw-agent` in the
+  skill catalog. The `picoclaw-agent` body is no longer injected into their
+  prompt; it stays in the catalog and can still be forced with
+  `/use picoclaw-agent`.
+- Importing a new profile without its own tool list now applies a safe
+  baseline (file read/write, web search/fetch, message) instead of granting
+  every globally enabled tool. An explicit profile list always wins.
+
+### Fixed
+- Re-importing a profile no longer overwrites its tool budget with all
+  enabled tools before the user can review it.
+
 ## [0.1.51] - 2026-11-24
 
 ### Added

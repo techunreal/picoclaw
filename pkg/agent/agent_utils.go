@@ -516,6 +516,9 @@ func activeSkillNames(agent *AgentInstance, opts processOptions) []string {
 	if turnProfileCustomSkills(opts.TurnProfile) {
 		return filterNamesByTurnProfile(resolved, opts.TurnProfile.AllowedSkills)
 	}
+	if agent.ContextBuilder != nil {
+		resolved = agent.ContextBuilder.FilterPersonaActiveSkills(resolved, opts.ForcedSkills)
+	}
 	return resolved
 }
 

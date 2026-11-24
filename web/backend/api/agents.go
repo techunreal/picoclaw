@@ -35,7 +35,7 @@ const (
 	// lockedAgentSkill is always present when an agent has an explicit skill
 	// list. It keeps the agent able to manage PicoClaw itself and guarantees
 	// that "Clear all" never produces an empty list.
-	lockedAgentSkill = "picoclaw-agent"
+	lockedAgentSkill = agent.AgentSelfSkillName
 )
 
 var avatarImagePattern = regexp.MustCompile(`(?i)^avatar\.(png|jpe?g|webp)$`)
@@ -91,6 +91,7 @@ func (h *Handler) registerAgentRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("PUT /api/agents/{id}/model", h.handleSetAgentModel)
 	mux.HandleFunc("DELETE /api/agents/{id}", h.handleDeleteAgent)
 	mux.HandleFunc("GET /api/agents/{id}/export", h.handleExportAgent)
+	mux.HandleFunc("GET /api/agents/{id}/prompt-size", h.handleAgentPromptSize)
 	mux.HandleFunc("POST /api/agents/import-bundle", h.handleImportAgentBundle)
 	mux.HandleFunc("GET /api/agents/{id}/avatar", h.handleGetAgentAvatar)
 	mux.HandleFunc("POST /api/agents/{id}/avatar", h.handleUploadAgentAvatar)
@@ -107,6 +108,56 @@ func (h *Handler) handleListAgents(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(buildAgentsResponse(cfg))
+}
+
+// handleAgentPromptSize reports a read-only breakdown of the system prompt a
+// turn would send for one agent. Tool schemas and history are not included.
+//
+//	GET /api/agents/{id}/prompt-size
+func (h *Handler) handleAgentPromptSize(w http.ResponseWriter, r *http.Request) {
+	cfg, err := config.LoadConfig(h.configPath)
+	if err != nil {
+		writeAgentsAPIError(w, http.StatusInternalServerError, "config_load_failed", err.Error())
+		return
+	}
+	agentCfg, ok := findAgentConfig(cfg, r.PathValue("id"))
+	if !ok {
+		writeAgentsAPIError(w, http.StatusNotFound, "agent_not_found", "agent was not found")
+		return
+	}
+	workspace, source := effectiveAgentWorkspace(cfg, *agentCfg)
+	if strings.TrimSpace(workspace) == "" {
+		writeAgentsAPIError(w, http.StatusBadRequest, "invalid_workspace", "agent workspace is empty")
+		return
+	}
+
+	defaultsWorkspace := expandHomePath(cfg.Agents.Defaults.Workspace)
+	persona := workspaceKey(workspace) != workspaceKey(defaultsWorkspace)
+
+	skills := agentCfg.Skills
+	skillsSource := "config"
+	if definitionSkills, declared := agent.AgentDefinitionSkills(workspace); declared {
+		skills = definitionSkills
+		skillsSource = "agent.md"
+	}
+
+	sharedSkills := ""
+	defaultSkills := filepath.Join(defaultsWorkspace, "skills")
+	if workspaceKey(defaultSkills) != workspaceKey(filepath.Join(workspace, "skills")) {
+		sharedSkills = defaultSkills
+	}
+	builder := agent.NewContextBuilderWithShared(workspace, sharedSkills).
+		WithPersonaMode(persona, skills)
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"agent":            routing.NormalizeAgentID(strings.TrimSpace(agentCfg.ID)),
+		"workspace":        workspace,
+		"workspace_source": source,
+		"skills":           skills,
+		"skills_source":    skillsSource,
+		"persona":          persona,
+		"report":           builder.PromptSizeReport(skills),
+	})
 }
 
 func (h *Handler) handleUpdateAgents(w http.ResponseWriter, r *http.Request) {
