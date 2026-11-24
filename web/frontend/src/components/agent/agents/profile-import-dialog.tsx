@@ -35,6 +35,7 @@ import {
 import {
   defaultImportToolSelection,
   defaultSkillSelection,
+  LOCKED_AGENT_SKILL,
   selectedRiskyTools,
 } from "@/components/agent/agents/agent-form-utils"
 import { suggestAgentWorkspace } from "@/components/agent/agents/use-agents-page"
@@ -125,6 +126,9 @@ export function ProfileImportDialog({
     [selectedTools],
   )
   const selectedSkillBytes = selectedSkills.reduce((sum, name) => {
+    // The self-management skill is catalog-only for agents with their own
+    // workspace, so its body does not add tokens to every turn.
+    if (name === LOCKED_AGENT_SKILL) return sum
     const skill = skills.find((item) => item.name === name)
     return sum + (skill?.size ?? 0)
   }, 0)
