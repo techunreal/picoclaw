@@ -75,79 +75,39 @@ func (p *Pipeline) tryConfiguredStreamingLLM(
 		}
 		lastChunkAt = now
 	}
-
-	streamCtx, streamCancel := context.WithCancel(ctx)
-	defer streamCancel()
-	exec.loopCut = false
-	exec.loopCutChars = 0
-	exec.loopBlockChars = 0
-	exec.loopRepeats = 0
-	detector := newReasoningLoopDetector()
-	sawContent := false
-	forwardReasoning := func(accumulated string) {
-		if exec.loopCut || sawContent || strings.TrimSpace(accumulated) == "" {
-			return
-		}
-		if detector.Observe(accumulated) {
-			exec.loopCut = true
-			exec.loopCutChars = detector.cutChars
-			exec.loopBlockChars = detector.blockChars
-			exec.loopRepeats = detector.repeats
-			streamCancel()
-			return
-		}
-		if !exec.suppressReasoning {
-			publisher.UpdateReasoning(ctx, accumulated)
-		}
-	}
-	forwardContent := func(content string) {
-		if strings.TrimSpace(content) == "" {
-			return
-		}
-		sawContent = true
-		publisher.Update(ctx, content)
-	}
-
 	var response *providers.LLMResponse
 	var streamErr error
 	if eventProvider, ok := exec.activeProvider.(providers.StreamingEventProvider); ok {
 		response, streamErr = eventProvider.ChatStreamEvents(
-			streamCtx,
+			ctx,
 			messagesForCall,
 			toolDefsForCall,
 			exec.llmModel,
 			exec.llmOpts,
 			func(chunk providers.StreamChunk) {
 				recordChunk()
-				forwardReasoning(chunk.ReasoningContent)
-				forwardContent(chunk.Content)
+				if !exec.suppressReasoning && strings.TrimSpace(chunk.ReasoningContent) != "" {
+					publisher.UpdateReasoning(ctx, chunk.ReasoningContent)
+				}
+				if strings.TrimSpace(chunk.Content) != "" {
+					publisher.Update(ctx, chunk.Content)
+				}
 			},
 		)
 	} else {
 		response, streamErr = streamProvider.ChatStream(
-			streamCtx,
+			ctx,
 			messagesForCall,
 			toolDefsForCall,
 			exec.llmModel,
 			exec.llmOpts,
 			func(accumulated string) {
 				recordChunk()
-				forwardContent(accumulated)
+				publisher.Update(ctx, accumulated)
 			},
 		)
 	}
 	logConfiguredStreamingSummary(ts, exec, chunkCount, firstChunkAt, lastChunkAt, streamErr)
-	if exec.loopCut {
-		logger.WarnCF("agent", "Reasoning loop detected; cutting streamed turn", map[string]any{
-			"agent_id":    ts.agent.ID,
-			"channel":     ts.channel,
-			"model":       exec.llmModel,
-			"cut_chars":   exec.loopCutChars,
-			"block_chars": exec.loopBlockChars,
-			"repeats":     exec.loopRepeats,
-		})
-		return nil, true, errReasoningLoop
-	}
 	if streamErr == nil {
 		if updateErr := publisher.Err(); updateErr != nil {
 			logFields := map[string]any{

@@ -6,6 +6,19 @@ All notable changes to this fork of PicoClaw. Versions use the
 Earlier versions up to `0.1.27` are recorded as git tags. This file starts
 with the first batch that was built locally before tagging.
 
+## [0.1.54] - 2026-11-24
+
+### Removed
+- The streaming reasoning-loop detector and its early stream cut.
+- The one-shot recovery retry and its "previous attempt got stuck" note.
+- The automatic retry for `finish_reason=length` with empty content.
+
+### Kept
+- `web_fetch` browser navigation headers, HTTP/2 and the explicit blocked-site
+  error from 0.1.53.
+- The 0.1.52 profile-agent changes (neutral identity, catalog-only
+  `picoclaw-agent`, safer import tool defaults).
+
 ## [0.1.53] - 2026-11-24
 
 ### Added

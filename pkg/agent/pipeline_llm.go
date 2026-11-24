@@ -304,61 +304,7 @@ func (p *Pipeline) CallLLM(
 	}
 	for retry := 0; retry <= maxRetries; retry++ {
 		exec.response, err = callLLM(exec.callMessages, exec.providerToolDefs)
-		if errors.Is(err, errReasoningLoop) {
-			if !exec.recoveryUsed && retry < maxRetries {
-				exec.recoveryUsed = true
-				exec.callMessages = withRecoveryNote(exec.callMessages)
-				al.emitEvent(
-					runtimeevents.KindAgentLLMRetry,
-					ts.eventMeta("runTurn", "turn.llm.retry"),
-					LLMRetryPayload{
-						Attempt:    1,
-						MaxRetries: 1,
-						Reason:     "reasoning_loop",
-						Error: fmt.Sprintf(
-							"cut at %d chars (block %d chars, %d repeats)",
-							exec.loopCutChars, exec.loopBlockChars, exec.loopRepeats,
-						),
-					},
-				)
-				logger.WarnCF("agent", "Reasoning loop detected; retrying once", map[string]any{
-					"agent_id":    ts.agent.ID,
-					"model":       exec.llmModel,
-					"cut_chars":   exec.loopCutChars,
-					"block_chars": exec.loopBlockChars,
-					"repeats":     exec.loopRepeats,
-				})
-				continue
-			}
-			cancelConfiguredStreamingLLM(turnCtx, exec)
-			exec.finalContent = reasoningLoopResponse
-			return ControlBreak, nil
-		}
 		if err == nil {
-			if shouldRecoverEmptyLength(exec.response) {
-				if !exec.recoveryUsed && retry < maxRetries {
-					exec.recoveryUsed = true
-					exec.callMessages = withRecoveryNote(exec.callMessages)
-					al.emitEvent(
-						runtimeevents.KindAgentLLMRetry,
-						ts.eventMeta("runTurn", "turn.llm.retry"),
-						LLMRetryPayload{
-							Attempt:    1,
-							MaxRetries: 1,
-							Reason:     "empty_length",
-							Error:      "finish_reason=length with empty content",
-						},
-					)
-					logger.WarnCF("agent", "Empty response at token limit; retrying once", map[string]any{
-						"agent_id": ts.agent.ID,
-						"model":    exec.llmModel,
-					})
-					continue
-				}
-				cancelConfiguredStreamingLLM(turnCtx, exec)
-				exec.finalContent = emptyLengthResponse
-				return ControlBreak, nil
-			}
 			break
 		}
 		if ts.hardAbortRequested() && errors.Is(err, context.Canceled) {
