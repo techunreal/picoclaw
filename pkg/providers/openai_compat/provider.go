@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -237,7 +238,24 @@ func (p *Provider) applyThinkingControl(requestBody map[string]any, model string
 		requestBody["thinking"] = map[string]any{"type": "disabled"}
 	case "enable_thinking":
 		requestBody["enable_thinking"] = false
+	case "chat_template":
+		applyChatTemplateThinkingOff(requestBody)
 	}
+}
+
+// applyChatTemplateThinkingOff disables Qwen thinking on self-hosted
+// OpenAI-compatible servers (llama.cpp, vLLM) that expose the chat-template
+// flag instead of a top-level thinking field. Existing chat_template_kwargs
+// from an explicitly configured provider are preserved.
+func applyChatTemplateThinkingOff(requestBody map[string]any) {
+	kwargs := make(map[string]any)
+	if existing, ok := requestBody["chat_template_kwargs"].(map[string]any); ok {
+		for key, value := range existing {
+			kwargs[key] = value
+		}
+	}
+	kwargs["enable_thinking"] = false
+	requestBody["chat_template_kwargs"] = kwargs
 }
 
 func (p *Provider) applyDeepSeekThinkingControl(requestBody map[string]any, level string) {
@@ -279,6 +297,22 @@ func (p *Provider) thinkingControlKind(model string) string {
 	providerName := strings.ToLower(strings.TrimSpace(p.providerName))
 	lowerModel := strings.ToLower(strings.TrimSpace(model))
 
+	// Self-hosted OpenAI-compatible endpoints usually expose Qwen's thinking
+	// switch through the chat template, not through a top-level field.
+	if isLocalAPIHost(p.apiBase) && isGenericOpenAIProvider(providerName) {
+		// A local proxy in front of Doubao/Volcengine still speaks the
+		// thinking_type API.
+		if strings.Contains(lowerModel, "doubao") {
+			return "thinking_type"
+		}
+		if providerName != "openai" && providerName != "" {
+			return "chat_template"
+		}
+		if strings.Contains(lowerModel, "qwen") {
+			return "chat_template"
+		}
+	}
+
 	switch providerName {
 	case "volcengine":
 		return "thinking_type"
@@ -313,6 +347,36 @@ func isVolcengineHost(apiBase string) bool {
 func isDashScopeHost(apiBase string) bool {
 	host := normalizedHostname(apiBase)
 	return host == "dashscope.aliyuncs.com" || strings.HasSuffix(host, ".dashscope.aliyuncs.com")
+}
+
+// isGenericOpenAIProvider reports whether a provider name is a generic
+// OpenAI-compatible protocol rather than a vendor with its own thinking API.
+func isGenericOpenAIProvider(providerName string) bool {
+	switch providerName {
+	case "", "openai", "openai-compatible", "custom", "ollama", "lmstudio", "vllm", "llamacpp", "llama.cpp":
+		return true
+	default:
+		return false
+	}
+}
+
+// isLocalAPIHost reports whether apiBase points at a loopback/private host or a
+// local hostname. Only these endpoints get the chat-template thinking flag,
+// because public OpenAI-compatible APIs may reject unknown request fields.
+func isLocalAPIHost(apiBase string) bool {
+	host := normalizedHostname(apiBase)
+	if host == "" {
+		return false
+	}
+	if host == "localhost" || host == "host.docker.internal" ||
+		strings.HasSuffix(host, ".local") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return false
+	}
+	return ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast()
 }
 
 func normalizedHostname(rawURL string) string {

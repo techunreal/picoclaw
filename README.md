@@ -5,7 +5,7 @@ by Sipeed. Upstream is MIT-licensed; this fork keeps the same license and adds
 desktop usability, security hardening, agent management, and local document
 tools.
 
-- **Version:** `0.1.54-fork`
+- **Version:** `0.1.55-fork`
 - **Upstream:** https://github.com/sipeed/picoclaw
 - **Fork:** https://github.com/techunreal/picoclaw
 - **License:** MIT (see `LICENSE` and `NOTICE.md`)
@@ -13,7 +13,12 @@ tools.
 > This is not an official Sipeed release. Report fork-specific issues on the
 > fork repository, not upstream.
 
-## What's new in 0.1.54-fork
+## What's new in 0.1.55-fork
+
+- **Thinking off works on local models:** setting a model's **Thinking Level**
+  to `off` now disables Qwen thinking on self-hosted OpenAI-compatible servers
+  (llama.cpp, vLLM and similar) by sending the chat-template flag. No manual
+  `Extra Body` JSON is needed. Public/unknown endpoints are left unchanged.
 
 - **Cloudflare-protected pages work again:** `web_fetch` sends normal browser
   navigation headers and enables HTTP/2 for page fetches. Britannica and
@@ -197,7 +202,7 @@ Microsoft Office, Adobe Acrobat, or a system Python install.
 ## Quick start (Windows)
 
 1. Extract the release ZIP (for example
-   `PicoClaw-Windows-x86_64-0.1.54-fork.zip`) to a folder such as
+   `PicoClaw-Windows-x86_64-0.1.55-fork.zip`) to a folder such as
    `C:\Users\<you>\PicoClaw`.
 2. Run `picoclaw-launcher.exe`.
 3. Open `http://localhost:18800` if the browser does not open automatically.
@@ -246,13 +251,13 @@ go build -tags "goolm,stdjson" -o build/picoclaw-launcher.exe ./web/backend
 Release build with version metadata, Office runtime, ZIP, and SHA256:
 
 ```powershell
-powershell -File scripts/build-release.ps1 -Version 0.1.54-fork
+powershell -File scripts/build-release.ps1 -Version 0.1.55-fork
 ```
 
 Lean build without the Office runtime:
 
 ```powershell
-powershell -File scripts/build-release.ps1 -Version 0.1.54-fork -SkipOfficeRuntime
+powershell -File scripts/build-release.ps1 -Version 0.1.55-fork -SkipOfficeRuntime
 ```
 
 ## Tests
@@ -268,7 +273,7 @@ go test -tags "goolm,stdjson" ./... -count=1 -timeout 300s
 - Package E.1: resilience, persistence, model references, deterministic tests,
   curated skills, Office Pack.
 - Package E.2: release, clean install, README, roadmap, fork push.
-- 0.1.4-0.1.54: WebUI, agents, models, profile import, TTS/read-aloud, browser
+- 0.1.4-0.1.55: WebUI, agents, models, profile import, TTS/read-aloud, browser
   allowlist, launcher/firewall, context safety. See [`CHANGELOG.md`](CHANGELOG.md).
 - Portable/USB mode (E.3): future idea.
 

@@ -100,6 +100,99 @@ func TestBuildRequestBody_DisablesModelDependentQwenThinkingWhenThinkingLevelOff
 	}
 }
 
+func TestBuildRequestBody_DisablesLocalQwenThinkingViaChatTemplate(t *testing.T) {
+	p := NewProvider("", "http://192.168.1.13:8080/v1", "")
+	p.SetProviderName("openai-compatible")
+
+	body := p.buildRequestBody(
+		[]Message{{Role: "user", Content: "hi"}},
+		nil,
+		"local",
+		map[string]any{"thinking_level": "off"},
+	)
+
+	kwargs, ok := body["chat_template_kwargs"].(map[string]any)
+	if !ok {
+		t.Fatalf("chat_template_kwargs = %#v, want map", body["chat_template_kwargs"])
+	}
+	if got := kwargs["enable_thinking"]; got != false {
+		t.Fatalf("chat_template_kwargs.enable_thinking = %#v, want false", got)
+	}
+	if _, ok := body["enable_thinking"]; ok {
+		t.Fatalf("top-level enable_thinking should not be used for chat-template endpoints")
+	}
+}
+
+func TestBuildRequestBody_LocalThinkingOffIsSkippedForNonOffLevel(t *testing.T) {
+	p := NewProvider("", "http://localhost:8080/v1", "")
+	p.SetProviderName("openai-compatible")
+
+	body := p.buildRequestBody(
+		[]Message{{Role: "user", Content: "hi"}},
+		nil,
+		"local",
+		map[string]any{"thinking_level": "high"},
+	)
+
+	if _, ok := body["chat_template_kwargs"]; ok {
+		t.Fatalf("chat_template_kwargs should be omitted unless thinking is off")
+	}
+}
+
+func TestBuildRequestBody_PublicOpenAICompatibleDoesNotGetChatTemplate(t *testing.T) {
+	p := NewProvider("key", "https://api.example.com/v1", "")
+	p.SetProviderName("openai-compatible")
+
+	body := p.buildRequestBody(
+		[]Message{{Role: "user", Content: "hi"}},
+		nil,
+		"some-model",
+		map[string]any{"thinking_level": "off"},
+	)
+
+	for _, key := range []string{"chat_template_kwargs", "enable_thinking", "thinking"} {
+		if _, ok := body[key]; ok {
+			t.Fatalf("%s should not be sent to a public unknown endpoint, got %#v", key, body[key])
+		}
+	}
+}
+
+func TestApplyChatTemplateThinkingOffPreservesExistingKeys(t *testing.T) {
+	body := map[string]any{
+		"chat_template_kwargs": map[string]any{
+			"preserve_thinking": true,
+		},
+	}
+	applyChatTemplateThinkingOff(body)
+
+	kwargs := body["chat_template_kwargs"].(map[string]any)
+	if kwargs["preserve_thinking"] != true {
+		t.Fatalf("existing chat_template_kwargs key was dropped: %#v", kwargs)
+	}
+	if kwargs["enable_thinking"] != false {
+		t.Fatalf("enable_thinking = %#v, want false", kwargs["enable_thinking"])
+	}
+}
+
+func TestIsLocalAPIHost(t *testing.T) {
+	tests := map[string]bool{
+		"http://127.0.0.1:8080/v1":                          true,
+		"http://localhost:11434/v1":                         true,
+		"http://192.168.1.13:8080/v1":                       true,
+		"http://10.0.0.5:8000/v1":                           true,
+		"http://172.16.4.2:8000/v1":                         true,
+		"http://[::1]:8080/v1":                              true,
+		"http://server.local:8080/v1":                       true,
+		"https://api.example.com/v1":                        false,
+		"https://dashscope.aliyuncs.com/compatible-mode/v1": false,
+	}
+	for apiBase, want := range tests {
+		if got := isLocalAPIHost(apiBase); got != want {
+			t.Fatalf("isLocalAPIHost(%q) = %v, want %v", apiBase, got, want)
+		}
+	}
+}
+
 func TestBuildRequestBody_PreservesDoubaoRequestWhenThinkingLevelIsNotOff(t *testing.T) {
 	p := NewProvider("key", "https://ark.cn-beijing.volces.com/api/v3", "")
 	p.SetProviderName("openai")

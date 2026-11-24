@@ -6,6 +6,18 @@ All notable changes to this fork of PicoClaw. Versions use the
 Earlier versions up to `0.1.27` are recorded as git tags. This file starts
 with the first batch that was built locally before tagging.
 
+## [0.1.55] - 2026-11-24
+
+### Fixed
+- `thinking_level: "off"` now works on self-hosted OpenAI-compatible Qwen
+  endpoints. For loopback/private API bases (llama.cpp, vLLM, LM Studio,
+  Ollama and generic OpenAI-compatible providers) PicoClaw sends
+  `chat_template_kwargs.enable_thinking = false` instead of a top-level
+  `thinking` field the server ignores. Existing `chat_template_kwargs` keys
+  configured through `extra_body` are preserved.
+- Public/unknown OpenAI-compatible endpoints keep the previous behavior; no
+  extra body fields are sent to them.
+
 ## [0.1.54] - 2026-11-24
 
 ### Removed
