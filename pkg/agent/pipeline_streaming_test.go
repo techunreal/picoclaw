@@ -15,11 +15,12 @@ import (
 )
 
 type configuredStreamingProvider struct {
-	chatCalls    int
-	streamCalls  int
-	eventCalls   int
-	chatModels   []string
-	streamModels []string
+	chatCalls     int
+	streamCalls   int
+	eventCalls    int
+	chatModels    []string
+	streamModels  []string
+	eventMessages [][]providers.Message
 
 	chatResponse *providers.LLMResponse
 	streamPlan   []configuredStreamingCall
@@ -90,6 +91,7 @@ func (p *configuredStreamingProvider) ChatStreamEvents(
 	p.eventCalls++
 	p.streamCalls++
 	p.streamModels = append(p.streamModels, model)
+	p.eventMessages = append(p.eventMessages, append([]providers.Message(nil), messages...))
 	var plan configuredStreamingEventCall
 	if len(p.eventPlan) >= p.eventCalls {
 		plan = p.eventPlan[p.eventCalls-1]
@@ -102,7 +104,13 @@ func (p *configuredStreamingProvider) ChatStreamEvents(
 		}
 	}
 	for _, chunk := range plan.chunks {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		onChunk(chunk)
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
 	if plan.err != nil {
 		return nil, plan.err

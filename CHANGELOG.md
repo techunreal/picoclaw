@@ -6,6 +6,25 @@ All notable changes to this fork of PicoClaw. Versions use the
 Earlier versions up to `0.1.27` are recorded as git tags. This file starts
 with the first batch that was built locally before tagging.
 
+## [0.1.53] - 2026-11-24
+
+### Added
+- `web_fetch` sends standard browser navigation headers (`Accept`,
+  `Accept-Language`, `Upgrade-Insecure-Requests`, `Sec-Fetch-*`) and enables
+  HTTP/2 for page fetches. Cloudflare-protected pages such as Britannica and
+  GameSpot now return their content instead of a 403 challenge.
+- Blocked pages return an explicit error ("Site protection blocked the
+  request...") instead of a successful empty result. This applies to both
+  `plaintext` and `markdown` output.
+- Streaming reasoning is checked for repetition loops. A detected loop cuts the
+  stream and retries the turn once with a short "answer directly" note.
+- A response that hits the output limit with no content (`finish_reason=length`)
+  gets the same single recovery retry.
+
+### Changed
+- Recovery is limited to one attempt per turn; if it still fails, the user gets
+  a clear message instead of the generic provider error.
+
 ## [0.1.52] - 2026-11-24
 
 ### Added

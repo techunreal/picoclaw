@@ -155,6 +155,14 @@ type turnExecution struct {
 	// Abort signaling for coordinator (set by Pipeline methods)
 	abortedByHardAbort bool // true when hard abort triggered during LLM/tools
 	abortedByHook      bool // true when HookActionAbortTurn triggered
+
+	// Recovery state for reasoning loops / empty length responses. At most one
+	// recovery retry is allowed per turn.
+	recoveryUsed   bool
+	loopCut        bool
+	loopCutChars   int
+	loopBlockChars int
+	loopRepeats    int
 }
 
 func (exec *turnExecution) closeOwnedProviders() {

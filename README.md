@@ -1,11 +1,11 @@
-# PicoClaw â€” Windows fork
+# PicoClaw — Windows fork
 
 A Windows-first, WebUI-centered fork of [PicoClaw](https://github.com/sipeed/picoclaw)
 by Sipeed. Upstream is MIT-licensed; this fork keeps the same license and adds
 desktop usability, security hardening, agent management, and local document
 tools.
 
-- **Version:** `0.1.52-fork`
+- **Version:** `0.1.53-fork`
 - **Upstream:** https://github.com/sipeed/picoclaw
 - **Fork:** https://github.com/techunreal/picoclaw
 - **License:** MIT (see `LICENSE` and `NOTICE.md`)
@@ -13,7 +13,18 @@ tools.
 > This is not an official Sipeed release. Report fork-specific issues on the
 > fork repository, not upstream.
 
-## What's new in 0.1.52-fork
+## What's new in 0.1.53-fork
+
+- **Cloudflare-protected pages work again:** `web_fetch` sends normal browser
+  navigation headers and enables HTTP/2 for page fetches. Britannica and
+  GameSpot now return content instead of a 403 challenge; sites that still
+  block the request get an explicit "Site protection blocked the request"
+  error instead of a successful empty result.
+- **No more multi-minute thinking loops:** streaming reasoning is checked for
+  repeated long blocks. A loop is cut early and the turn is retried once with a
+  short "answer directly" note. A response that hits the output limit with no
+  content gets the same single retry; if it still fails, the user sees a clear
+  message instead of the generic provider error.
 
 - **Profile agents keep their own identity:** an agent with its own workspace
   no longer receives "You are picoclaw, a helpful AI assistant." Its identity
@@ -188,7 +199,7 @@ Microsoft Office, Adobe Acrobat, or a system Python install.
 ## Quick start (Windows)
 
 1. Extract the release ZIP (for example
-   `PicoClaw-Windows-x86_64-0.1.52-fork.zip`) to a folder such as
+   `PicoClaw-Windows-x86_64-0.1.53-fork.zip`) to a folder such as
    `C:\Users\<you>\PicoClaw`.
 2. Run `picoclaw-launcher.exe`.
 3. Open `http://localhost:18800` if the browser does not open automatically.
@@ -237,13 +248,13 @@ go build -tags "goolm,stdjson" -o build/picoclaw-launcher.exe ./web/backend
 Release build with version metadata, Office runtime, ZIP, and SHA256:
 
 ```powershell
-powershell -File scripts/build-release.ps1 -Version 0.1.52-fork
+powershell -File scripts/build-release.ps1 -Version 0.1.53-fork
 ```
 
 Lean build without the Office runtime:
 
 ```powershell
-powershell -File scripts/build-release.ps1 -Version 0.1.52-fork -SkipOfficeRuntime
+powershell -File scripts/build-release.ps1 -Version 0.1.53-fork -SkipOfficeRuntime
 ```
 
 ## Tests
@@ -259,7 +270,7 @@ go test -tags "goolm,stdjson" ./... -count=1 -timeout 300s
 - Package E.1: resilience, persistence, model references, deterministic tests,
   curated skills, Office Pack.
 - Package E.2: release, clean install, README, roadmap, fork push.
-- 0.1.4-0.1.52: WebUI, agents, models, profile import, TTS/read-aloud, browser
+- 0.1.4-0.1.53: WebUI, agents, models, profile import, TTS/read-aloud, browser
   allowlist, launcher/firewall, context safety. See [`CHANGELOG.md`](CHANGELOG.md).
 - Portable/USB mode (E.3): future idea.
 

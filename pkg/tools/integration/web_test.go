@@ -1588,7 +1588,7 @@ func TestWebFetchTool_CloudflareChallenge_NoRetryOnOtherErrors(t *testing.T) {
 }
 
 // TestWebFetchTool_CloudflareChallenge_RetryFailsToo verifies that if the honest-UA
-// retry also fails (e.g. still blocked), the error from the retry is returned.
+// retry also fails (e.g. still blocked), the turn gets an explicit block error.
 func TestWebFetchTool_CloudflareChallenge_RetryFailsToo(t *testing.T) {
 	withPrivateWebFetchHostsAllowed(t)
 
@@ -1608,13 +1608,12 @@ func TestWebFetchTool_CloudflareChallenge_RetryFailsToo(t *testing.T) {
 
 	result := tool.Execute(context.Background(), map[string]any{"url": server.URL})
 
-	// Should not be an error — the retry response is used as-is (403 is a valid HTTP response)
-	if result.IsError {
-		t.Fatalf("expected non-error result even when retry is also blocked, got: %s", result.ForLLM)
+	if !result.IsError {
+		t.Fatalf("expected an error for a challenge page, got: %s", result.ForLLM)
 	}
-	// Status in the JSON result should reflect the 403
-	if !strings.Contains(result.ForLLM, "403") {
-		t.Errorf("expected status 403 in result, got: %s", result.ForLLM)
+	if !strings.Contains(strings.ToLower(result.ForLLM), "site protection blocked") ||
+		!strings.Contains(result.ForLLM, "403") {
+		t.Fatalf("expected an explicit blocked message with status 403, got: %s", result.ForLLM)
 	}
 }
 

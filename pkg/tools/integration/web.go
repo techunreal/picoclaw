@@ -2453,6 +2453,12 @@ func NewWebFetchToolWithConfig(
 	if err != nil {
 		return nil, fmt.Errorf("failed to create HTTP client for web fetch: %w", err)
 	}
+	// Cloudflare and similar WAFs score HTTP/1.1 bot-like requests lower than
+	// HTTP/2 browser-like traffic. A custom http.Transport disables HTTP/2 by
+	// default, so enable it explicitly for web page fetches only.
+	if transport, ok := client.Transport.(*http.Transport); ok {
+		transport.ForceAttemptHTTP2 = true
+	}
 	if fetchLimitBytes <= 0 {
 		fetchLimitBytes = 10 * 1024 * 1024 // Security Fallback
 	}
@@ -2541,6 +2547,16 @@ func (t *WebFetchTool) Execute(ctx context.Context, args map[string]any) *ToolRe
 		}
 		utils.AllowConfiguredProxyFirstHop(req, t.client.Transport)
 		req.Header.Set("User-Agent", ua)
+		// Browser navigation headers. Accept-Encoding is deliberately left to
+		// Go's transport: setting it manually disables transparent gzip
+		// decompression and makes Cloudflare challenges more likely.
+		req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8")
+		req.Header.Set("Accept-Language", "en-US,en;q=0.9")
+		req.Header.Set("Upgrade-Insecure-Requests", "1")
+		req.Header.Set("Sec-Fetch-Dest", "document")
+		req.Header.Set("Sec-Fetch-Mode", "navigate")
+		req.Header.Set("Sec-Fetch-Site", "none")
+		req.Header.Set("Sec-Fetch-User", "?1")
 		resp, doErr := t.client.Do(req)
 		if doErr != nil {
 			return nil, nil, fmt.Errorf("request failed: %w", doErr)
@@ -2596,6 +2612,24 @@ func (t *WebFetchTool) Execute(ctx context.Context, args map[string]any) *ToolRe
 
 	bodyStr := string(body)
 	contentType := resp.Header.Get("Content-Type")
+
+	// A challenge page is not usable content. Return an explicit error instead
+	// of a "successful" fetch with an empty or 57-character body.
+	if reason := siteProtectionBlockReason(
+		resp.StatusCode,
+		resp.Header.Get("Cf-Mitigated"),
+		body,
+	); reason != "" {
+		label := ""
+		if reason == "challenge" {
+			label = ", Cloudflare challenge"
+		}
+		return ErrorResult(fmt.Sprintf(
+			"Site protection blocked the request (HTTP %d%s). "+
+				"The page requires browser verification and returned no usable content; try another source.",
+			resp.StatusCode, label,
+		))
+	}
 
 	mediaType, params, err := mime.ParseMediaType(contentType)
 	if err != nil {
@@ -2751,6 +2785,56 @@ func looksLikeHTML(body string) bool {
 
 	return strings.HasPrefix(body, "<!doctype") ||
 		strings.HasPrefix(lower, "<html")
+}
+
+// siteProtectionBlockReason reports whether a response is a bot challenge or a
+// refusal, instead of real page content. It stays conservative for 2xx
+// responses so a normal page that merely contains a challenge phrase is not
+// misclassified.
+func siteProtectionBlockReason(status int, cfMitigated string, body []byte) string {
+	cf := strings.ToLower(strings.TrimSpace(cfMitigated))
+	if cf != "" {
+		return "challenge"
+	}
+
+	lower := strings.ToLower(string(body))
+	markers := []string{
+		"just a moment...",
+		"enable javascript and cookies",
+		"verifying you are human",
+		"checking your browser",
+		"bir dakika lütfen",
+		"güvenlik doğrulaması",
+		"cf-challenge",
+		"__cf_chl",
+		"cf_chl_opt",
+	}
+	hasMarker := false
+	for _, marker := range markers {
+		if strings.Contains(lower, marker) {
+			hasMarker = true
+			break
+		}
+	}
+
+	if status >= 400 {
+		if hasMarker {
+			return "challenge"
+		}
+		switch status {
+		case http.StatusUnauthorized, http.StatusForbidden,
+			http.StatusTooManyRequests, http.StatusServiceUnavailable:
+			return "refused"
+		}
+		return ""
+	}
+
+	// Some WAFs serve a challenge with HTTP 200. Only treat compact pages with
+	// known challenge markers that way.
+	if status >= 200 && status < 300 && hasMarker && len(body) < 8*1024 {
+		return "challenge"
+	}
+	return ""
 }
 
 func (t *WebFetchTool) extractText(htmlContent string) string {
