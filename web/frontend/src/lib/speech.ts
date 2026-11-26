@@ -1,4 +1,71 @@
 export const SPEECH_VOICE_KEY = "picoclaw.speech.voice"
+export const READ_ALOUD_SETTINGS_KEY = "picoclaw.speech.readAloud"
+
+export type ReadAloudEngine = "auto" | "tts" | "browser"
+export type ReadAloudLanguage = "auto" | "tr" | "en"
+
+export interface ReadAloudSettings {
+  engine: ReadAloudEngine
+  autoLanguage: boolean
+  language: ReadAloudLanguage
+}
+
+export const DEFAULT_READ_ALOUD_SETTINGS: ReadAloudSettings = {
+  engine: "auto",
+  autoLanguage: true,
+  language: "auto",
+}
+
+export function readReadAloudSettings(): ReadAloudSettings {
+  if (typeof window === "undefined") return DEFAULT_READ_ALOUD_SETTINGS
+  try {
+    const raw = window.localStorage.getItem(READ_ALOUD_SETTINGS_KEY)
+    if (raw === null) return DEFAULT_READ_ALOUD_SETTINGS
+    const parsed = JSON.parse(raw) as Partial<ReadAloudSettings>
+    const engine: ReadAloudEngine =
+      parsed.engine === "tts" || parsed.engine === "browser"
+        ? parsed.engine
+        : "auto"
+    const language: ReadAloudLanguage =
+      parsed.language === "tr" || parsed.language === "en"
+        ? parsed.language
+        : "auto"
+    return {
+      engine,
+      autoLanguage: parsed.autoLanguage !== false,
+      language,
+    }
+  } catch {
+    return DEFAULT_READ_ALOUD_SETTINGS
+  }
+}
+
+export function writeReadAloudSettings(settings: ReadAloudSettings) {
+  if (typeof window === "undefined") return
+  try {
+    window.localStorage.setItem(
+      READ_ALOUD_SETTINGS_KEY,
+      JSON.stringify(settings),
+    )
+  } catch {
+    // storage may be unavailable in private mode
+  }
+}
+
+/**
+ * Resolves the language for read-aloud. A manual language always wins; when
+ * automatic detection is enabled and no manual language is set, the text itself
+ * decides. Empty means "no strong signal".
+ */
+export function resolveReadAloudLanguage(
+  text: string,
+  settings: ReadAloudSettings,
+): "tr" | "en" | "" {
+  if (settings.language !== "auto") return settings.language
+  if (!settings.autoLanguage) return ""
+  return detectSpeechLanguage(text)
+}
+
 
 const TURKISH_CHARS = /[çğıöşüÇĞİÖŞÜ]/
 
@@ -235,9 +302,16 @@ export function writeSpeechVoicePreference(voiceURI: string) {
  * the text itself, the browser language (the user's own locale, not the UI
  * language), then the first available voice.
  */
-export function pickSpeechVoice(text = ""): SpeechSynthesisVoice | null {
+export function pickSpeechVoice(
+  text = "",
+  languageOverride: "tr" | "en" | "" = "",
+): SpeechSynthesisVoice | null {
   const voices = getSpeechVoices()
   if (voices.length === 0) return null
+
+  if (languageOverride !== "") {
+    return findVoiceForLanguage(voices, languageOverride)
+  }
 
   const preferred = readSpeechVoicePreference()
   if (preferred !== "") {
@@ -268,13 +342,6 @@ export function pickSpeechVoice(text = ""): SpeechSynthesisVoice | null {
     if (match) return match
   }
 
-  if (TURKISH_CHARS.test(text)) {
-    const turkish = voices.find((voice) =>
-      voice.lang.toLowerCase().startsWith("tr"),
-    )
-    if (turkish) return turkish
-  }
-
   return voices[0] ?? null
 }
 
@@ -285,17 +352,29 @@ export function speakWithVoice(
     onEnd?: () => void
     onError?: () => void
   },
+  languageOverride: "tr" | "en" | "" = "",
 ): SpeechSynthesisUtterance | null {
   if (!speechSupported()) return null
   const utterance = new SpeechSynthesisUtterance(text)
-  if (voice) {
+  const overrideTag =
+    languageOverride === "tr"
+      ? "tr-TR"
+      : languageOverride === "en"
+        ? "en-US"
+        : ""
+  const voiceMatchesOverride =
+    voice === null ||
+    overrideTag === "" ||
+    voice.lang.toLowerCase().startsWith(`${languageOverride}-`)
+
+  if (voice && voiceMatchesOverride) {
     utterance.voice = voice
     utterance.lang = voice.lang
   } else {
-    // Even without an installed voice, tell the engine which language to use.
-    // Otherwise the browser silently falls back to its own default (often
-    // English) and reads Turkish text with English pronunciation.
-    const detected = speechLanguageTag(text)
+    // Even without a matching installed voice, tell the engine which language
+    // to use. Otherwise the browser silently falls back to its own default
+    // (often English) and reads Turkish text with English pronunciation.
+    const detected = overrideTag || speechLanguageTag(text)
     if (detected !== "") {
       utterance.lang = detected
     } else if (navigator.language) {

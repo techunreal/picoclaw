@@ -62,3 +62,18 @@ export async function testVoice(text: string): Promise<Blob> {
   if (!res.ok) throw new Error(await readError(res))
   return res.blob()
 }
+
+export async function speakVoice(
+  text: string,
+  language: string,
+  signal?: AbortSignal,
+): Promise<Blob> {
+  const res = await launcherFetch("/api/voice/speak", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text, language }),
+    signal,
+  })
+  if (!res.ok) throw new Error(await readError(res))
+  return res.blob()
+}

@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/sipeed/picoclaw/pkg/audio/tts"
 	"github.com/sipeed/picoclaw/pkg/config"
@@ -41,16 +42,25 @@ type voiceTestRequest struct {
 	Text string `json:"text"`
 }
 
+type voiceSpeakRequest struct {
+	Text     string `json:"text"`
+	Language string `json:"language,omitempty"`
+}
+
 const (
 	voiceTestDefaultText = "Hello from PicoClaw. This is a text to speech test."
 	voiceTestMaxChars    = 400
 	voiceTestMaxBytes    = 20 << 20
+
+	voiceSpeakMaxChars = 12000
+	voiceSpeakMaxBytes = 60 << 20
 )
 
 func (h *Handler) registerVoiceRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/voice/config", h.handleGetVoiceConfig)
 	mux.HandleFunc("PUT /api/voice/config", h.handleUpdateVoiceConfig)
 	mux.HandleFunc("POST /api/voice/test", h.handleTestVoice)
+	mux.HandleFunc("POST /api/voice/speak", h.handleSpeakVoice)
 }
 
 func (h *Handler) handleGetVoiceConfig(w http.ResponseWriter, r *http.Request) {
@@ -131,7 +141,6 @@ func (h *Handler) handleTestVoice(w http.ResponseWriter, r *http.Request) {
 			"Failed to load config: "+err.Error())
 		return
 	}
-
 	provider := tts.DetectTTS(cfg)
 	if provider == nil {
 		writeBrowserSettingsError(w, http.StatusBadRequest, "tts_not_configured",
@@ -139,7 +148,55 @@ func (h *Handler) handleTestVoice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	h.writeSynthesizedVoice(w, r, provider, text, 30*time.Second, voiceTestMaxBytes, "tts-test")
+}
+
+// handleSpeakVoice synthesizes arbitrary assistant text for the WebUI
+// read-aloud button. It is intentionally separate from send_tts: reading a
+// reply does not require the agent tool to be enabled.
+func (h *Handler) handleSpeakVoice(w http.ResponseWriter, r *http.Request) {
+	var req voiceSpeakRequest
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req); err != nil {
+		writeBrowserSettingsError(w, http.StatusBadRequest, "invalid_request", "Invalid JSON request body.")
+		return
+	}
+	text := strings.TrimSpace(req.Text)
+	if text == "" {
+		writeBrowserSettingsError(w, http.StatusBadRequest, "text_required", "Text is required.")
+		return
+	}
+	if utf8.RuneCountInString(text) > voiceSpeakMaxChars {
+		writeBrowserSettingsError(w, http.StatusBadRequest, "text_too_long",
+			fmt.Sprintf("Text to read must be at most %d characters.", voiceSpeakMaxChars))
+		return
+	}
+
+	cfg, err := config.LoadConfig(h.configPath)
+	if err != nil {
+		writeBrowserSettingsError(w, http.StatusInternalServerError, "config_unreadable",
+			"Failed to load config: "+err.Error())
+		return
+	}
+	provider := tts.DetectTTS(cfg)
+	if provider == nil {
+		writeBrowserSettingsError(w, http.StatusBadRequest, "tts_not_configured",
+			"No text-to-speech model is ready.")
+		return
+	}
+
+	h.writeSynthesizedVoice(w, r, provider, text, 120*time.Second, voiceSpeakMaxBytes, "read-aloud")
+}
+
+func (h *Handler) writeSynthesizedVoice(
+	w http.ResponseWriter,
+	r *http.Request,
+	provider tts.TTSProvider,
+	text string,
+	timeout time.Duration,
+	maxBytes int64,
+	filename string,
+) {
+	ctx, cancel := context.WithTimeout(r.Context(), timeout)
 	defer cancel()
 
 	stream, err := provider.Synthesize(ctx, text)
@@ -160,7 +217,7 @@ func (h *Handler) handleTestVoice(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var buf bytes.Buffer
-	if _, err := io.Copy(&buf, io.LimitReader(stream, voiceTestMaxBytes)); err != nil {
+	if _, err := io.Copy(&buf, io.LimitReader(stream, maxBytes)); err != nil {
 		writeBrowserSettingsError(w, http.StatusBadGateway, "tts_failed",
 			"Could not read synthesized audio: "+err.Error())
 		return
@@ -172,7 +229,7 @@ func (h *Handler) handleTestVoice(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", contentType)
-	w.Header().Set("Content-Disposition", fmt.Sprintf("inline; filename=%q", "tts-test"+ext))
+	w.Header().Set("Content-Disposition", fmt.Sprintf("inline; filename=%q", filename+ext))
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(buf.Bytes())

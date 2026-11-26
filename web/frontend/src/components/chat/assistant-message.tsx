@@ -16,6 +16,7 @@ import rehypeHighlight from "rehype-highlight"
 import rehypeRaw from "rehype-raw"
 import rehypeSanitize from "rehype-sanitize"
 import remarkGfm from "remark-gfm"
+import { toast } from "sonner"
 
 import {
   MessageCodeBlock,
@@ -51,8 +52,10 @@ export function AssistantMessage({
 }: AssistantMessageProps) {
   const { t } = useTranslation()
   const { copy, isCopied } = useCopyToClipboard()
-  const { isSupported: speechSupported, isSpeaking, toggle: toggleSpeech } =
-    useSpeech()
+  const { isSupported: speechSupported, isSpeaking, isPreparing, toggle: toggleSpeech } =
+    useSpeech({
+      onError: (message) => toast.error(message),
+    })
   const isThought = kind === "thought"
   const isToolCalls = kind === "tool_calls"
   const isCollapsedBlock = isThought || isToolCalls
@@ -79,9 +82,10 @@ export function AssistantMessage({
   const copyMessageLabel = isCopied
     ? t("chat.copiedLabel")
     : t("chat.copyMessage")
-  const speakLabel = isSpeaking
-    ? t("chat.stopSpeaking", "Stop reading")
-    : t("chat.readAloud", "Read aloud")
+  const speakLabel =
+    isSpeaking || isPreparing
+      ? t("chat.stopSpeaking", "Stop reading")
+      : t("chat.readAloud", "Read aloud")
   const trimmedModelName = modelName?.trim() ?? ""
 
   return (
@@ -248,15 +252,16 @@ export function AssistantMessage({
               size="icon"
               className={cn(
                 "bg-background/50 hover:bg-background/80 absolute top-2 right-10 h-7 w-7 transition-opacity",
-                isSpeaking
+                isSpeaking || isPreparing
                   ? "opacity-100"
                   : "opacity-0 group-hover:opacity-100",
               )}
               onClick={() => toggleSpeech(content)}
               aria-label={speakLabel}
+              aria-busy={isPreparing}
               title={speakLabel}
             >
-              {isSpeaking ? (
+              {isSpeaking || isPreparing ? (
                 <IconPlayerStop className="text-muted-foreground h-4 w-4" />
               ) : (
                 <IconVolume className="text-muted-foreground h-4 w-4" />

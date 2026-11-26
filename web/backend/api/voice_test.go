@@ -3,6 +3,7 @@ package api
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -183,5 +184,81 @@ func TestVoiceTest_ReturnsAudio(t *testing.T) {
 	}
 	if ct := rec.Header().Get("Content-Type"); !strings.HasPrefix(ct, "audio/") {
 		t.Fatalf("content type = %q, want audio/*", ct)
+	}
+}
+
+func TestVoiceSpeak_ReturnsAudio(t *testing.T) {
+	ttsServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasPrefix(r.URL.Path, "/v1/audio/speech") {
+			t.Errorf("unexpected path %q", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "audio/wav")
+		_, _ = w.Write([]byte("READ-ALOUD-AUDIO"))
+	}))
+	defer ttsServer.Close()
+
+	configPath, mux := newVoiceTestEnv(t)
+	cfg, err := config.LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+	cfg.ModelList = []*config.ModelConfig{{
+		ModelName: "local-tts",
+		Provider:  "openai-compatible",
+		Model:     "clarvia-tts-tiny",
+		APIBase:   ttsServer.URL + "/v1",
+		APIKeys:   config.SimpleSecureStrings("test-key"),
+	}}
+	cfg.Voice.TTSModelName = "local-tts"
+	if err := config.SaveConfig(configPath, cfg); err != nil {
+		t.Fatalf("SaveConfig() error = %v", err)
+	}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/voice/speak",
+		bytes.NewBufferString(`{"text":"Merhaba dünya","language":"tr"}`))
+	req.Header.Set("Content-Type", "application/json")
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200, body = %s", rec.Code, rec.Body.String())
+	}
+	if rec.Body.String() != "READ-ALOUD-AUDIO" {
+		t.Fatalf("body = %q, want READ-ALOUD-AUDIO", rec.Body.String())
+	}
+	if ct := rec.Header().Get("Content-Type"); !strings.HasPrefix(ct, "audio/") {
+		t.Fatalf("content type = %q, want audio/*", ct)
+	}
+}
+
+func TestVoiceSpeak_RequiresText(t *testing.T) {
+	_, mux := newVoiceTestEnv(t)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/voice/speak",
+		bytes.NewBufferString(`{"text":"   "}`))
+	req.Header.Set("Content-Type", "application/json")
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400, body = %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "text_required") {
+		t.Fatalf("body = %s, want text_required", rec.Body.String())
+	}
+}
+
+func TestVoiceSpeak_RejectsVeryLongText(t *testing.T) {
+	_, mux := newVoiceTestEnv(t)
+
+	longText := strings.Repeat("a", voiceSpeakMaxChars+1)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/voice/speak",
+		bytes.NewBufferString(fmt.Sprintf(`{"text":%q}`, longText)))
+	req.Header.Set("Content-Type", "application/json")
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400, body = %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "text_too_long") {
+		t.Fatalf("body = %s, want text_too_long", rec.Body.String())
 	}
 }

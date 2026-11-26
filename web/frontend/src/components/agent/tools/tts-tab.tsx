@@ -20,15 +20,21 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
+import { Switch } from "@/components/ui/switch"
 import { showSaveSuccessOrRestartToast } from "@/lib/restart-required"
 import {
   getSpeechVoices,
   pickSpeechVoice,
+  readReadAloudSettings,
   readSpeechVoicePreference,
   speakWithVoice,
   speechSupported,
   stopSpeech,
+  writeReadAloudSettings,
   writeSpeechVoicePreference,
+  type ReadAloudEngine,
+  type ReadAloudLanguage,
+  type ReadAloudSettings,
 } from "@/lib/speech"
 import { refreshGatewayState } from "@/store/gateway"
 
@@ -46,6 +52,9 @@ export function TTSTab() {
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([])
   const [voiceURI, setVoiceURI] = useState("")
   const [browserSpeaking, setBrowserSpeaking] = useState(false)
+  const [readAloud, setReadAloud] = useState<ReadAloudSettings>(() =>
+    readReadAloudSettings(),
+  )
   const audioRef = useRef<HTMLAudioElement | null>(null)
 
   useEffect(() => {
@@ -134,6 +143,14 @@ export function TTSTab() {
     const uri = value === browserAutoVoice ? "" : value
     setVoiceURI(uri)
     writeSpeechVoicePreference(uri)
+  }
+
+  const updateReadAloud = (patch: Partial<ReadAloudSettings>) => {
+    setReadAloud((current) => {
+      const next = { ...current, ...patch }
+      writeReadAloudSettings(next)
+      return next
+    })
   }
 
   const testBrowserVoice = () => {
@@ -384,14 +401,137 @@ export function TTSTab() {
             <div className="space-y-1">
               <p className="text-sm font-medium">
                 {t(
+                  "pages.agent.tools.tts.read_aloud_title",
+                  "Read aloud (WebUI)",
+                )}
+              </p>
+              <p className="text-muted-foreground text-xs">
+                {t(
+                  "pages.agent.tools.tts.read_aloud_hint",
+                  "Used by the speaker button in chats. Automatic uses the selected TTS model when it is ready, otherwise the browser voice.",
+                )}
+              </p>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <p className="text-sm font-medium">
+                  {t("pages.agent.tools.tts.read_engine", "Engine")}
+                </p>
+                <Select
+                  value={readAloud.engine}
+                  onValueChange={(value) =>
+                    updateReadAloud({ engine: value as ReadAloudEngine })
+                  }
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="auto">
+                      {t(
+                        "pages.agent.tools.tts.read_engine_auto",
+                        "Automatic (TTS model, then browser)",
+                      )}
+                    </SelectItem>
+                    <SelectItem value="tts">
+                      {t(
+                        "pages.agent.tools.tts.read_engine_tts",
+                        "PicoClaw TTS model",
+                      )}
+                    </SelectItem>
+                    <SelectItem value="browser">
+                      {t(
+                        "pages.agent.tools.tts.read_engine_browser",
+                        "Browser voice",
+                      )}
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+                {readAloud.engine === "tts" && !config.resolved && (
+                  <p className="text-xs text-amber-600 dark:text-amber-400">
+                    {t(
+                      "pages.agent.tools.tts.read_tts_unavailable",
+                      "No TTS model is ready. Select one above or use Automatic.",
+                    )}
+                  </p>
+                )}
+              </div>
+              <div className="space-y-2">
+                <p className="text-sm font-medium">
+                  {t("pages.agent.tools.tts.read_language", "Language")}
+                </p>
+                <Select
+                  value={readAloud.language}
+                  onValueChange={(value) =>
+                    updateReadAloud({ language: value as ReadAloudLanguage })
+                  }
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="auto">
+                      {t(
+                        "pages.agent.tools.tts.read_language_auto",
+                        "Automatic (detected)",
+                      )}
+                    </SelectItem>
+                    <SelectItem value="tr">
+                      {t("pages.agent.tools.tts.read_language_tr", "Turkish")}
+                    </SelectItem>
+                    <SelectItem value="en">
+                      {t("pages.agent.tools.tts.read_language_en", "English")}
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="flex items-center justify-between gap-4 rounded-lg border p-3">
+              <div className="space-y-1">
+                <p className="text-sm font-medium">
+                  {t(
+                    "pages.agent.tools.tts.read_auto_language",
+                    "Detect language automatically",
+                  )}
+                </p>
+                <p className="text-muted-foreground text-xs">
+                  {t(
+                    "pages.agent.tools.tts.read_auto_language_hint",
+                    "A manual language always wins. Turn this off to always use the language selected above.",
+                  )}
+                </p>
+              </div>
+              <Switch
+                checked={readAloud.autoLanguage}
+                onCheckedChange={(checked) => {
+                  const fallbackLanguage: ReadAloudLanguage =
+                    navigator.language.toLowerCase().startsWith("tr")
+                      ? "tr"
+                      : "en"
+                  updateReadAloud({
+                    autoLanguage: checked,
+                    language:
+                      checked || readAloud.language !== "auto"
+                        ? readAloud.language
+                        : fallbackLanguage,
+                  })
+                }}
+              />
+            </div>
+          </div>
+
+          <div className="bg-card border-border/40 space-y-4 rounded-2xl border p-5 shadow-sm">
+            <div className="space-y-1">
+              <p className="text-sm font-medium">
+                {t(
                   "pages.agent.tools.tts.voice_title",
-                  "Read aloud voice (WebUI)",
+                  "Browser fallback voice",
                 )}
               </p>
               <p className="text-muted-foreground text-xs">
                 {t(
                   "pages.agent.tools.tts.voice_hint",
-                  "Used by the speaker button in chats. Automatic follows your browser language; pick a voice to force a language.",
+                  "Used when read-aloud falls back to the browser. Automatic follows the message language first, then the browser language.",
                 )}
               </p>
             </div>

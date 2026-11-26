@@ -6,6 +6,21 @@ All notable changes to this fork of PicoClaw. Versions use the
 Earlier versions up to `0.1.27` are recorded as git tags. This file starts
 with the first batch that was built locally before tagging.
 
+## [0.1.57] - 2026-11-26
+
+### Added
+- `POST /api/voice/speak` synthesizes arbitrary assistant text for the WebUI
+  read-aloud button.
+- Read-aloud settings: engine (`Auto` / PicoClaw TTS model / browser), language
+  auto-detection on/off, and a manual Turkish/English override.
+- When a TTS model is configured, read-aloud uses it; otherwise, and on failure
+  in `Auto` mode, it falls back to the browser voice.
+
+### Changed
+- Read-aloud no longer depends on the `send_tts` agent tool; reading a reply is
+  a separate action.
+- The browser voice section is explicitly the fallback voice.
+
 ## [0.1.56] - 2026-11-26
 
 ### Fixed
