@@ -187,6 +187,71 @@ func TestVoiceTest_ReturnsAudio(t *testing.T) {
 	}
 }
 
+func TestVoiceTest_UsesUnsavedModelAndVoice(t *testing.T) {
+	savedCalled := false
+	savedServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		savedCalled = true
+		_, _ = w.Write([]byte("SAVED-AUDIO"))
+	}))
+	defer savedServer.Close()
+
+	var requestedVoice string
+	freshServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if voice, ok := body["voice"].(string); ok {
+			requestedVoice = voice
+		}
+		_, _ = w.Write([]byte("FRESH-AUDIO"))
+	}))
+	defer freshServer.Close()
+
+	configPath, mux := newVoiceTestEnv(t)
+	cfg, err := config.LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+	cfg.ModelList = []*config.ModelConfig{
+		{
+			ModelName: "saved-tts",
+			Provider:  "openai-compatible",
+			Model:     "saved-tts",
+			APIBase:   savedServer.URL + "/v1",
+			APIKeys:   config.SimpleSecureStrings("test-key"),
+		},
+		{
+			ModelName: "fresh-tts",
+			Provider:  "openai-compatible",
+			Model:     "fresh-tts",
+			APIBase:   freshServer.URL + "/v1",
+			APIKeys:   config.SimpleSecureStrings("test-key"),
+		},
+	}
+	cfg.Voice.TTSModelName = "saved-tts"
+	cfg.Voice.TTSVoices = map[string]string{"saved-tts": "female_1"}
+	if err := config.SaveConfig(configPath, cfg); err != nil {
+		t.Fatalf("SaveConfig() error = %v", err)
+	}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/voice/test",
+		bytes.NewBufferString(`{"text":"hi","tts_model_name":"fresh-tts","tts_voice":"male_3"}`))
+	req.Header.Set("Content-Type", "application/json")
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	if rec.Body.String() != "FRESH-AUDIO" {
+		t.Fatalf("body = %q, want the unsaved model's audio", rec.Body.String())
+	}
+	if savedCalled {
+		t.Fatal("saved TTS model must not be called when the request overrides it")
+	}
+	if requestedVoice != "male_3" {
+		t.Fatalf("voice = %q, want male_3", requestedVoice)
+	}
+}
+
 func TestVoiceSpeak_ReturnsAudio(t *testing.T) {
 	ttsServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !strings.HasPrefix(r.URL.Path, "/v1/audio/speech") {

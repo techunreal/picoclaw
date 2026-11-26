@@ -60,11 +60,22 @@ export async function updateVoiceConfig(
   return (await res.json()) as VoiceConfig
 }
 
-export async function testVoice(text: string): Promise<Blob> {
+export async function testVoice(
+  text: string,
+  ttsModelName?: string,
+  ttsVoice?: string,
+): Promise<Blob> {
+  const body: Record<string, unknown> = { text }
+  if (ttsModelName !== undefined) {
+    body.tts_model_name = ttsModelName
+  }
+  if (ttsVoice !== undefined) {
+    body.tts_voice = ttsVoice
+  }
   const res = await launcherFetch("/api/voice/test", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ text }),
+    body: JSON.stringify(body),
   })
   if (!res.ok) throw new Error(await readError(res))
   return res.blob()

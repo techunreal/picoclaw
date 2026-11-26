@@ -43,7 +43,9 @@ type voiceConfigRequest struct {
 }
 
 type voiceTestRequest struct {
-	Text string `json:"text"`
+	Text         string `json:"text"`
+	TTSModelName string `json:"tts_model_name,omitempty"`
+	TTSVoice     string `json:"tts_voice,omitempty"`
 }
 
 type voiceSpeakRequest struct {
@@ -158,6 +160,14 @@ func (h *Handler) handleTestVoice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	provider := tts.DetectTTS(cfg)
+	if name := strings.TrimSpace(req.TTSModelName); name != "" {
+		provider = tts.ProviderForModel(cfg, name, strings.TrimSpace(req.TTSVoice))
+		if provider == nil {
+			writeBrowserSettingsError(w, http.StatusBadRequest, "model_not_found",
+				fmt.Sprintf("TTS model %q was not found or has no API key.", name))
+			return
+		}
+	}
 	if provider == nil {
 		writeBrowserSettingsError(w, http.StatusBadRequest, "tts_not_configured",
 			"No text-to-speech model is ready. Add a TTS model with an API key and select it here.")

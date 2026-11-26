@@ -94,10 +94,8 @@ func DetectTTS(cfg *config.Config) TTSProvider {
 	}
 
 	if modelName := strings.TrimSpace(cfg.Voice.TTSModelName); modelName != "" {
-		if mc, err := cfg.GetModelConfig(modelName); err == nil {
-			if provider := providerFromModelConfig(mc, cfg.Voice.TTSVoices[mc.ModelName]); provider != nil {
-				return provider
-			}
+		if provider := ProviderForModel(cfg, modelName, ""); provider != nil {
+			return provider
 		}
 	}
 
@@ -109,6 +107,24 @@ func DetectTTS(cfg *config.Config) TTSProvider {
 		}
 	}
 	return nil
+}
+
+// ProviderForModel builds a TTS provider for one model entry without changing
+// the saved voice configuration. An explicit voice overrides the per-model
+// stored voice, which lets the UI test unsaved selections.
+func ProviderForModel(cfg *config.Config, modelName, voice string) TTSProvider {
+	if cfg == nil {
+		return nil
+	}
+	mc, err := cfg.GetModelConfig(strings.TrimSpace(modelName))
+	if err != nil || mc == nil {
+		return nil
+	}
+	selectedVoice := strings.TrimSpace(voice)
+	if selectedVoice == "" {
+		selectedVoice = cfg.Voice.TTSVoices[mc.ModelName]
+	}
+	return providerFromModelConfig(mc, selectedVoice)
 }
 
 // SynthesizeAndStore synthesizes text to speech and registers it in the media store, returning the media reference.

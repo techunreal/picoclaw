@@ -5,7 +5,7 @@ by Sipeed. Upstream is MIT-licensed; this fork keeps the same license and adds
 desktop usability, security hardening, agent management, and local document
 tools.
 
-- **Version:** `0.1.58.1-fork`
+- **Version:** `0.1.58.2-fork`
 - **Upstream:** https://github.com/sipeed/picoclaw
 - **Fork:** https://github.com/techunreal/picoclaw
 - **License:** MIT (see `LICENSE` and `NOTICE.md`)
@@ -13,7 +13,11 @@ tools.
 > This is not an official Sipeed release. Report fork-specific issues on the
 > fork repository, not upstream.
 
-## What's new in 0.1.58.1-fork
+## What's new in 0.1.58.2-fork
+
+- **Test before saving:** the TTS **Test and play** button uses the currently
+  selected model and voice without writing `config.json`. Save is only needed
+  when you want to keep the selection for chat read-aloud and `send_tts`.
 
 - **No console flashes in TTS settings:** Python detection runs hidden, is
   cached briefly, and the local-model status no longer refetches when the
@@ -233,7 +237,7 @@ Microsoft Office, Adobe Acrobat, or a system Python install.
 ## Quick start (Windows)
 
 1. Extract the release ZIP (for example
-   `PicoClaw-Windows-x86_64-0.1.58.1-fork.zip`) to a folder such as
+   `PicoClaw-Windows-x86_64-0.1.58.2-fork.zip`) to a folder such as
    `C:\Users\<you>\PicoClaw`.
 2. Run `picoclaw-launcher.exe`.
 3. Open `http://localhost:18800` if the browser does not open automatically.
@@ -282,13 +286,13 @@ go build -tags "goolm,stdjson" -o build/picoclaw-launcher.exe ./web/backend
 Release build with version metadata, Office runtime, ZIP, and SHA256:
 
 ```powershell
-powershell -File scripts/build-release.ps1 -Version 0.1.58.1-fork
+powershell -File scripts/build-release.ps1 -Version 0.1.58.2-fork
 ```
 
 Lean build without the Office runtime:
 
 ```powershell
-powershell -File scripts/build-release.ps1 -Version 0.1.58.1-fork -SkipOfficeRuntime
+powershell -File scripts/build-release.ps1 -Version 0.1.58.2-fork -SkipOfficeRuntime
 ```
 
 ## Tests
@@ -304,7 +308,7 @@ go test -tags "goolm,stdjson" ./... -count=1 -timeout 300s
 - Package E.1: resilience, persistence, model references, deterministic tests,
   curated skills, Office Pack.
 - Package E.2: release, clean install, README, roadmap, fork push.
-- 0.1.4-0.1.58.1: WebUI, agents, models, profile import, TTS/read-aloud, browser
+- 0.1.4-0.1.58.2: WebUI, agents, models, profile import, TTS/read-aloud, browser
   allowlist, launcher/firewall, context safety. See [`CHANGELOG.md`](CHANGELOG.md).
 - Portable/USB mode (E.3): future idea.
 

@@ -187,7 +187,11 @@ export function TTSTab() {
   })
 
   const testMutation = useMutation({
-    mutationFn: testVoice,
+    mutationFn: (values: {
+      text: string
+      model?: string
+      voice?: string
+    }) => testVoice(values.text, values.model, values.voice),
     onSuccess: (blob) => {
       const url = URL.createObjectURL(blob)
       setAudioUrl((previous) => {
@@ -324,9 +328,16 @@ export function TTSTab() {
                 variant="outline"
                 className="h-10 rounded-xl px-4"
                 onClick={() =>
-                  testMutation.mutate(testText.trim() || ttsTestSample())
+                  testMutation.mutate({
+                    text: testText.trim() || ttsTestSample(),
+                    model: current === "" ? undefined : current,
+                    voice: showVoiceSelector ? currentVoice : undefined,
+                  })
                 }
-                disabled={testMutation.isPending || !config.resolved}
+                disabled={
+                  testMutation.isPending ||
+                  (!config.resolved && current === "")
+                }
               >
                 {testMutation.isPending
                   ? t("pages.agent.tools.tts.testing", "Testing…")
