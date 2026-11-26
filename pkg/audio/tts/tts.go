@@ -100,13 +100,21 @@ func DetectTTS(cfg *config.Config) TTSProvider {
 	}
 
 	for _, mc := range cfg.ModelList {
-		if strings.Contains(strings.ToLower(mc.Model), "tts") && mc.APIKey() != "" {
+		if (strings.Contains(strings.ToLower(mc.Model), "tts") || isLocalTTSModelConfig(mc)) && mc.APIKey() != "" {
 			if provider := providerFromModelConfig(mc, cfg.Voice.TTSVoices[mc.ModelName]); provider != nil {
 				return provider
 			}
 		}
 	}
 	return nil
+}
+
+func isLocalTTSModelConfig(mc *config.ModelConfig) bool {
+	if mc == nil {
+		return false
+	}
+	id, ok := mc.ExtraBody["picoclaw_local_tts"].(string)
+	return ok && strings.TrimSpace(id) != ""
 }
 
 // ProviderForModel builds a TTS provider for one model entry without changing

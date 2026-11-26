@@ -187,6 +187,44 @@ func TestVoiceTest_ReturnsAudio(t *testing.T) {
 	}
 }
 
+func TestVoiceConfig_LocalModelIsTTSLike(t *testing.T) {
+	configPath, mux := newVoiceTestEnv(t)
+	cfg, err := config.LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+	cfg.ModelList = append(cfg.ModelList, &config.ModelConfig{
+		ModelName: "tts-tiny-voca",
+		Provider:  "openai-compatible",
+		Model:     "tiny-voca",
+		APIBase:   "http://127.0.0.1:9999/v1",
+		APIKeys:   config.SimpleSecureStrings("token"),
+		ExtraBody: map[string]any{"picoclaw_local_tts": "tiny-voca"},
+	})
+	if err := config.SaveConfig(configPath, cfg); err != nil {
+		t.Fatalf("SaveConfig() error = %v", err)
+	}
+
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/voice/config", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	var response voiceConfigResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+	for _, model := range response.Models {
+		if model.Name == "tts-tiny-voca" {
+			if !model.TTSLike {
+				t.Fatal("local tiny-voca model must be marked as TTS-capable")
+			}
+			return
+		}
+	}
+	t.Fatal("tts-tiny-voca model not found")
+}
+
 func TestVoiceTest_UsesUnsavedModelAndVoice(t *testing.T) {
 	savedCalled := false
 	savedServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -285,7 +285,7 @@ func buildVoiceConfigResponse(cfg *config.Config) voiceConfigResponse {
 			Model:    model.Model,
 			APIBase:  model.APIBase,
 			HasKey:   model.APIKey() != "",
-			TTSLike:  strings.Contains(strings.ToLower(model.Model), "tts"),
+			TTSLike:  strings.Contains(strings.ToLower(model.Model), "tts") || isLocalTTSModel(model),
 		})
 	}
 
@@ -323,9 +323,17 @@ func resolveVoiceModel(cfg *config.Config) (name, provider, model string, ok boo
 		}
 	}
 	for _, mc := range cfg.ModelList {
-		if strings.Contains(strings.ToLower(mc.Model), "tts") && mc.APIKey() != "" {
+		if (strings.Contains(strings.ToLower(mc.Model), "tts") || isLocalTTSModel(mc)) && mc.APIKey() != "" {
 			return strings.TrimSpace(mc.ModelName), mc.Provider, mc.Model, true
 		}
 	}
 	return "", "", "", false
+}
+
+func isLocalTTSModel(mc *config.ModelConfig) bool {
+	if mc == nil {
+		return false
+	}
+	id, ok := mc.ExtraBody["picoclaw_local_tts"].(string)
+	return ok && strings.TrimSpace(id) != ""
 }

@@ -6,6 +6,15 @@ All notable changes to this fork of PicoClaw. Versions use the
 Earlier versions up to `0.1.27` are recorded as git tags. This file starts
 with the first batch that was built locally before tagging.
 
+## [0.1.59.1] - 2026-11-26
+
+### Fixed
+- Local TTS models whose model id does not contain the literal `"tts"` (such as
+  `tiny-voca`) are now recognized as speech models in Tools → Text to Speech.
+  The check also accepts the `picoclaw_local_tts` marker.
+- The automatic TTS model scan and the “Effective provider” resolution use the
+  same rule.
+
 ## [0.1.59] - 2026-11-26
 
 ### Added
