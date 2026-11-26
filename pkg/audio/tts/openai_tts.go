@@ -22,12 +22,14 @@ type OpenAITTSProvider struct {
 	voice          string
 	model          string
 	responseFormat string
+	speed          float64
 	httpClient     *http.Client
 }
 
 type OpenAITTSOptions struct {
 	Voice          string
 	ResponseFormat string
+	Speed          float64
 }
 
 type openAITTSAudioStream struct {
@@ -127,7 +129,23 @@ func NewOpenAITTSProviderWithOptions(
 		voice:          voice,
 		model:          model,
 		responseFormat: responseFormat,
+		speed:          normalizeSpeed(options.Speed),
 		httpClient:     client,
+	}
+}
+
+func normalizeSpeed(speed float64) float64 {
+	if speed < 0.25 || speed > 4 {
+		return 0
+	}
+	return speed
+}
+
+// SetSpeed changes the speaking rate for the next request. It is used by the
+// read-aloud endpoint so one provider can honor a per-request speed.
+func (t *OpenAITTSProvider) SetSpeed(speed float64) {
+	if value := normalizeSpeed(speed); value > 0 {
+		t.speed = value
 	}
 }
 
@@ -174,6 +192,9 @@ func (t *OpenAITTSProvider) doSpeechRequest(
 	}
 	if responseFormat != "" {
 		reqBody["response_format"] = responseFormat
+	}
+	if t.speed > 0 && t.speed != 1 {
+		reqBody["speed"] = t.speed
 	}
 
 	jsonData, err := json.Marshal(reqBody)

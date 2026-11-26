@@ -70,6 +70,7 @@ type Manager struct {
 	pythonMu   sync.Mutex
 	depMu      sync.Mutex
 	toolMu     sync.Mutex
+	idleOnce   sync.Once
 	root       string
 	status     Status
 	installing bool
@@ -78,7 +79,12 @@ type Manager struct {
 	pythonAt   time.Time
 	deps       map[string]Dependency
 	depsAt     time.Time
+	lastUsed   map[string]time.Time
+	active     map[string]int
+	idleAfter  time.Duration
 }
+
+const defaultIdleTimeout = 10 * time.Minute
 
 var (
 	defaultMu      sync.Mutex
@@ -96,10 +102,80 @@ func Default() *Manager {
 }
 
 func NewManager(root string) *Manager {
-	return &Manager{
+	manager := &Manager{
 		root:      root,
 		processes: make(map[string]*exec.Cmd),
+		lastUsed:  make(map[string]time.Time),
+		active:    make(map[string]int),
+		idleAfter: defaultIdleTimeout,
 	}
+	manager.startIdleReaper()
+	return manager
+}
+
+// IdleTimeout reports how long an unused sidecar is kept alive. Zero disables
+// the idle shutdown.
+func (m *Manager) IdleTimeout() time.Duration { return m.idleAfter }
+
+// BeginRequest marks a sidecar as busy and returns a function to call when the
+// request finishes. The idle reaper never stops a sidecar with active work.
+func (m *Manager) BeginRequest(id string) func() {
+	m.mu.Lock()
+	m.active[id]++
+	m.lastUsed[id] = time.Now()
+	m.mu.Unlock()
+	return func() {
+		m.mu.Lock()
+		if m.active[id] > 0 {
+			m.active[id]--
+		}
+		m.lastUsed[id] = time.Now()
+		m.mu.Unlock()
+	}
+}
+
+func (m *Manager) startIdleReaper() {
+	m.idleOnce.Do(func() {
+		go func() {
+			ticker := time.NewTicker(time.Minute)
+			defer ticker.Stop()
+			for range ticker.C {
+				m.reapIdle()
+			}
+		}()
+	})
+}
+
+func (m *Manager) reapIdle() {
+	if m.idleAfter <= 0 {
+		return
+	}
+	candidates := m.idleCandidates(time.Now())
+	for _, id := range candidates {
+		installed, ok := m.InstalledByID(id)
+		if !ok || installed.PID <= 0 {
+			continue
+		}
+		m.Stop(id)
+		m.mu.Lock()
+		delete(m.lastUsed, id)
+		m.mu.Unlock()
+	}
+}
+
+func (m *Manager) idleCandidates(now time.Time) []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	candidates := make([]string, 0)
+	for id, last := range m.lastUsed {
+		if m.active[id] > 0 {
+			continue
+		}
+		if now.Sub(last) >= m.idleAfter {
+			candidates = append(candidates, id)
+		}
+	}
+	return candidates
 }
 
 // Dependency is the availability of an external tool a recipe needs.
@@ -508,6 +584,9 @@ func (m *Manager) install(ctx context.Context, recipe Recipe, licenseAt time.Tim
 	if err := m.saveRegistry(*installed); err != nil {
 		return nil, err
 	}
+	m.mu.Lock()
+	m.lastUsed[recipe.ID] = time.Now()
+	m.mu.Unlock()
 	m.setStatus("ready", "Model installed", 100)
 	return installed, nil
 }
@@ -742,6 +821,7 @@ func (m *Manager) EnsureRunning(id string) error {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.lastUsed[id] = time.Now()
 	if err := writeServerScript(m.serverPath()); err != nil {
 		return err
 	}

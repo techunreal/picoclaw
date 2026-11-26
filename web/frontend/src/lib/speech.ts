@@ -8,12 +8,90 @@ export interface ReadAloudSettings {
   engine: ReadAloudEngine
   autoLanguage: boolean
   language: ReadAloudLanguage
+  speed: number
 }
 
 export const DEFAULT_READ_ALOUD_SETTINGS: ReadAloudSettings = {
   engine: "auto",
   autoLanguage: true,
   language: "auto",
+  speed: 1,
+}
+
+function clampSpeed(value: unknown): number {
+  const numeric = typeof value === "number" ? value : Number(value)
+  if (!Number.isFinite(numeric)) return 1
+  return Math.min(2, Math.max(0.5, numeric))
+}
+
+/**
+ * Splits read-aloud text into sentence-sized chunks. The first chunk can be
+ * synthesized and played while later chunks are still being prepared.
+ */
+export function splitSpeechText(text: string, maxChars = 800): string[] {
+  const normalized = text.replace(/\s+/g, " ").trim()
+  if (normalized === "") return []
+  const sentences = normalized.match(
+    /[^.!?…]+[.!?…]+["'”’)\]]*|[^.!?…]+$/g,
+  ) ?? [normalized]
+  const chunks: string[] = []
+  let current = ""
+
+  const push = (piece: string) => {
+    if (piece === "") return
+    if (current === "") {
+      current = piece
+      return
+    }
+    if (current.length + 1 + piece.length <= maxChars) {
+      current += " " + piece
+      return
+    }
+    chunks.push(current)
+    current = piece
+  }
+
+  const splitLong = (sentence: string) => {
+    const words = sentence.split(" ")
+    let part = ""
+    for (const word of words) {
+      if (word.length > maxChars) {
+        if (part !== "") {
+          chunks.push(part)
+          part = ""
+        }
+        for (let index = 0; index < word.length; index += maxChars) {
+          chunks.push(word.slice(index, index + maxChars))
+        }
+        continue
+      }
+      if (part === "") {
+        part = word
+      } else if ((part + " " + word).length <= maxChars) {
+        part += " " + word
+      } else {
+        chunks.push(part)
+        part = word
+      }
+    }
+    if (part !== "") chunks.push(part)
+  }
+
+  for (const sentence of sentences) {
+    const trimmed = sentence.trim()
+    if (trimmed === "") continue
+    if (trimmed.length <= maxChars) {
+      push(trimmed)
+    } else {
+      if (current !== "") {
+        chunks.push(current)
+        current = ""
+      }
+      splitLong(trimmed)
+    }
+  }
+  if (current !== "") chunks.push(current)
+  return chunks.filter((chunk) => chunk.trim() !== "")
 }
 
 export function readReadAloudSettings(): ReadAloudSettings {
@@ -34,6 +112,7 @@ export function readReadAloudSettings(): ReadAloudSettings {
       engine,
       autoLanguage: parsed.autoLanguage !== false,
       language,
+      speed: clampSpeed(parsed.speed ?? 1),
     }
   } catch {
     return DEFAULT_READ_ALOUD_SETTINGS
@@ -65,7 +144,6 @@ export function resolveReadAloudLanguage(
   if (!settings.autoLanguage) return ""
   return detectSpeechLanguage(text)
 }
-
 
 const TURKISH_CHARS = /[çğıöşüÇĞİÖŞÜ]/
 
@@ -353,9 +431,11 @@ export function speakWithVoice(
     onError?: () => void
   },
   languageOverride: "tr" | "en" | "" = "",
+  rate = 1,
 ): SpeechSynthesisUtterance | null {
   if (!speechSupported()) return null
   const utterance = new SpeechSynthesisUtterance(text)
+  utterance.rate = clampSpeed(rate)
   const overrideTag =
     languageOverride === "tr"
       ? "tr-TR"

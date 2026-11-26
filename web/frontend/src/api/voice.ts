@@ -12,6 +12,7 @@ export interface VoiceModelOption {
 export interface VoiceConfig {
   tts_model_name: string
   tts_voice?: string
+  tts_speed: number
   voices?: { id: string; label: string }[]
   resolved: boolean
   resolved_name?: string
@@ -19,6 +20,13 @@ export interface VoiceConfig {
   resolved_model?: string
   models: VoiceModelOption[]
   restart_required?: boolean
+}
+
+export interface VoiceCacheStats {
+  entries: number
+  bytes: number
+  ttl_minutes: number
+  max_bytes: number
 }
 
 async function readError(res: Response): Promise<string> {
@@ -46,10 +54,14 @@ export async function getVoiceConfig(): Promise<VoiceConfig> {
 export async function updateVoiceConfig(
   ttsModelName: string,
   ttsVoice?: string,
+  ttsSpeed?: number,
 ): Promise<VoiceConfig> {
   const body: Record<string, unknown> = { tts_model_name: ttsModelName }
   if (ttsVoice !== undefined) {
     body.tts_voice = ttsVoice
+  }
+  if (ttsSpeed !== undefined) {
+    body.tts_speed = ttsSpeed
   }
   const res = await launcherFetch("/api/voice/config", {
     method: "PUT",
@@ -64,6 +76,7 @@ export async function testVoice(
   text: string,
   ttsModelName?: string,
   ttsVoice?: string,
+  speed?: number,
 ): Promise<Blob> {
   const body: Record<string, unknown> = { text }
   if (ttsModelName !== undefined) {
@@ -71,6 +84,9 @@ export async function testVoice(
   }
   if (ttsVoice !== undefined) {
     body.tts_voice = ttsVoice
+  }
+  if (speed !== undefined) {
+    body.speed = speed
   }
   const res = await launcherFetch("/api/voice/test", {
     method: "POST",
@@ -85,13 +101,29 @@ export async function speakVoice(
   text: string,
   language: string,
   signal?: AbortSignal,
+  speed?: number,
 ): Promise<Blob> {
+  const body: Record<string, unknown> = { text, language }
+  if (speed !== undefined) {
+    body.speed = speed
+  }
   const res = await launcherFetch("/api/voice/speak", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ text, language }),
+    body: JSON.stringify(body),
     signal,
   })
   if (!res.ok) throw new Error(await readError(res))
   return res.blob()
+}
+
+export async function getVoiceCacheStats(): Promise<VoiceCacheStats> {
+  const res = await launcherFetch("/api/voice/cache")
+  if (!res.ok) throw new Error(await readError(res))
+  return (await res.json()) as VoiceCacheStats
+}
+
+export async function clearVoiceCache(): Promise<void> {
+  const res = await launcherFetch("/api/voice/cache", { method: "DELETE" })
+  if (!res.ok) throw new Error(await readError(res))
 }

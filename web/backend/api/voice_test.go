@@ -77,6 +77,42 @@ func TestVoiceConfig_Get(t *testing.T) {
 	}
 }
 
+func TestVoiceConfig_Speed(t *testing.T) {
+	configPath, mux := newVoiceTestEnv(t)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPut, "/api/voice/config",
+		bytes.NewBufferString(`{"tts_model_name":"","tts_speed":1.3}`))
+	req.Header.Set("Content-Type", "application/json")
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	var response voiceConfigResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if response.TTSSpeed != 1.3 {
+		t.Fatalf("tts_speed = %v, want 1.3", response.TTSSpeed)
+	}
+	cfg, err := config.LoadConfig(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Voice.TTSSpeed != 1.3 {
+		t.Fatalf("saved speed = %v, want 1.3", cfg.Voice.TTSSpeed)
+	}
+
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPut, "/api/voice/config",
+		bytes.NewBufferString(`{"tts_model_name":"","tts_speed":3}`))
+	req.Header.Set("Content-Type", "application/json")
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "speed_out_of_range") {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestVoiceConfig_Update(t *testing.T) {
 	configPath, mux := newVoiceTestEnv(t)
 
@@ -363,5 +399,91 @@ func TestVoiceSpeak_RejectsVeryLongText(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), "text_too_long") {
 		t.Fatalf("body = %s, want text_too_long", rec.Body.String())
+	}
+}
+
+func TestVoiceSpeak_CachesAudioAndSendsSpeed(t *testing.T) {
+	calls := 0
+	var lastSpeed float64
+	ttsServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		var payload map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&payload)
+		if value, ok := payload["speed"].(float64); ok {
+			lastSpeed = value
+		}
+		w.Header().Set("Content-Type", "audio/wav")
+		_, _ = w.Write([]byte("CACHED-AUDIO"))
+	}))
+	defer ttsServer.Close()
+
+	configPath, mux := newVoiceTestEnv(t)
+	cfg, err := config.LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+	cfg.ModelList = []*config.ModelConfig{{
+		ModelName: "local-tts",
+		Provider:  "openai-compatible",
+		Model:     "clarvia-tts-tiny",
+		APIBase:   ttsServer.URL + "/v1",
+		APIKeys:   config.SimpleSecureStrings("test-key"),
+	}}
+	cfg.Voice.TTSModelName = "local-tts"
+	cfg.Voice.TTSSpeed = 1.0
+	if err := config.SaveConfig(configPath, cfg); err != nil {
+		t.Fatalf("SaveConfig() error = %v", err)
+	}
+
+	speak := func() *httptest.ResponseRecorder {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/api/voice/speak",
+			bytes.NewBufferString(`{"text":"Aynı metin","language":"tr","speed":1.5}`))
+		req.Header.Set("Content-Type", "application/json")
+		mux.ServeHTTP(rec, req)
+		return rec
+	}
+
+	first := speak()
+	if first.Code != http.StatusOK || first.Body.String() != "CACHED-AUDIO" {
+		t.Fatalf("first status = %d body = %q", first.Code, first.Body.String())
+	}
+	second := speak()
+	if second.Code != http.StatusOK || second.Body.String() != "CACHED-AUDIO" {
+		t.Fatalf("second status = %d body = %q", second.Code, second.Body.String())
+	}
+	if calls != 1 {
+		t.Fatalf("provider calls = %d, want 1 (second request must use the cache)", calls)
+	}
+	if lastSpeed != 1.5 {
+		t.Fatalf("speed = %v, want 1.5", lastSpeed)
+	}
+
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/voice/cache", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("cache stats status = %d", rec.Code)
+	}
+	var stats struct {
+		Entries int `json:"entries"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &stats); err != nil {
+		t.Fatal(err)
+	}
+	if stats.Entries != 1 {
+		t.Fatalf("cache entries = %d, want 1", stats.Entries)
+	}
+
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodDelete, "/api/voice/cache", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("cache clear status = %d", rec.Code)
+	}
+	third := speak()
+	if third.Code != http.StatusOK {
+		t.Fatalf("third status = %d", third.Code)
+	}
+	if calls != 2 {
+		t.Fatalf("provider calls = %d, want 2 after clearing the cache", calls)
 	}
 }

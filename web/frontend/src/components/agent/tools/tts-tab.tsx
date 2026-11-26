@@ -11,7 +11,10 @@ import {
   uninstallLocalTTS,
 } from "@/api/local-tts"
 import {
+  type VoiceCacheStats,
   type VoiceConfig,
+  clearVoiceCache,
+  getVoiceCacheStats,
   getVoiceConfig,
   testVoice,
   updateVoiceConfig,
@@ -54,6 +57,7 @@ export function TTSTab() {
   const queryClient = useQueryClient()
   const [draft, setDraft] = useState<string | null>(null)
   const [voiceDraft, setVoiceDraft] = useState<string | null>(null)
+  const [speedDraft, setSpeedDraft] = useState<number | null>(null)
   const [testText, setTestText] = useState("")
   const [audioUrl, setAudioUrl] = useState<string | null>(null)
   const [showAllModels, setShowAllModels] = useState(false)
@@ -94,6 +98,31 @@ export function TTSTab() {
   })
   const local = localQuery.data
   const lastInstalledRef = useRef("")
+  const cacheQuery = useQuery({
+    queryKey: ["voice", "cache"],
+    queryFn: getVoiceCacheStats,
+    refetchOnWindowFocus: false,
+  })
+  const cache: VoiceCacheStats | undefined = cacheQuery.data
+
+  const clearCacheMutation = useMutation({
+    mutationFn: clearVoiceCache,
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["voice", "cache"] })
+      toast.success(
+        t("pages.agent.tools.tts.cache_cleared", "Speech cache cleared"),
+      )
+    },
+    onError: (error) =>
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : t(
+              "pages.agent.tools.tts.cache_clear_error",
+              "Could not clear the speech cache",
+            ),
+      ),
+  })
 
   useEffect(() => {
     if (!local?.status.done) return
@@ -115,6 +144,17 @@ export function TTSTab() {
   }, [pendingInstall])
 
   useEffect(() => {
+    if (!config) return
+    const speed = config.tts_speed ?? 1
+    setReadAloud((current) => {
+      if (Math.abs(current.speed - speed) < 0.001) return current
+      const next = { ...current, speed }
+      writeReadAloudSettings(next)
+      return next
+    })
+  }, [config])
+
+  useEffect(() => {
     return () => {
       if (audioUrl) URL.revokeObjectURL(audioUrl)
     }
@@ -122,20 +162,28 @@ export function TTSTab() {
 
   const current = draft ?? config?.tts_model_name ?? ""
   const currentVoice = voiceDraft ?? config?.tts_voice ?? ""
+  const currentSpeed = speedDraft ?? config?.tts_speed ?? 1
   const showVoiceSelector =
     Boolean(config?.voices?.length) && current === config?.tts_model_name
   const isDirty = config
     ? current !== config.tts_model_name ||
+      Math.abs(currentSpeed - (config.tts_speed ?? 1)) > 0.001 ||
       (showVoiceSelector && currentVoice !== (config.tts_voice ?? ""))
     : false
 
   const saveMutation = useMutation({
-    mutationFn: (values: { model: string; voice?: string }) =>
-      updateVoiceConfig(values.model, values.voice),
+    mutationFn: (values: { model: string; voice?: string; speed?: number }) =>
+      updateVoiceConfig(values.model, values.voice, values.speed),
     onSuccess: async (updated: VoiceConfig) => {
       queryClient.setQueryData(queryKey, updated)
       setDraft(null)
       setVoiceDraft(null)
+      setSpeedDraft(null)
+      const settings = readReadAloudSettings()
+      writeReadAloudSettings({
+        ...settings,
+        speed: updated.tts_speed ?? 1,
+      })
       const gateway = await refreshGatewayState({ force: true })
       showSaveSuccessOrRestartToast(
         t,
@@ -284,8 +332,12 @@ export function TTSTab() {
   })
 
   const testMutation = useMutation({
-    mutationFn: (values: { text: string; model?: string; voice?: string }) =>
-      testVoice(values.text, values.model, values.voice),
+    mutationFn: (values: {
+      text: string
+      model?: string
+      voice?: string
+      speed?: number
+    }) => testVoice(values.text, values.model, values.voice, values.speed),
     onSuccess: (blob) => {
       const url = URL.createObjectURL(blob)
       setAudioUrl((previous) => {
@@ -344,10 +396,16 @@ export function TTSTab() {
     const sample = lang.startsWith("tr")
       ? "Merhaba, bu bir ses testidir."
       : t("pages.agent.tools.tts.voice_sample", "Hello, this is a speech test.")
-    const utterance = speakWithVoice(sample, voice, {
-      onEnd: () => setBrowserSpeaking(false),
-      onError: () => setBrowserSpeaking(false),
-    })
+    const utterance = speakWithVoice(
+      sample,
+      voice,
+      {
+        onEnd: () => setBrowserSpeaking(false),
+        onError: () => setBrowserSpeaking(false),
+      },
+      "",
+      currentSpeed,
+    )
     setBrowserSpeaking(Boolean(utterance))
   }
 
@@ -452,6 +510,7 @@ export function TTSTab() {
                     text: testText.trim() || ttsTestSample(),
                     model: current === "" ? undefined : current,
                     voice: showVoiceSelector ? currentVoice : undefined,
+                    speed: currentSpeed,
                   })
                 }
                 disabled={
@@ -469,6 +528,7 @@ export function TTSTab() {
                   saveMutation.mutate({
                     model: current,
                     voice: showVoiceSelector ? currentVoice : undefined,
+                    speed: currentSpeed,
                   })
                 }
                 disabled={!isDirty || saveMutation.isPending}
@@ -559,6 +619,37 @@ export function TTSTab() {
                     </SelectContent>
                   </Select>
                 )}
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm font-medium">
+                      {t("pages.agent.tools.tts.speed", "Speech speed")}
+                    </p>
+                    <span className="text-muted-foreground text-xs">
+                      {currentSpeed.toFixed(1)}×
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min={0.5}
+                    max={2}
+                    step={0.1}
+                    value={currentSpeed}
+                    onChange={(event) =>
+                      setSpeedDraft(Number(event.target.value))
+                    }
+                    className="accent-primary w-full"
+                    aria-label={t(
+                      "pages.agent.tools.tts.speed",
+                      "Speech speed",
+                    )}
+                  />
+                  <p className="text-muted-foreground text-[11px] leading-snug">
+                    {t(
+                      "pages.agent.tools.tts.speed_hint",
+                      "0.5× is slower, 2.0× is faster. Used by read-aloud, tests and send_tts.",
+                    )}
+                  </p>
+                </div>
                 <div className="flex items-center justify-between gap-3">
                   <p className="text-muted-foreground text-[11px] leading-snug">
                     {hasCapableModels
@@ -814,6 +905,47 @@ export function TTSTab() {
                 )}
               </p>
             )}
+          </div>
+
+          <div className="bg-card border-border/40 space-y-3 rounded-2xl border p-5 shadow-sm">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+              <div className="space-y-1">
+                <p className="text-sm font-medium">
+                  {t("pages.agent.tools.tts.cache_title", "Speech cache")}
+                </p>
+                <p className="text-muted-foreground text-xs">
+                  {t(
+                    "pages.agent.tools.tts.cache_hint",
+                    "Generated audio is reused, so replaying the same reply is instant. Files expire after 1 hour and the folder is capped at 200 MB.",
+                  )}
+                </p>
+              </div>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="shrink-0"
+                onClick={() => clearCacheMutation.mutate()}
+                disabled={
+                  clearCacheMutation.isPending || (cache?.entries ?? 0) === 0
+                }
+              >
+                {clearCacheMutation.isPending
+                  ? t("pages.agent.tools.tts.cache_clearing", "Clearing…")
+                  : t("pages.agent.tools.tts.cache_clear", "Clear cache")}
+              </Button>
+            </div>
+            <p className="text-muted-foreground text-xs">
+              {cache
+                ? `${cache.entries} ${t("pages.agent.tools.tts.cache_files", "files")} · ${(
+                    cache.bytes /
+                    (1024 * 1024)
+                  ).toFixed(1)} MB / ${(
+                    cache.max_bytes /
+                    (1024 * 1024)
+                  ).toFixed(0)} MB`
+                : t("labels.loading", "Loading…")}
+            </p>
           </div>
 
           <div className="bg-muted/30 border-border/40 space-y-2 rounded-2xl border p-5">
@@ -1149,10 +1281,15 @@ export function TTSTab() {
                                   "pages.agent.tools.tts.local_running",
                                   "Installed · sidecar running",
                                 )
-                              : t(
-                                  "pages.agent.tools.tts.local_installed",
-                                  "Installed",
-                                )}
+                              : (local.idle_timeout_minutes ?? 0) > 0
+                                ? t(
+                                    "pages.agent.tools.tts.local_sleeping",
+                                    "Installed · sleeping",
+                                  )
+                                : t(
+                                    "pages.agent.tools.tts.local_installed",
+                                    "Installed",
+                                  )}
                           </p>
                         )}
                         {!item.installed && (item.missing?.length ?? 0) > 0 && (

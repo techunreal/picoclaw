@@ -12,6 +12,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/sipeed/picoclaw/pkg/audio/tts"
+	ttscache "github.com/sipeed/picoclaw/pkg/audio/tts/cache"
 	"github.com/sipeed/picoclaw/pkg/audio/tts/local"
 	"github.com/sipeed/picoclaw/pkg/config"
 )
@@ -28,6 +29,7 @@ type voiceModelOption struct {
 type voiceConfigResponse struct {
 	TTSModelName     string              `json:"tts_model_name"`
 	TTSVoice         string              `json:"tts_voice,omitempty"`
+	TTSSpeed         float64             `json:"tts_speed"`
 	Voices           []local.VoiceOption `json:"voices,omitempty"`
 	Resolved         bool                `json:"resolved"`
 	ResolvedName     string              `json:"resolved_name,omitempty"`
@@ -38,19 +40,22 @@ type voiceConfigResponse struct {
 }
 
 type voiceConfigRequest struct {
-	TTSModelName string  `json:"tts_model_name"`
-	TTSVoice     *string `json:"tts_voice,omitempty"`
+	TTSModelName string   `json:"tts_model_name"`
+	TTSVoice     *string  `json:"tts_voice,omitempty"`
+	TTSSpeed     *float64 `json:"tts_speed,omitempty"`
 }
 
 type voiceTestRequest struct {
-	Text         string `json:"text"`
-	TTSModelName string `json:"tts_model_name,omitempty"`
-	TTSVoice     string `json:"tts_voice,omitempty"`
+	Text         string  `json:"text"`
+	TTSModelName string  `json:"tts_model_name,omitempty"`
+	TTSVoice     string  `json:"tts_voice,omitempty"`
+	Speed        float64 `json:"speed,omitempty"`
 }
 
 type voiceSpeakRequest struct {
-	Text     string `json:"text"`
-	Language string `json:"language,omitempty"`
+	Text     string  `json:"text"`
+	Language string  `json:"language,omitempty"`
+	Speed    float64 `json:"speed,omitempty"`
 }
 
 const (
@@ -67,6 +72,8 @@ func (h *Handler) registerVoiceRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("PUT /api/voice/config", h.handleUpdateVoiceConfig)
 	mux.HandleFunc("POST /api/voice/test", h.handleTestVoice)
 	mux.HandleFunc("POST /api/voice/speak", h.handleSpeakVoice)
+	mux.HandleFunc("GET /api/voice/cache", h.handleVoiceCacheStats)
+	mux.HandleFunc("DELETE /api/voice/cache", h.handleVoiceCacheClear)
 	h.registerLocalTTSRoutes(mux)
 }
 
@@ -117,6 +124,15 @@ func (h *Handler) handleUpdateVoiceConfig(w http.ResponseWriter, r *http.Request
 		} else {
 			cfg.Voice.TTSVoices[name] = voice
 		}
+	}
+	if req.TTSSpeed != nil {
+		speed := *req.TTSSpeed
+		if speed < 0.5 || speed > 2.0 {
+			writeBrowserSettingsError(w, http.StatusBadRequest, "speed_out_of_range",
+				"Speech speed must be between 0.5 and 2.0.")
+			return
+		}
+		cfg.Voice.TTSSpeed = speed
 	}
 	if err := config.SaveConfig(h.configPath, cfg); err != nil {
 		writeBrowserSettingsError(w, http.StatusInternalServerError, "save_failed",
@@ -173,8 +189,9 @@ func (h *Handler) handleTestVoice(w http.ResponseWriter, r *http.Request) {
 			"No text-to-speech model is ready. Add a TTS model with an API key and select it here.")
 		return
 	}
+	tts.ApplySpeed(provider, normalizeVoiceSpeed(req.Speed, cfg.Voice.TTSSpeed))
 
-	h.writeSynthesizedVoice(w, r, provider, text, 30*time.Second, voiceTestMaxBytes, "tts-test")
+	h.writeSynthesizedVoice(w, r, provider, text, 30*time.Second, voiceTestMaxBytes, "tts-test", "")
 }
 
 // handleSpeakVoice synthesizes arbitrary assistant text for the WebUI
@@ -218,7 +235,26 @@ func (h *Handler) handleSpeakVoice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.writeSynthesizedVoice(w, r, provider, text, 120*time.Second, voiceSpeakMaxBytes, "read-aloud")
+	speed := normalizeVoiceSpeed(req.Speed, cfg.Voice.TTSSpeed)
+	tts.ApplySpeed(provider, speed)
+
+	resolvedName, _, resolvedModel, _ := resolveVoiceModel(cfg)
+	voice := ""
+	if mc, err := cfg.GetModelConfig(resolvedName); err == nil {
+		voice = strings.TrimSpace(cfg.Voice.TTSVoices[mc.ModelName])
+	}
+	cacheKey := ttscache.Key(
+		"voice-v1",
+		provider.Name(),
+		resolvedName,
+		resolvedModel,
+		voice,
+		fmt.Sprintf("%.2f", speed),
+		strings.ToLower(strings.TrimSpace(req.Language)),
+		text,
+	)
+
+	h.writeSynthesizedVoice(w, r, provider, text, 120*time.Second, voiceSpeakMaxBytes, "read-aloud", cacheKey)
 }
 
 func (h *Handler) writeSynthesizedVoice(
@@ -229,9 +265,17 @@ func (h *Handler) writeSynthesizedVoice(
 	timeout time.Duration,
 	maxBytes int64,
 	filename string,
+	cacheKey string,
 ) {
 	ctx, cancel := context.WithTimeout(r.Context(), timeout)
 	defer cancel()
+
+	if cacheKey != "" {
+		if entry, ok := getVoiceCache().Get(cacheKey); ok {
+			writeVoiceAudio(w, entry.Data, entry.Meta.ContentType, filename+entry.Meta.Ext)
+			return
+		}
+	}
 
 	stream, err := provider.Synthesize(ctx, text)
 	if err != nil {
@@ -262,16 +306,37 @@ func (h *Handler) writeSynthesizedVoice(
 		return
 	}
 
+	if cacheKey != "" {
+		_ = getVoiceCache().Put(cacheKey, buf.Bytes(), ttscache.Meta{
+			ContentType: contentType,
+			Ext:         ext,
+		})
+	}
+	writeVoiceAudio(w, buf.Bytes(), contentType, filename+ext)
+}
+
+func writeVoiceAudio(w http.ResponseWriter, data []byte, contentType, filename string) {
 	w.Header().Set("Content-Type", contentType)
-	w.Header().Set("Content-Disposition", fmt.Sprintf("inline; filename=%q", filename+ext))
+	w.Header().Set("Content-Disposition", fmt.Sprintf("inline; filename=%q", filename))
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(buf.Bytes())
+	_, _ = w.Write(data)
+}
+
+func normalizeVoiceSpeed(requested, configured float64) float64 {
+	if requested >= 0.5 && requested <= 2.0 {
+		return requested
+	}
+	if configured >= 0.5 && configured <= 2.0 {
+		return configured
+	}
+	return 1.0
 }
 
 func buildVoiceConfigResponse(cfg *config.Config) voiceConfigResponse {
 	response := voiceConfigResponse{
 		TTSModelName: strings.TrimSpace(cfg.Voice.TTSModelName),
+		TTSSpeed:     normalizeVoiceSpeed(0, cfg.Voice.TTSSpeed),
 		Models:       make([]voiceModelOption, 0, len(cfg.ModelList)),
 	}
 	for _, model := range cfg.ModelList {

@@ -40,11 +40,12 @@ type localTTSCatalogItem struct {
 }
 
 type localTTSModelsResponse struct {
-	Environment   local.PythonInfo      `json:"environment"`
-	Catalog       []localTTSCatalogItem `json:"catalog"`
-	Status        local.Status          `json:"status"`
-	UserManifest  string                `json:"user_manifest"`
-	ManifestError string                `json:"manifest_error,omitempty"`
+	Environment        local.PythonInfo      `json:"environment"`
+	Catalog            []localTTSCatalogItem `json:"catalog"`
+	Status             local.Status          `json:"status"`
+	UserManifest       string                `json:"user_manifest"`
+	ManifestError      string                `json:"manifest_error,omitempty"`
+	IdleTimeoutMinutes int                   `json:"idle_timeout_minutes"`
 }
 
 func (h *Handler) registerLocalTTSRoutes(mux *http.ServeMux) {
@@ -99,10 +100,11 @@ func (h *Handler) handleLocalTTSModels(w http.ResponseWriter, r *http.Request) {
 	}
 	userManifest, _ := manager.UserManifestJSON()
 	response := localTTSModelsResponse{
-		Environment:  manager.DetectPython(),
-		Catalog:      catalog,
-		Status:       redactLocalStatus(manager.Status()),
-		UserManifest: userManifest,
+		Environment:        manager.DetectPython(),
+		Catalog:            catalog,
+		Status:             redactLocalStatus(manager.Status()),
+		UserManifest:       userManifest,
+		IdleTimeoutMinutes: int(manager.IdleTimeout() / time.Minute),
 	}
 	if manifestErr != nil {
 		response.ManifestError = manifestErr.Error()

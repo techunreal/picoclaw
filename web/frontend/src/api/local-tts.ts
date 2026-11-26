@@ -70,6 +70,7 @@ export interface LocalTTSModelsResponse {
   status: LocalTTSStatus
   user_manifest: string
   manifest_error?: string
+  idle_timeout_minutes: number
 }
 
 export interface LocalTTSManifestResponse {

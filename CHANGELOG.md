@@ -6,6 +6,21 @@ All notable changes to this fork of PicoClaw. Versions use the
 Earlier versions up to `0.1.27` are recorded as git tags. This file starts
 with the first batch that was built locally before tagging.
 
+## [0.1.61] - 2026-11-27
+
+### Added
+- **Chunked read-aloud:** replies are split at sentence boundaries and played
+  in sequence. The first chunk starts quickly, later chunks are prefetched, and
+  Stop cancels both playback and pending synthesis.
+- **Speech cache:** `~/.picoclaw/tts/cache` stores synthesized audio keyed by
+  text, model, voice and speed. Entries expire after 1 hour; the folder is capped
+  at 200 MB with LRU eviction. The TTS tab shows usage and can clear it.
+- **Speech speed:** `voice.tts_speed` (0.5–2.0) with a slider in TTS settings.
+  It applies to read-aloud, Test and play, `send_tts`, and the browser fallback.
+- **Idle sidecar shutdown:** unused local TTS sidecars stop after 10 minutes
+  without interrupting active requests, then restart lazily. The catalog shows
+  “Installed · sleeping”.
+
 ## [0.1.60.1] - 2026-11-26
 
 ### Added

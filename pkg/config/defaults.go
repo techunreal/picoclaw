@@ -522,6 +522,7 @@ func DefaultConfig() *Config {
 		Voice: VoiceConfig{
 			ModelName:         "",
 			TTSModelName:      "",
+			TTSSpeed:          1.0,
 			EchoTranscription: false,
 			ElevenLabsAPIKey:  "",
 		},

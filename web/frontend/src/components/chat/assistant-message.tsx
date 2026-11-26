@@ -19,12 +19,12 @@ import remarkGfm from "remark-gfm"
 import { toast } from "sonner"
 
 import {
-  MessageCodeBlock,
   MarkdownCodeBlock,
+  MessageCodeBlock,
 } from "@/components/chat/message-code-block"
 import { Button } from "@/components/ui/button"
-import { formatMessageTime } from "@/hooks/use-pico-chat"
 import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard"
+import { formatMessageTime } from "@/hooks/use-pico-chat"
 import { useSpeech } from "@/hooks/use-speech"
 import { cn } from "@/lib/utils"
 import {
@@ -52,10 +52,15 @@ export function AssistantMessage({
 }: AssistantMessageProps) {
   const { t } = useTranslation()
   const { copy, isCopied } = useCopyToClipboard()
-  const { isSupported: speechSupported, isSpeaking, isPreparing, toggle: toggleSpeech } =
-    useSpeech({
-      onError: (message) => toast.error(message),
-    })
+  const {
+    isSupported: speechSupported,
+    isSpeaking,
+    isPreparing,
+    progress: speechProgress,
+    toggle: toggleSpeech,
+  } = useSpeech({
+    onError: (message) => toast.error(message),
+  })
   const isThought = kind === "thought"
   const isToolCalls = kind === "tool_calls"
   const isCollapsedBlock = isThought || isToolCalls
@@ -84,14 +89,16 @@ export function AssistantMessage({
     : t("chat.copyMessage")
   const speakLabel =
     isSpeaking || isPreparing
-      ? t("chat.stopSpeaking", "Stop reading")
+      ? speechProgress && speechProgress.total > 1
+        ? `${t("chat.stopSpeaking", "Stop reading")} (${speechProgress.index}/${speechProgress.total})`
+        : t("chat.stopSpeaking", "Stop reading")
       : t("chat.readAloud", "Read aloud")
   const trimmedModelName = modelName?.trim() ?? ""
 
   return (
     <div className="group flex w-full flex-col gap-1.5">
       {!isCollapsedBlock && (
-          <div className="text-muted-foreground/60 flex items-center justify-between gap-2 px-1 text-xs opacity-70">
+        <div className="text-muted-foreground/60 flex items-center justify-between gap-2 px-1 text-xs opacity-70">
           <div className="flex items-center gap-2">
             <span>PicoClaw</span>
             {trimmedModelName && (
@@ -132,7 +139,9 @@ export function AssistantMessage({
                 )}
                 <span>{collapsedLabel}</span>
                 {trimmedModelName && (
-                  <span className="text-muted-foreground/45">{trimmedModelName}</span>
+                  <span className="text-muted-foreground/45">
+                    {trimmedModelName}
+                  </span>
                 )}
               </div>
               <div className="flex items-center gap-2">
@@ -212,7 +221,9 @@ export function AssistantMessage({
                             <MessageCodeBlock
                               code={toolArguments}
                               language="json"
-                              label={toolName || t("chat.toolCallArgumentsLabel")}
+                              label={
+                                toolName || t("chat.toolCallArgumentsLabel")
+                              }
                               className="my-0 shadow-none"
                               bodyClassName="px-3 py-2 text-[12px] leading-relaxed"
                             />

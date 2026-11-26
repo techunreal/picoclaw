@@ -24,6 +24,18 @@ type ttsAudioMetaProvider interface {
 	AudioFileMeta() (fileExt string, contentType string)
 }
 
+type speedSetter interface {
+	SetSpeed(float64)
+}
+
+// ApplySpeed sets the speaking rate when the provider supports it. Providers
+// that do not expose speed simply keep their default.
+func ApplySpeed(provider TTSProvider, speed float64) {
+	if setter, ok := provider.(speedSetter); ok {
+		setter.SetSpeed(speed)
+	}
+}
+
 // localTTSProvider lazily starts the PicoClaw-managed sidecar for an installed
 // local model, then delegates to its OpenAI-compatible provider.
 type localTTSProvider struct {
@@ -33,7 +45,13 @@ type localTTSProvider struct {
 
 func (p *localTTSProvider) Name() string { return p.inner.Name() }
 
+func (p *localTTSProvider) SetSpeed(speed float64) {
+	ApplySpeed(p.inner, speed)
+}
+
 func (p *localTTSProvider) Synthesize(ctx context.Context, text string) (io.ReadCloser, error) {
+	end := local.Default().BeginRequest(p.modelID)
+	defer end()
 	if err := local.Default().EnsureRunning(p.modelID); err != nil {
 		return nil, fmt.Errorf("local TTS model is not running: %w", err)
 	}
@@ -102,6 +120,7 @@ func DetectTTS(cfg *config.Config) TTSProvider {
 	for _, mc := range cfg.ModelList {
 		if (strings.Contains(strings.ToLower(mc.Model), "tts") || isLocalTTSModelConfig(mc)) && mc.APIKey() != "" {
 			if provider := providerFromModelConfig(mc, cfg.Voice.TTSVoices[mc.ModelName]); provider != nil {
+				ApplySpeed(provider, cfg.Voice.TTSSpeed)
 				return provider
 			}
 		}
@@ -132,7 +151,11 @@ func ProviderForModel(cfg *config.Config, modelName, voice string) TTSProvider {
 	if selectedVoice == "" {
 		selectedVoice = cfg.Voice.TTSVoices[mc.ModelName]
 	}
-	return providerFromModelConfig(mc, selectedVoice)
+	provider := providerFromModelConfig(mc, selectedVoice)
+	if provider != nil {
+		ApplySpeed(provider, cfg.Voice.TTSSpeed)
+	}
+	return provider
 }
 
 // DetectTTSForLanguage chooses a local model matching the requested language.
