@@ -6,6 +6,18 @@ All notable changes to this fork of PicoClaw. Versions use the
 Earlier versions up to `0.1.27` are recorded as git tags. This file starts
 with the first batch that was built locally before tagging.
 
+## [0.1.56] - 2026-11-26
+
+### Fixed
+- Read-aloud now detects the language of the message before falling back to
+  the browser language. Turkish text is read with a Turkish voice (or at least
+  tagged `tr-TR`) even when no speech voice was selected in TTS settings.
+- When no voice is installed for the detected language, the utterance still
+  carries that language instead of silently using the browser's English
+  default.
+- The TTS "Test and play" sample follows the selected/browser voice language
+  instead of always sending the English sentence.
+
 ## [0.1.55] - 2026-11-24
 
 ### Fixed

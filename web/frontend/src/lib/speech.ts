@@ -2,6 +2,203 @@ export const SPEECH_VOICE_KEY = "picoclaw.speech.voice"
 
 const TURKISH_CHARS = /[çğıöşüÇĞİÖŞÜ]/
 
+const TURKISH_WORDS = new Set([
+  "bir",
+  "bu",
+  "ve",
+  "için",
+  "icin",
+  "ile",
+  "değil",
+  "degil",
+  "mi",
+  "mı",
+  "mu",
+  "mü",
+  "ne",
+  "nedir",
+  "neydi",
+  "kim",
+  "kimdi",
+  "neden",
+  "niye",
+  "nerede",
+  "neresi",
+  "hangi",
+  "kaç",
+  "kac",
+  "nasıl",
+  "nasil",
+  "nasilsin",
+  "nasılsın",
+  "merhaba",
+  "selam",
+  "evet",
+  "hayır",
+  "hayir",
+  "tamam",
+  "lütfen",
+  "lutfen",
+  "çok",
+  "cok",
+  "az",
+  "daha",
+  "en",
+  "gibi",
+  "ama",
+  "fakat",
+  "ancak",
+  "veya",
+  "ya",
+  "şey",
+  "sey",
+  "ben",
+  "sen",
+  "biz",
+  "siz",
+  "onlar",
+  "bana",
+  "sana",
+  "onu",
+  "bunu",
+  "şunu",
+  "sunu",
+  "var",
+  "yok",
+  "olan",
+  "olarak",
+  "sonra",
+  "önce",
+  "once",
+  "şimdi",
+  "simdi",
+  "zaman",
+  "bugün",
+  "bugun",
+  "yarın",
+  "yarin",
+  "sence",
+  "bence",
+  "göre",
+  "gore",
+  "kadar",
+  "üzere",
+  "uzere",
+  "çünkü",
+  "cunku",
+  "hep",
+  "her",
+  "hiç",
+  "hic",
+  "söyle",
+  "soyle",
+  "anlat",
+  "cevap",
+  "soru",
+  "sor",
+  "istiyorum",
+  "bilmiyorum",
+  "anlamıyorum",
+  "anlamiyorum",
+])
+
+const ENGLISH_WORDS = new Set([
+  "the",
+  "and",
+  "of",
+  "is",
+  "are",
+  "you",
+  "this",
+  "that",
+  "with",
+  "for",
+  "not",
+  "have",
+  "has",
+  "was",
+  "were",
+  "what",
+  "who",
+  "when",
+  "where",
+  "why",
+  "how",
+  "hello",
+  "thanks",
+  "please",
+  "from",
+  "they",
+  "will",
+  "would",
+  "can",
+  "could",
+  "about",
+  "tell",
+  "say",
+  "think",
+  "know",
+  "want",
+])
+
+/**
+ * Detects the language used by read-aloud. It is a heuristic: Turkish-specific
+ * letters are a strong signal, otherwise common words decide. Very short or
+ * ambiguous text returns "" so the caller can fall back to the user choice or
+ * the browser language.
+ */
+export function detectSpeechLanguage(text: string): "tr" | "en" | "" {
+  const trimmed = text.trim()
+  if (trimmed === "") return ""
+  if (TURKISH_CHARS.test(trimmed)) return "tr"
+
+  const words = trimmed
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .split(/\s+/)
+    .filter(Boolean)
+  if (words.length === 0) return ""
+
+  let turkish = 0
+  let english = 0
+  for (const word of words) {
+    if (TURKISH_WORDS.has(word)) turkish += 1
+    if (ENGLISH_WORDS.has(word)) english += 1
+  }
+
+  if (turkish >= 2 && turkish > english) return "tr"
+  if (english >= 2 && english > turkish) return "en"
+  // A single strong word is enough for short greetings.
+  if (words.length <= 3) {
+    if (turkish > english) return "tr"
+    if (english > turkish) return "en"
+  }
+  return ""
+}
+
+export function speechLanguageTag(text: string): string {
+  switch (detectSpeechLanguage(text)) {
+    case "tr":
+      return "tr-TR"
+    case "en":
+      return "en-US"
+    default:
+      return ""
+  }
+}
+
+function findVoiceForLanguage(
+  voices: SpeechSynthesisVoice[],
+  language: "tr" | "en",
+): SpeechSynthesisVoice | null {
+  const prefix = `${language}-`
+  return (
+    voices.find((voice) => voice.lang.toLowerCase() === language) ??
+    voices.find((voice) => voice.lang.toLowerCase().startsWith(prefix)) ??
+    null
+  )
+}
+
 export function speechSupported(): boolean {
   return typeof window !== "undefined" && "speechSynthesis" in window
 }
@@ -34,9 +231,9 @@ export function writeSpeechVoicePreference(voiceURI: string) {
 }
 
 /**
- * Picks the voice for read-aloud. Order: explicit user choice, the browser
- * language (the user's own locale, not the UI language), then a Turkish voice
- * when the text looks Turkish, then the first available voice.
+ * Picks the voice for read-aloud. Order: explicit user choice, the language of
+ * the text itself, the browser language (the user's own locale, not the UI
+ * language), then the first available voice.
  */
 export function pickSpeechVoice(text = ""): SpeechSynthesisVoice | null {
   const voices = getSpeechVoices()
@@ -46,6 +243,14 @@ export function pickSpeechVoice(text = ""): SpeechSynthesisVoice | null {
   if (preferred !== "") {
     const chosen = voices.find((voice) => voice.voiceURI === preferred)
     if (chosen) return chosen
+  }
+
+  const textLanguage = detectSpeechLanguage(text)
+  if (textLanguage !== "") {
+    // If the matching voice is not installed, return null so speakWithVoice
+    // can still pass the detected language tag; falling through to the browser
+    // language would read Turkish text with an English voice.
+    return findVoiceForLanguage(voices, textLanguage)
   }
 
   const candidates = [navigator.language, document.documentElement.lang]
@@ -86,6 +291,16 @@ export function speakWithVoice(
   if (voice) {
     utterance.voice = voice
     utterance.lang = voice.lang
+  } else {
+    // Even without an installed voice, tell the engine which language to use.
+    // Otherwise the browser silently falls back to its own default (often
+    // English) and reads Turkish text with English pronunciation.
+    const detected = speechLanguageTag(text)
+    if (detected !== "") {
+      utterance.lang = detected
+    } else if (navigator.language) {
+      utterance.lang = navigator.language
+    }
   }
   utterance.onend = () => handlers?.onEnd?.()
   utterance.onerror = () => handlers?.onError?.()

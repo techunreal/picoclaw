@@ -120,6 +120,16 @@ export function TTSTab() {
   )
   const voiceSelectValue = selectedVoiceAvailable ? voiceURI : browserAutoVoice
 
+  const ttsTestSample = () => {
+    const selected = selectedVoiceAvailable
+      ? (voices.find((item) => item.voiceURI === voiceURI) ?? null)
+      : pickSpeechVoice()
+    const lang = (selected?.lang || navigator.language || "en").toLowerCase()
+    return lang.startsWith("tr")
+      ? "Merhaba, bu bir ses testidir."
+      : t("pages.agent.tools.tts.voice_sample", "Hello, this is a speech test.")
+  }
+
   const selectBrowserVoice = (value: string) => {
     const uri = value === browserAutoVoice ? "" : value
     setVoiceURI(uri)
@@ -216,7 +226,9 @@ export function TTSTab() {
                 type="button"
                 variant="outline"
                 className="h-10 rounded-xl px-4"
-                onClick={() => testMutation.mutate(testText)}
+                onClick={() =>
+                  testMutation.mutate(testText.trim() || ttsTestSample())
+                }
                 disabled={testMutation.isPending || !config.resolved}
               >
                 {testMutation.isPending
