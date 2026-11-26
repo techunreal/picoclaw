@@ -6,6 +6,22 @@ All notable changes to this fork of PicoClaw. Versions use the
 Earlier versions up to `0.1.27` are recorded as git tags. This file starts
 with the first batch that was built locally before tagging.
 
+## [0.1.59] - 2026-11-26
+
+### Added
+- **English tiny-voca model:** the local TTS catalog now offers `n4ze3m/tiny-voca`
+  (English, F2/M2 voices) alongside the Turkish Clarvia model. It installs on
+  demand with its dizione phonemizer and the shared Python venv.
+- **Language-aware read-aloud:** `POST /api/voice/speak` accepts a language and
+  picks the installed local model for it. Turkish text uses Clarvia and English
+  text uses tiny-voca; if no model supports the language, `Auto` falls back to
+  the browser instead of reading with the wrong voice.
+- `voice.tts_language_models` records the model installed for each language.
+
+### Changed
+- The local sidecar is now a single unified server with `clarvia` and
+  `tiny-voca` adapters; existing installs are upgraded on the next use.
+
 ## [0.1.58.2] - 2026-11-26
 
 ### Fixed

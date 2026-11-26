@@ -23,6 +23,10 @@ func TestLocalTTSModels_Catalog(t *testing.T) {
 	if len(response.Catalog) == 0 || response.Catalog[0].ID != "clarvia-tts-tiny" {
 		t.Fatalf("catalog = %#v", response.Catalog)
 	}
+	if len(response.Catalog) < 2 || response.Catalog[1].ID != "tiny-voca" ||
+		response.Catalog[1].Language != "en" {
+		t.Fatalf("catalog = %#v", response.Catalog)
+	}
 	if len(response.Catalog[0].Voices) != 10 {
 		t.Fatalf("voices = %d, want 10", len(response.Catalog[0].Voices))
 	}

@@ -13,18 +13,20 @@ type VoiceOption struct {
 
 // Recipe describes a supported local TTS model and how to install it.
 type Recipe struct {
-	ID             string        `json:"id"`
-	Name           string        `json:"name"`
-	Language       string        `json:"language"`
-	License        string        `json:"license"`
-	HFRepo         string        `json:"hf_repo"`
-	ModelFile      string        `json:"model_file"`
-	ConfigFile     string        `json:"config_file"`
-	PhonemizerRepo string        `json:"phonemizer_repo"`
-	SizeBytes      int64         `json:"size_bytes"`
-	SampleRate     int           `json:"sample_rate"`
-	Voices         []VoiceOption `json:"voices"`
-	DefaultVoice   string        `json:"default_voice"`
+	ID               string        `json:"id"`
+	Name             string        `json:"name"`
+	Language         string        `json:"language"`
+	License          string        `json:"license"`
+	HFRepo           string        `json:"hf_repo"`
+	ModelFile        string        `json:"model_file"`
+	ConfigFile       string        `json:"config_file"`
+	Adapter          string        `json:"adapter"`
+	ExtraPrefixes    []string      `json:"extra_prefixes,omitempty"`
+	PhonemizerSource string        `json:"phonemizer_source"`
+	SizeBytes        int64         `json:"size_bytes"`
+	SampleRate       int           `json:"sample_rate"`
+	Voices           []VoiceOption `json:"voices"`
+	DefaultVoice     string        `json:"default_voice"`
 }
 
 func clarviaVoices() []VoiceOption {
@@ -55,18 +57,38 @@ func clarviaVoices() []VoiceOption {
 func Catalog() []Recipe {
 	return []Recipe{
 		{
-			ID:             "clarvia-tts-tiny",
-			Name:           "Clarvia TTS Tiny (Turkish)",
-			Language:       "tr",
-			License:        "Apache-2.0",
-			HFRepo:         "wite-tech/clarvia-tts-tiny",
-			ModelFile:      "onnx/model.onnx",
-			ConfigFile:     "config.json",
-			PhonemizerRepo: "wite-tech/clarvia-phonemizer",
-			SizeBytes:      22 << 20,
-			SampleRate:     24000,
-			Voices:         clarviaVoices(),
-			DefaultVoice:   "female_1",
+			ID:               "clarvia-tts-tiny",
+			Name:             "Clarvia TTS Tiny (Turkish)",
+			Language:         "tr",
+			License:          "Apache-2.0",
+			HFRepo:           "wite-tech/clarvia-tts-tiny",
+			ModelFile:        "onnx/model.onnx",
+			ConfigFile:       "config.json",
+			Adapter:          "clarvia",
+			PhonemizerSource: "hf:wite-tech/clarvia-phonemizer",
+			SizeBytes:        22 << 20,
+			SampleRate:       24000,
+			Voices:           clarviaVoices(),
+			DefaultVoice:     "female_1",
+		},
+		{
+			ID:               "tiny-voca",
+			Name:             "tiny-voca (English)",
+			Language:         "en",
+			License:          "Apache-2.0",
+			HFRepo:           "n4ze3m/tiny-voca",
+			ModelFile:        "onnx/model.onnx",
+			ConfigFile:       "config.json",
+			Adapter:          "tiny-voca",
+			ExtraPrefixes:    []string{"phonemizer/"},
+			PhonemizerSource: "github:n4ze3m/dizione",
+			SizeBytes:        28 << 20,
+			SampleRate:       24000,
+			Voices: []VoiceOption{
+				{ID: "F2", Label: "F2 (female)"},
+				{ID: "M2", Label: "M2 (male)"},
+			},
+			DefaultVoice: "F2",
 		},
 	}
 }

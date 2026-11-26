@@ -23,6 +23,25 @@ func TestResolveRecipe(t *testing.T) {
 	}
 }
 
+func TestTinyVocaCatalog(t *testing.T) {
+	recipe, err := ResolveRecipe("n4ze3m/tiny-voca")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if recipe.Adapter != "tiny-voca" || recipe.Language != "en" {
+		t.Fatalf("recipe = %#v", recipe)
+	}
+	if len(recipe.Voices) != 2 || recipe.DefaultVoice != "F2" {
+		t.Fatalf("voices = %#v default=%q", recipe.Voices, recipe.DefaultVoice)
+	}
+	if len(recipe.ExtraPrefixes) != 1 || recipe.ExtraPrefixes[0] != "phonemizer/" {
+		t.Fatalf("extra prefixes = %#v", recipe.ExtraPrefixes)
+	}
+	if recipe.PhonemizerSource != "github:n4ze3m/dizione" {
+		t.Fatalf("phonemizer = %q", recipe.PhonemizerSource)
+	}
+}
+
 func TestClarviaCatalogVoices(t *testing.T) {
 	recipe, err := ResolveRecipe("clarvia-tts-tiny")
 	if err != nil {

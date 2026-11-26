@@ -1,6 +1,7 @@
 package local
 
 import (
+	"archive/zip"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -37,6 +38,7 @@ type Installed struct {
 	RecipeID     string        `json:"recipe_id"`
 	Name         string        `json:"name"`
 	Language     string        `json:"language"`
+	Adapter      string        `json:"adapter,omitempty"`
 	Dir          string        `json:"dir"`
 	Venv         string        `json:"venv,omitempty"`
 	Port         int           `json:"port"`
@@ -286,6 +288,9 @@ func (m *Manager) install(ctx context.Context, recipe Recipe) (*Installed, error
 	if err := downloadFile(ctx, hfFileURL(recipe.HFRepo, recipe.ConfigFile), configPath); err != nil {
 		return nil, err
 	}
+	if err := m.downloadExtras(ctx, recipe); err != nil {
+		return nil, err
+	}
 
 	m.setStatus("python", "Preparing Python environment", 35)
 	if err := m.ensurePythonEnv(ctx, python, recipe); err != nil {
@@ -308,6 +313,7 @@ func (m *Manager) install(ctx context.Context, recipe Recipe) (*Installed, error
 		RecipeID:     recipe.ID,
 		Name:         recipe.Name,
 		Language:     recipe.Language,
+		Adapter:      recipe.Adapter,
 		Dir:          m.modelDir(recipe.ID),
 		Venv:         m.venvDir(),
 		Port:         port,
@@ -351,7 +357,7 @@ func (m *Manager) ensurePythonEnv(ctx context.Context, python PythonInfo, recipe
 		return err
 	}
 	m.setStatus("python", "Installing Turkish phonemizer", 60)
-	phonemizerDir, phonemizerRoot, err := m.downloadPhonemizer(ctx, recipe)
+	phonemizerDir, phonemizerRoot, err := m.downloadPhonemizerPackage(ctx, recipe.PhonemizerSource)
 	if err != nil {
 		return err
 	}
@@ -359,38 +365,75 @@ func (m *Manager) ensurePythonEnv(ctx context.Context, python PythonInfo, recipe
 	return pip("install", "--disable-pip-version-check", phonemizerDir)
 }
 
-func (m *Manager) downloadPhonemizer(ctx context.Context, recipe Recipe) (string, string, error) {
+func (m *Manager) downloadExtras(ctx context.Context, recipe Recipe) error {
+	if len(recipe.ExtraPrefixes) == 0 {
+		return nil
+	}
+	return downloadRepoFiltered(ctx, recipe.HFRepo, m.modelDir(recipe.ID), recipe.ExtraPrefixes)
+}
+
+func (m *Manager) downloadPhonemizerPackage(ctx context.Context, source string) (string, string, error) {
+	kind, ref, ok := strings.Cut(strings.TrimSpace(source), ":")
+	if !ok || strings.TrimSpace(ref) == "" {
+		return "", "", fmt.Errorf("invalid phonemizer source %q", source)
+	}
 	tmpDir, err := os.MkdirTemp(m.root, "phonemizer-*")
 	if err != nil {
 		return "", "", err
 	}
 	extractDir := filepath.Join(tmpDir, "src")
-	if err := downloadRepo(ctx, recipe.PhonemizerRepo, extractDir); err != nil {
+	switch kind {
+	case "hf":
+		if err := downloadRepo(ctx, ref, extractDir); err != nil {
+			os.RemoveAll(tmpDir)
+			return "", "", err
+		}
+	case "github":
+		zipPath := filepath.Join(tmpDir, "package.zip")
+		url := "https://github.com/" + ref + "/archive/refs/heads/main.zip"
+		if err := downloadFile(ctx, url, zipPath); err != nil {
+			os.RemoveAll(tmpDir)
+			return "", "", err
+		}
+		if err := unzip(zipPath, extractDir); err != nil {
+			os.RemoveAll(tmpDir)
+			return "", "", err
+		}
+	default:
 		os.RemoveAll(tmpDir)
-		return "", "", err
+		return "", "", fmt.Errorf("unsupported phonemizer source %q", source)
 	}
-	if _, err := os.Stat(filepath.Join(extractDir, "pyproject.toml")); err == nil {
-		return extractDir, tmpDir, nil
+	if dir, ok := findPackageDir(extractDir); ok {
+		return dir, tmpDir, nil
 	}
-	entries, err := os.ReadDir(extractDir)
+	os.RemoveAll(tmpDir)
+	return "", "", errors.New("phonemizer package layout was not recognized")
+}
+
+func findPackageDir(root string) (string, bool) {
+	if _, err := os.Stat(filepath.Join(root, "pyproject.toml")); err == nil {
+		return root, true
+	}
+	if _, err := os.Stat(filepath.Join(root, "setup.py")); err == nil {
+		return root, true
+	}
+	entries, err := os.ReadDir(root)
 	if err != nil {
-		os.RemoveAll(tmpDir)
-		return "", "", err
+		return "", false
 	}
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			continue
 		}
-		dir := filepath.Join(extractDir, entry.Name())
+		dir := filepath.Join(root, entry.Name())
 		if _, err := os.Stat(filepath.Join(dir, "pyproject.toml")); err == nil {
-			return dir, tmpDir, nil
+			return dir, true
 		}
 		if _, err := os.Stat(filepath.Join(dir, "setup.py")); err == nil {
-			return dir, tmpDir, nil
+			return dir, true
 		}
 	}
-	os.RemoveAll(tmpDir)
-	return "", "", errors.New("phonemizer package layout was not recognized")
+	return "", false
 }
 
 type hfTreeEntry struct {
@@ -399,30 +442,54 @@ type hfTreeEntry struct {
 	Size int64  `json:"size"`
 }
 
-// downloadRepo copies a small Hugging Face repository through the tree API.
-// It is used for Python packages that do not publish a downloadable archive.
-func downloadRepo(ctx context.Context, repo, dst string) error {
+func listHFRepo(ctx context.Context, repo string) ([]hfTreeEntry, error) {
 	apiURL := "https://huggingface.co/api/models/" + repo + "/tree/main?recursive=true"
 	req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	req.Header.Set("User-Agent", "picoclaw-local-tts/"+config.FormatVersion())
 	resp, err := (&http.Client{Timeout: time.Minute}).Do(req)
 	if err != nil {
-		return fmt.Errorf("repository listing failed: %w", err)
+		return nil, fmt.Errorf("repository listing failed: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("repository listing failed: HTTP %d", resp.StatusCode)
+		return nil, fmt.Errorf("repository listing failed: HTTP %d", resp.StatusCode)
 	}
 	var entries []hfTreeEntry
 	if err := json.NewDecoder(resp.Body).Decode(&entries); err != nil {
-		return fmt.Errorf("repository listing failed: %w", err)
+		return nil, fmt.Errorf("repository listing failed: %w", err)
+	}
+	return entries, nil
+}
+
+// downloadRepo copies a small Hugging Face repository through the tree API.
+// It is used for Python packages that do not publish a downloadable archive.
+func downloadRepo(ctx context.Context, repo, dst string) error {
+	return downloadRepoFiltered(ctx, repo, dst, nil)
+}
+
+func downloadRepoFiltered(ctx context.Context, repo, dst string, prefixes []string) error {
+	entries, err := listHFRepo(ctx, repo)
+	if err != nil {
+		return err
 	}
 	for _, entry := range entries {
 		if entry.Type != "file" {
 			continue
+		}
+		if len(prefixes) > 0 {
+			match := false
+			for _, prefix := range prefixes {
+				if strings.HasPrefix(entry.Path, prefix) {
+					match = true
+					break
+				}
+			}
+			if !match {
+				continue
+			}
 		}
 		rel := filepath.FromSlash(entry.Path)
 		if strings.HasPrefix(rel, ".") || strings.Contains(rel, "..") {
@@ -443,6 +510,8 @@ func (m *Manager) venvPython() string {
 	return filepath.Join(m.venvDir(), "bin", "python")
 }
 
+const sidecarVersion = "2"
+
 // EnsureRunning starts the sidecar for an installed model when needed.
 func (m *Manager) EnsureRunning(id string) error {
 	installed, ok := m.InstalledByID(id)
@@ -457,8 +526,14 @@ func (m *Manager) EnsureRunning(id string) error {
 	if m.healthy(installed) {
 		return nil
 	}
+	if installed.PID > 0 {
+		killProcessTree(installed.PID)
+		installed.PID = 0
+		_ = m.saveRegistry(installed)
+		time.Sleep(300 * time.Millisecond)
+	}
 	if cmd, ok := m.processes[id]; ok && cmd.Process != nil {
-		_ = cmd.Process.Kill()
+		killProcessTree(cmd.Process.Pid)
 		delete(m.processes, id)
 	}
 	if err := m.startLocked(&installed); err != nil {
@@ -485,12 +560,17 @@ func (m *Manager) startLocked(installed *Installed) error {
 	if err != nil {
 		return err
 	}
+	adapter := strings.TrimSpace(installed.Adapter)
+	if adapter == "" {
+		adapter = "clarvia"
+	}
 	cmd := exec.Command(
 		venvPython,
 		m.serverPath(),
 		"--model-dir", installed.Dir,
 		"--port", strconv.Itoa(installed.Port),
 		"--token", installed.Token,
+		"--adapter", adapter,
 	)
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
@@ -541,7 +621,17 @@ func (m *Manager) healthy(installed Installed) bool {
 		return false
 	}
 	defer resp.Body.Close()
-	return resp.StatusCode == http.StatusOK
+	if resp.StatusCode != http.StatusOK {
+		return false
+	}
+	var payload struct {
+		Status  string `json:"status"`
+		Version string `json:"version"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		return false
+	}
+	return payload.Status == "ok" && payload.Version == sidecarVersion
 }
 
 func (m *Manager) Stop(id string) {
@@ -639,6 +729,46 @@ func downloadFile(ctx context.Context, url, dst string) error {
 		return err
 	}
 	return os.Rename(tmp, dst)
+}
+
+func unzip(src, dst string) error {
+	reader, err := zip.OpenReader(src)
+	if err != nil {
+		return err
+	}
+	defer reader.Close()
+	base := filepath.Clean(dst)
+	for _, file := range reader.File {
+		target := filepath.Join(base, filepath.FromSlash(file.Name))
+		if !strings.HasPrefix(filepath.Clean(target)+string(os.PathSeparator), base+string(os.PathSeparator)) {
+			return fmt.Errorf("unsafe ZIP path %q", file.Name)
+		}
+		if file.FileInfo().IsDir() {
+			if err := os.MkdirAll(target, 0o755); err != nil {
+				return err
+			}
+			continue
+		}
+		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			return err
+		}
+		rc, err := file.Open()
+		if err != nil {
+			return err
+		}
+		out, err := os.Create(target)
+		if err != nil {
+			_ = rc.Close()
+			return err
+		}
+		_, copyErr := io.Copy(out, rc)
+		_ = out.Close()
+		_ = rc.Close()
+		if copyErr != nil {
+			return copyErr
+		}
+	}
+	return nil
 }
 
 func freePort() (int, error) {

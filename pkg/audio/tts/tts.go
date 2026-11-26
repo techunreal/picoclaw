@@ -127,6 +127,69 @@ func ProviderForModel(cfg *config.Config, modelName, voice string) TTSProvider {
 	return providerFromModelConfig(mc, selectedVoice)
 }
 
+// DetectTTSForLanguage chooses a local model matching the requested language.
+// It returns nil when the caller asked for a language that no installed model
+// supports; read-aloud then falls back to the browser instead of reading with
+// the wrong language model.
+func DetectTTSForLanguage(cfg *config.Config, language string) TTSProvider {
+	language = strings.ToLower(strings.TrimSpace(language))
+	if language == "" {
+		return DetectTTS(cfg)
+	}
+	if cfg == nil {
+		return nil
+	}
+	if mapped := strings.TrimSpace(cfg.Voice.TTSLanguageModels[language]); mapped != "" {
+		if provider := ProviderForModel(cfg, mapped, ""); provider != nil {
+			return provider
+		}
+	}
+	if selected := strings.TrimSpace(cfg.Voice.TTSModelName); selected != "" {
+		if installedLanguage, isLocal := localModelLanguage(cfg, selected); !isLocal || installedLanguage == "" || installedLanguage == language {
+			return ProviderForModel(cfg, selected, "")
+		}
+	}
+	for _, mc := range cfg.ModelList {
+		id, isLocal := localModelID(mc)
+		if !isLocal {
+			continue
+		}
+		installed, ok := local.Default().InstalledByID(id)
+		if !ok || installed.Language != language {
+			continue
+		}
+		if provider := ProviderForModel(cfg, mc.ModelName, ""); provider != nil {
+			return provider
+		}
+	}
+	return nil
+}
+
+func localModelID(mc *config.ModelConfig) (string, bool) {
+	if mc == nil {
+		return "", false
+	}
+	id, ok := mc.ExtraBody["picoclaw_local_tts"].(string)
+	id = strings.TrimSpace(id)
+	return id, ok && id != ""
+}
+
+func localModelLanguage(cfg *config.Config, modelName string) (string, bool) {
+	mc, err := cfg.GetModelConfig(modelName)
+	if err != nil || mc == nil {
+		return "", false
+	}
+	id, isLocal := localModelID(mc)
+	if !isLocal {
+		return "", false
+	}
+	installed, ok := local.Default().InstalledByID(id)
+	if !ok {
+		return "", true
+	}
+	return strings.ToLower(strings.TrimSpace(installed.Language)), true
+}
+
 // SynthesizeAndStore synthesizes text to speech and registers it in the media store, returning the media reference.
 func SynthesizeAndStore(
 	ctx context.Context,

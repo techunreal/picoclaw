@@ -204,6 +204,14 @@ func (h *Handler) handleSpeakVoice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	provider := tts.DetectTTS(cfg)
+	if lang := strings.TrimSpace(req.Language); lang != "" {
+		provider = tts.DetectTTSForLanguage(cfg, lang)
+		if provider == nil {
+			writeBrowserSettingsError(w, http.StatusBadRequest, "tts_language_unavailable",
+				"No installed text-to-speech model supports the requested language.")
+			return
+		}
+	}
 	if provider == nil {
 		writeBrowserSettingsError(w, http.StatusBadRequest, "tts_not_configured",
 			"No text-to-speech model is ready.")

@@ -190,6 +190,12 @@ func (h *Handler) registerLocalTTSModel(installed local.Installed) {
 	if strings.TrimSpace(cfg.Voice.TTSVoices[modelName]) == "" {
 		cfg.Voice.TTSVoices[modelName] = installed.DefaultVoice
 	}
+	if cfg.Voice.TTSLanguageModels == nil {
+		cfg.Voice.TTSLanguageModels = make(map[string]string)
+	}
+	if language := strings.ToLower(strings.TrimSpace(installed.Language)); language != "" {
+		cfg.Voice.TTSLanguageModels[language] = modelName
+	}
 	if err := config.SaveConfig(h.configPath, cfg); err != nil {
 		return
 	}
@@ -221,6 +227,11 @@ func (h *Handler) removeLocalTTSModel(id string) {
 	}
 	for name := range removed {
 		delete(cfg.Voice.TTSVoices, name)
+	}
+	for language, name := range cfg.Voice.TTSLanguageModels {
+		if _, ok := removed[name]; ok {
+			delete(cfg.Voice.TTSLanguageModels, language)
+		}
 	}
 	if err := config.SaveConfig(h.configPath, cfg); err != nil {
 		return
