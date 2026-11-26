@@ -62,10 +62,13 @@ type Status struct {
 // Manager installs and runs local TTS sidecars below ~/.picoclaw/tts.
 type Manager struct {
 	mu         sync.Mutex
+	pythonMu   sync.Mutex
 	root       string
 	status     Status
 	installing bool
 	processes  map[string]*exec.Cmd
+	pythonInfo PythonInfo
+	pythonAt   time.Time
 }
 
 var (
@@ -126,7 +129,20 @@ func (m *Manager) Healthy(installed Installed) bool {
 
 // DetectPython finds a system Python with pip and venv support. It never
 // installs Python; the UI asks the user before any environment is created.
+// The result is cached briefly so opening the TTS tab does not spawn console
+// processes on every query refresh.
 func (m *Manager) DetectPython() PythonInfo {
+	m.pythonMu.Lock()
+	defer m.pythonMu.Unlock()
+	if !m.pythonAt.IsZero() && time.Since(m.pythonAt) < time.Minute {
+		return m.pythonInfo
+	}
+	m.pythonInfo = detectPython()
+	m.pythonAt = time.Now()
+	return m.pythonInfo
+}
+
+func detectPython() PythonInfo {
 	candidates := [][]string{
 		{"py", "-3"},
 		{"python3"},
@@ -141,7 +157,7 @@ func (m *Manager) DetectPython() PythonInfo {
 		args := append([]string{}, candidate[1:]...)
 		args = append(args, "-c",
 			"import sys; print(sys.executable); print('%d.%d' % sys.version_info[:2])")
-		out, err := exec.Command(exe, args...).Output()
+		out, err := hiddenCommand(exe, args...).Output()
 		if err != nil {
 			lastMessage = err.Error()
 			continue
@@ -162,8 +178,8 @@ func (m *Manager) DetectPython() PythonInfo {
 			lastMessage = fmt.Sprintf("Python %s is too old", version)
 			continue
 		}
-		pip := exec.Command(pythonExe, "-m", "pip", "--version").Run() == nil
-		venv := exec.Command(pythonExe, "-c", "import venv, ensurepip").Run() == nil
+		pip := hiddenCommand(pythonExe, "-m", "pip", "--version").Run() == nil
+		venv := hiddenCommand(pythonExe, "-c", "import venv, ensurepip").Run() == nil
 		return PythonInfo{
 			Available:  pip && venv,
 			Executable: pythonExe,
@@ -177,6 +193,12 @@ func (m *Manager) DetectPython() PythonInfo {
 		lastMessage = "Python 3.10+ was not found."
 	}
 	return PythonInfo{Message: lastMessage}
+}
+
+func hiddenCommand(name string, args ...string) *exec.Cmd {
+	cmd := exec.Command(name, args...)
+	hideWindow(cmd)
+	return cmd
 }
 
 func pythonAvailabilityMessage(pip, venv bool) string {
@@ -310,12 +332,14 @@ func (m *Manager) ensurePythonEnv(ctx context.Context, python PythonInfo, recipe
 	venvPython := m.venvPython()
 	if _, err := os.Stat(venvPython); err != nil {
 		cmd := exec.CommandContext(ctx, python.Executable, "-m", "venv", m.venvDir())
+		hideWindow(cmd)
 		if out, err := cmd.CombinedOutput(); err != nil {
 			return fmt.Errorf("could not create Python venv: %w: %s", err, tail(string(out)))
 		}
 	}
 	pip := func(args ...string) error {
 		cmd := exec.CommandContext(ctx, venvPython, append([]string{"-m", "pip"}, args...)...)
+		hideWindow(cmd)
 		out, err := cmd.CombinedOutput()
 		if err != nil {
 			return fmt.Errorf("pip %s failed: %w: %s", strings.Join(args, " "), err, tail(string(out)))

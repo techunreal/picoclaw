@@ -22,5 +22,7 @@ func killProcessTree(pid int) {
 	if pid <= 0 {
 		return
 	}
-	_ = exec.Command("taskkill", "/PID", strconv.Itoa(pid), "/T", "/F").Run()
+	cmd := exec.Command("taskkill", "/PID", strconv.Itoa(pid), "/T", "/F")
+	hideWindow(cmd)
+	_ = cmd.Run()
 }

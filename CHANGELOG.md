@@ -6,6 +6,13 @@ All notable changes to this fork of PicoClaw. Versions use the
 Earlier versions up to `0.1.27` are recorded as git tags. This file starts
 with the first batch that was built locally before tagging.
 
+## [0.1.58.1] - 2026-11-26
+
+### Fixed
+- Opening the Text to Speech tab no longer flashes console windows. Python
+  detection commands run hidden, the result is cached for a minute, and the
+  local-model query no longer refetches on browser window focus.
+
 ## [0.1.58] - 2026-11-26
 
 ### Added

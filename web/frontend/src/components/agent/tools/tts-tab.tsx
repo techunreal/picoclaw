@@ -82,6 +82,7 @@ export function TTSTab() {
   const localQuery = useQuery({
     queryKey: ["tts", "local-models"],
     queryFn: getLocalTTSModels,
+    refetchOnWindowFocus: false,
     refetchInterval: (state) =>
       state.state.data?.status.installing ? 1500 : false,
   })
