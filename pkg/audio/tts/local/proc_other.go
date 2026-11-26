@@ -11,6 +11,8 @@ func isWindows() bool { return false }
 
 func hideWindow(_ *exec.Cmd) {}
 
+func shortPath(path string) string { return path }
+
 func killProcessTree(pid int) {
 	if pid <= 0 {
 		return

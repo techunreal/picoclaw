@@ -31,6 +31,18 @@ func TestLocalTTSModels_Catalog(t *testing.T) {
 		response.Catalog[1].Language != "en" {
 		t.Fatalf("catalog = %#v", response.Catalog)
 	}
+	if len(response.Catalog) != 4 {
+		t.Fatalf("catalog = %d, want 4", len(response.Catalog))
+	}
+	spanish := response.Catalog[2]
+	if spanish.ID != "tiny-voca-es" || !spanish.ThirdParty ||
+		len(spanish.Requires) != 1 || spanish.Requires[0] != "espeak-ng" {
+		t.Fatalf("spanish catalog item = %#v", spanish)
+	}
+	french := response.Catalog[3]
+	if french.ID != "tiny-voca-fr" || !french.ThirdParty {
+		t.Fatalf("french catalog item = %#v", french)
+	}
 	if len(response.Catalog[0].Voices) != 10 {
 		t.Fatalf("voices = %d, want 10", len(response.Catalog[0].Voices))
 	}
@@ -218,24 +230,21 @@ func TestLocalTTSInstall_RequiresLicenseAcceptance(t *testing.T) {
 	}
 }
 
-func TestLocalTTSInstall_DependencyMissing(t *testing.T) {
+func TestLocalTTSInstall_RequiresToolConsent(t *testing.T) {
 	if _, err := exec.LookPath("espeak-ng"); err == nil {
-		t.Skip("espeak-ng is installed; dependency failure cannot be exercised")
+		t.Skip("espeak-ng is installed; the missing-tool branch cannot be exercised")
 	}
 	_, mux := newVoiceTestEnv(t)
-	if rec := putUserManifest(t, mux, thirdPartyManifest(t)); rec.Code != http.StatusOK {
-		t.Fatalf("PUT status = %d, body = %s", rec.Code, rec.Body.String())
-	}
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/api/tts/local/install",
-		bytes.NewBufferString(`{"url":"tiny-voca-es-user","consent":true,"accept_license":"tiny-voca-es-user"}`))
+		bytes.NewBufferString(`{"url":"tiny-voca-es","consent":true,"accept_license":"tiny-voca-es"}`))
 	req.Header.Set("Content-Type", "application/json")
 	mux.ServeHTTP(rec, req)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
 	}
-	if !bytes.Contains(rec.Body.Bytes(), []byte("dependency_missing")) {
+	if !bytes.Contains(rec.Body.Bytes(), []byte("tool_license_required")) {
 		t.Fatalf("body = %s", rec.Body.String())
 	}
 }

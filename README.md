@@ -5,7 +5,7 @@ by Sipeed. Upstream is MIT-licensed; this fork keeps the same license and adds
 desktop usability, security hardening, agent management, and local document
 tools.
 
-- **Version:** `0.1.60-fork`
+- **Version:** `0.1.60.1-fork`
 - **Upstream:** https://github.com/sipeed/picoclaw
 - **Fork:** https://github.com/techunreal/picoclaw
 - **License:** MIT (see `LICENSE` and `NOTICE.md`)
@@ -13,7 +13,24 @@ tools.
 > This is not an official Sipeed release. Report fork-specific issues on the
 > fork repository, not upstream.
 
-## What's new in 0.1.60-fork
+## What's new in 0.1.60.1-fork
+
+- **Language cards:** Spanish (`tiny-voca-es`) and French (`tiny-voca-fr`) now
+  appear in Tools → Text to Speech as downloadable models. They are listed but
+  not installed until you press Download.
+- **One-click eSpeak NG:** if a model needs eSpeak NG, the install dialog offers
+  to download the official eSpeak NG 1.52.0 package (GPL-3.0, about 12 MB) into
+  `~/.picoclaw/tts/tools` after you accept the license. Nothing is installed
+  system-wide and the ZIP stays small.
+- **Link or id:** pasting the Hugging Face URL or the model id of a catalog
+  model opens the same license dialog. Unknown models still need a manifest.
+- **Manifest moved to Advanced:** the third-party manifest editor is now a
+  collapsed Advanced section; the normal flow is just “pick a language, press
+  Download”.
+- **SHA-256 for eSpeak:** the downloaded MSI is checked against a pinned
+  SHA-256 digest before extraction.
+
+## 0.1.60-fork
 
 - **Third-party TTS manifest:** Tools → Text to Speech can load a validated JSON
   manifest listing extra local models (Hugging Face repo, files, SHA-256,
@@ -27,10 +44,10 @@ tools.
   rules come from the manifest as data; no model code is executed. This makes
   eSpeak-based tiny-voca forks (Spanish, French and similar) addable without a
   new release.
-- **No new models installed by default:** the built-in catalog is unchanged
-  (Turkish Clarvia and English tiny-voca). Example Spanish and French manifests
-  are provided in `temp/0.1.60/`; eSpeak NG 1.52.0 must be installed separately
-  (GPL-3.0, not bundled with the ZIP).
+- **No new models installed by default:** the built-in catalog was unchanged in
+  0.1.60 (Turkish Clarvia and English tiny-voca). Example Spanish and French
+  manifests were provided in `temp/0.1.60/`; 0.1.60.1 turns them into built-in
+  language cards. eSpeak NG 1.52.0 is separate (GPL-3.0, not bundled).
 - **Checksums:** third-party manifests must provide SHA-256 digests for the
   model and config files; downloads are verified before the sidecar starts.
 
@@ -270,7 +287,7 @@ Microsoft Office, Adobe Acrobat, or a system Python install.
 ## Quick start (Windows)
 
 1. Extract the release ZIP (for example
-   `PicoClaw-Windows-x86_64-0.1.60-fork.zip`) to a folder such as
+   `PicoClaw-Windows-x86_64-0.1.60.1-fork.zip`) to a folder such as
    `C:\Users\<you>\PicoClaw`.
 2. Run `picoclaw-launcher.exe`.
 3. Open `http://localhost:18800` if the browser does not open automatically.
@@ -319,13 +336,13 @@ go build -tags "goolm,stdjson" -o build/picoclaw-launcher.exe ./web/backend
 Release build with version metadata, Office runtime, ZIP, and SHA256:
 
 ```powershell
-powershell -File scripts/build-release.ps1 -Version 0.1.60-fork
+powershell -File scripts/build-release.ps1 -Version 0.1.60.1-fork
 ```
 
 Lean build without the Office runtime:
 
 ```powershell
-powershell -File scripts/build-release.ps1 -Version 0.1.60-fork -SkipOfficeRuntime
+powershell -File scripts/build-release.ps1 -Version 0.1.60.1-fork -SkipOfficeRuntime
 ```
 
 ## Tests
@@ -341,7 +358,7 @@ go test -tags "goolm,stdjson" ./... -count=1 -timeout 300s
 - Package E.1: resilience, persistence, model references, deterministic tests,
   curated skills, Office Pack.
 - Package E.2: release, clean install, README, roadmap, fork push.
-- 0.1.4-0.1.60: WebUI, agents, models, profile import, TTS/read-aloud, browser
+- 0.1.4-0.1.60.1: WebUI, agents, models, profile import, TTS/read-aloud, browser
   allowlist, launcher/firewall, context safety. See [`CHANGELOG.md`](CHANGELOG.md).
 - Portable/USB mode (E.3): future idea.
 

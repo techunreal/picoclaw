@@ -17,8 +17,12 @@ export interface LocalTTSPython {
 export interface LocalTTSDependency {
   name: string
   available: boolean
+  managed?: boolean
   version?: string
   message?: string
+  can_install?: boolean
+  download_size?: number
+  license?: string
 }
 
 export interface LocalTTSCatalogItem {
@@ -28,6 +32,7 @@ export interface LocalTTSCatalogItem {
   license: string
   license_url?: string
   source_url?: string
+  hf_repo?: string
   third_party?: boolean
   size_bytes: number
   voices: LocalTTSVoice[]
@@ -95,6 +100,7 @@ export async function installLocalTTS(
   url: string,
   consent: boolean,
   acceptLicense?: string,
+  acceptTools?: boolean,
 ): Promise<void> {
   const res = await launcherFetch("/api/tts/local/install", {
     method: "POST",
@@ -103,6 +109,7 @@ export async function installLocalTTS(
       url,
       consent,
       accept_license: acceptLicense ?? "",
+      accept_tools: acceptTools ?? false,
     }),
   })
   if (!res.ok) throw new Error(await readError(res))

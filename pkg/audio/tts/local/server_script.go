@@ -70,9 +70,10 @@ class EspeakFrontend:
     manifest. No code from the model repository is executed.
     """
 
-    def __init__(self, spec, config):
+    def __init__(self, spec, config, espeak_path=""):
         self.spec = spec or {}
         self.config = config or {}
+        self.espeak_path = espeak_path or ""
         symbols = self.spec.get("symbols") or self.config.get("symbols") or []
         if len(symbols) < 5:
             raise ValueError("frontend symbols must contain at least five specials")
@@ -138,14 +139,18 @@ class EspeakFrontend:
             yield False, text[start:].strip()
 
     def espeak_words(self, piece):
-        executable = shutil.which("espeak-ng")
+        executable = self.espeak_path or shutil.which("espeak-ng")
         if executable is None:
             raise RuntimeError(
                 "espeak-ng is not installed; install eSpeak NG 1.52.0 and restart the sidecar")
+        env = os.environ.copy()
+        data = Path(executable).parent / "espeak-ng-data"
+        if data.is_dir():
+            env["ESPEAK_DATA_PATH"] = str(data)
         result = subprocess.run(
             [executable, "-q", "--ipa", "--sep=_", "-v", self.voice, "--stdin"],
             input=piece.rstrip("\n") + "\n", text=True, capture_output=True,
-            check=True, timeout=30)
+            check=True, timeout=30, env=env)
         return self.parse_espeak(result.stdout)
 
     def parse_espeak(self, output):
@@ -423,12 +428,13 @@ class TinyVocaEngine(BaseEngine):
 class EspeakEngine(BaseEngine):
     language = "es"
 
-    def __init__(self, model_dir, threads=1):
+    def __init__(self, model_dir, threads=1, espeak_path=""):
         super().__init__(model_dir, threads)
         self.language = str(self.profile.get("language") or "es")
         self.sample_rate = int(self.profile.get("sample_rate") or 24000)
         self.max_tokens = int(self.profile.get("max_tokens") or 512)
-        self.frontend = EspeakFrontend(self.profile.get("frontend") or {}, self.config)
+        self.frontend = EspeakFrontend(
+            self.profile.get("frontend") or {}, self.config, espeak_path)
 
         declared = self.profile.get("voices") or []
         if declared and isinstance(declared[0], dict):
@@ -639,6 +645,7 @@ def main():
     parser.add_argument("--token", default="")
     parser.add_argument(
         "--adapter", choices=["clarvia", "tiny-voca", "espeak"], default="clarvia")
+    parser.add_argument("--espeak", default="")
     parser.add_argument("--threads", type=int, default=1)
     parser.add_argument("--frontend-test", default="")
     args = parser.parse_args()
@@ -652,7 +659,7 @@ def main():
         parser.error("numpy and onnxruntime are required")
 
     if args.adapter == "espeak":
-        tts = EspeakEngine(args.model_dir, threads=args.threads)
+        tts = EspeakEngine(args.model_dir, threads=args.threads, espeak_path=args.espeak)
     elif args.adapter == "tiny-voca":
         tts = TinyVocaEngine(args.model_dir, threads=args.threads)
     else:

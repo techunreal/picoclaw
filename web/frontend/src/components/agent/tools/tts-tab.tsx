@@ -60,9 +60,9 @@ export function TTSTab() {
   const [localUrl, setLocalUrl] = useState("")
   const [pendingInstall, setPendingInstall] = useState<string | null>(null)
   const [acceptLicense, setAcceptLicense] = useState(false)
+  const [acceptTools, setAcceptTools] = useState(false)
   const [manifestText, setManifestText] = useState("")
   const [manifestDirty, setManifestDirty] = useState(false)
-  const [showManifestEditor, setShowManifestEditor] = useState(false)
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([])
   const [voiceURI, setVoiceURI] = useState("")
   const [browserSpeaking, setBrowserSpeaking] = useState(false)
@@ -111,6 +111,7 @@ export function TTSTab() {
 
   useEffect(() => {
     setAcceptLicense(false)
+    setAcceptTools(false)
   }, [pendingInstall])
 
   useEffect(() => {
@@ -158,8 +159,17 @@ export function TTSTab() {
   })
 
   const installMutation = useMutation({
-    mutationFn: (values: { url: string; acceptLicense?: string }) =>
-      installLocalTTS(values.url, true, values.acceptLicense),
+    mutationFn: (values: {
+      url: string
+      acceptLicense?: string
+      acceptTools?: boolean
+    }) =>
+      installLocalTTS(
+        values.url,
+        true,
+        values.acceptLicense,
+        values.acceptTools,
+      ),
     onSuccess: async () => {
       setPendingInstall(null)
       toast.success(
@@ -235,7 +245,6 @@ export function TTSTab() {
       await queryClient.invalidateQueries({
         queryKey: ["tts", "local-models"],
       })
-      setShowManifestEditor(false)
     },
     onError: (error) =>
       toast.error(
@@ -379,10 +388,28 @@ export function TTSTab() {
     (model) => model.tts_like || model.provider === "mimo",
   )
 
+  const pendingKey = (pendingInstall ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/\/+$/, "")
   const pendingItem =
-    local?.catalog.find((item) => item.id === pendingInstall) ?? null
+    local?.catalog.find((item) => {
+      if (pendingKey === "") return false
+      const id = item.id.toLowerCase()
+      const repo = item.hf_repo?.toLowerCase() ?? ""
+      return (
+        pendingKey === id ||
+        (repo !== "" &&
+          (pendingKey === repo ||
+            pendingKey.includes(`huggingface.co/${repo}`)))
+      )
+    }) ?? null
   const pendingThirdParty = Boolean(pendingItem?.third_party)
   const pendingMissing = pendingItem?.missing ?? []
+  const pendingTool =
+    pendingItem?.dependencies?.find(
+      (dependency) => !dependency.available && dependency.can_install,
+    ) ?? null
 
   return (
     <div className="animate-in fade-in slide-in-from-bottom-2 space-y-6 duration-500">
@@ -972,7 +999,39 @@ export function TTSTab() {
                         </label>
                       </div>
                     )}
-                    {pendingMissing.length > 0 && (
+                    {pendingTool && (
+                      <div className="mt-2 space-y-1 rounded-md border border-sky-500/40 bg-sky-500/5 p-2">
+                        <p className="font-medium text-sky-700 dark:text-sky-300">
+                          {t(
+                            "pages.agent.tools.tts.local_tool_title",
+                            "eSpeak NG is required",
+                          )}
+                        </p>
+                        <p className="text-muted-foreground">
+                          {t(
+                            "pages.agent.tools.tts.local_tool_body",
+                            "PicoClaw can download eSpeak NG 1.52.0 (GPL-3.0, about 12 MB) to ~/.picoclaw/tts/tools. It is not bundled with the ZIP.",
+                          )}
+                        </p>
+                        <label className="flex items-start gap-2">
+                          <input
+                            type="checkbox"
+                            className="mt-0.5"
+                            checked={acceptTools}
+                            onChange={(event) =>
+                              setAcceptTools(event.target.checked)
+                            }
+                          />
+                          <span>
+                            {t(
+                              "pages.agent.tools.tts.local_tool_accept",
+                              "I accept the eSpeak NG license (GPL-3.0).",
+                            )}
+                          </span>
+                        </label>
+                      </div>
+                    )}
+                    {pendingMissing.length > 0 && !pendingTool && (
                       <p className="text-destructive mt-2">
                         {t(
                           "pages.agent.tools.tts.local_missing_dependency",
@@ -992,11 +1051,13 @@ export function TTSTab() {
                               pendingThirdParty && pendingInstall
                                 ? pendingInstall
                                 : undefined,
+                            acceptTools: pendingTool ? acceptTools : undefined,
                           })
                         }
                         disabled={
                           installMutation.isPending ||
-                          pendingMissing.length > 0 ||
+                          (pendingMissing.length > 0 && !pendingTool) ||
+                          (pendingTool !== null && !acceptTools) ||
                           (pendingThirdParty && !acceptLicense)
                         }
                       >
@@ -1095,7 +1156,7 @@ export function TTSTab() {
                           </p>
                         )}
                         {!item.installed && (item.missing?.length ?? 0) > 0 && (
-                          <p className="text-destructive text-xs">
+                          <p className="text-muted-foreground text-xs">
                             {t(
                               "pages.agent.tools.tts.local_requires_tool",
                               "Requires:",
@@ -1142,7 +1203,6 @@ export function TTSTab() {
                               }
                               setPendingInstall(item.id)
                             }}
-                            disabled={(item.missing?.length ?? 0) > 0}
                           >
                             {t(
                               "pages.agent.tools.tts.local_install",
@@ -1155,122 +1215,102 @@ export function TTSTab() {
                   ))}
                 </div>
 
-                <div className="space-y-2 rounded-lg border p-3">
-                  <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                    <div className="space-y-1">
-                      <p className="text-sm font-medium">
-                        {t(
-                          "pages.agent.tools.tts.local_manifest_title",
-                          "Third-party manifest",
-                        )}
-                      </p>
-                      <p className="text-muted-foreground text-xs">
-                        {t(
-                          "pages.agent.tools.tts.local_manifest_hint",
-                          "Add models that use a supported front end (for example eSpeak-based tiny-voca forks). The manifest only describes files, license and voices; no model code is executed.",
-                        )}
-                      </p>
-                    </div>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      className="shrink-0"
-                      onClick={() => setShowManifestEditor((value) => !value)}
-                    >
-                      {showManifestEditor
-                        ? t("pages.agent.tools.tts.local_manifest_hide", "Hide")
-                        : t(
-                            "pages.agent.tools.tts.local_manifest_show",
-                            "Edit manifest",
-                          )}
-                    </Button>
-                  </div>
-                  {local.manifest_error && (
-                    <p className="text-destructive text-xs">
-                      {local.manifest_error}
+                <details className="rounded-lg border p-3">
+                  <summary className="cursor-pointer text-sm font-medium">
+                    {t(
+                      "pages.agent.tools.tts.local_manifest_title",
+                      "Advanced: third-party manifest",
+                    )}
+                  </summary>
+                  <div className="mt-2 space-y-2">
+                    <p className="text-muted-foreground text-xs">
+                      {t(
+                        "pages.agent.tools.tts.local_manifest_hint",
+                        "For advanced users. Add a model that uses a supported front end (for example another eSpeak-based tiny-voca fork). The manifest only describes files, license and voices; no model code is executed.",
+                      )}
                     </p>
-                  )}
-                  {showManifestEditor && (
-                    <>
-                      <textarea
-                        className="border-input bg-background focus-visible:ring-ring min-h-40 w-full rounded-lg border p-3 font-mono text-xs outline-none focus-visible:ring-2"
-                        value={manifestText}
-                        spellCheck={false}
-                        onChange={(event) => {
-                          setManifestText(event.target.value)
-                          setManifestDirty(true)
+                    {local.manifest_error && (
+                      <p className="text-destructive text-xs">
+                        {local.manifest_error}
+                      </p>
+                    )}
+                    <textarea
+                      className="border-input bg-background focus-visible:ring-ring min-h-40 w-full rounded-lg border p-3 font-mono text-xs outline-none focus-visible:ring-2"
+                      value={manifestText}
+                      spellCheck={false}
+                      onChange={(event) => {
+                        setManifestText(event.target.value)
+                        setManifestDirty(true)
+                      }}
+                      placeholder={t(
+                        "pages.agent.tools.tts.local_manifest_placeholder",
+                        '{ "version": 1, "models": [ { "id": "...", "third_party": true, ... } ] }',
+                      )}
+                    />
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        type="button"
+                        size="sm"
+                        onClick={() => manifestMutation.mutate(manifestText)}
+                        disabled={
+                          manifestMutation.isPending ||
+                          manifestText.trim() === ""
+                        }
+                      >
+                        {manifestMutation.isPending
+                          ? t(
+                              "pages.agent.tools.tts.local_manifest_saving",
+                              "Saving…",
+                            )
+                          : t(
+                              "pages.agent.tools.tts.local_manifest_save",
+                              "Save manifest",
+                            )}
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          setManifestText(local.user_manifest ?? "")
+                          setManifestDirty(false)
                         }}
-                        placeholder={t(
-                          "pages.agent.tools.tts.local_manifest_placeholder",
-                          '{ "version": 1, "models": [ { "id": "...", "third_party": true, ... } ] }',
+                        disabled={!manifestDirty}
+                      >
+                        {t(
+                          "pages.agent.tools.tts.local_manifest_reset",
+                          "Reset",
                         )}
-                      />
-                      <div className="flex flex-wrap gap-2">
-                        <Button
-                          type="button"
-                          size="sm"
-                          onClick={() => manifestMutation.mutate(manifestText)}
-                          disabled={
-                            manifestMutation.isPending ||
-                            manifestText.trim() === ""
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => {
+                          if (
+                            window.confirm(
+                              t(
+                                "pages.agent.tools.tts.local_manifest_remove_confirm",
+                                "Remove the saved third-party manifest?",
+                              ),
+                            )
+                          ) {
+                            clearManifestMutation.mutate()
                           }
-                        >
-                          {manifestMutation.isPending
-                            ? t(
-                                "pages.agent.tools.tts.local_manifest_saving",
-                                "Saving…",
-                              )
-                            : t(
-                                "pages.agent.tools.tts.local_manifest_save",
-                                "Save manifest",
-                              )}
-                        </Button>
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          onClick={() => {
-                            setManifestText(local.user_manifest ?? "")
-                            setManifestDirty(false)
-                          }}
-                          disabled={!manifestDirty}
-                        >
-                          {t(
-                            "pages.agent.tools.tts.local_manifest_reset",
-                            "Reset",
-                          )}
-                        </Button>
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => {
-                            if (
-                              window.confirm(
-                                t(
-                                  "pages.agent.tools.tts.local_manifest_remove_confirm",
-                                  "Remove the saved third-party manifest?",
-                                ),
-                              )
-                            ) {
-                              clearManifestMutation.mutate()
-                            }
-                          }}
-                          disabled={
-                            clearManifestMutation.isPending ||
-                            !local.user_manifest
-                          }
-                        >
-                          {t(
-                            "pages.agent.tools.tts.local_manifest_remove",
-                            "Remove saved",
-                          )}
-                        </Button>
-                      </div>
-                    </>
-                  )}
-                </div>
+                        }}
+                        disabled={
+                          clearManifestMutation.isPending ||
+                          !local.user_manifest
+                        }
+                      >
+                        {t(
+                          "pages.agent.tools.tts.local_manifest_remove",
+                          "Remove saved",
+                        )}
+                      </Button>
+                    </div>
+                  </div>
+                </details>
               </>
             ) : null}
           </div>

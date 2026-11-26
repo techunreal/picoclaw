@@ -6,6 +6,25 @@ All notable changes to this fork of PicoClaw. Versions use the
 Earlier versions up to `0.1.27` are recorded as git tags. This file starts
 with the first batch that was built locally before tagging.
 
+## [0.1.60.1] - 2026-11-26
+
+### Added
+- **Language cards for Spanish and French:** `tiny-voca-es` and `tiny-voca-fr`
+  are listed in Tools → Text to Speech. Selecting one and pressing Download
+  installs it; nothing is installed by default.
+- **Automatic eSpeak NG download:** models that declare an eSpeak front end can
+  download the official eSpeak NG 1.52.0 MSI into `~/.picoclaw/tts/tools` after
+  the user accepts GPL-3.0. The MSI is verified against a pinned SHA-256 digest
+  and extracted per-user; no system-wide install.
+- **HF link or model id:** pasting a catalog model's Hugging Face URL/id opens
+  the same license and install dialog.
+- The catalog reports whether eSpeak NG is managed, missing or installed.
+
+### Changed
+- The third-party manifest editor moved into a collapsed Advanced section.
+- The install dialog explains the eSpeak NG download and requires a separate
+  consent checkbox only when it is needed.
+
 ## [0.1.60] - 2026-11-26
 
 ### Added

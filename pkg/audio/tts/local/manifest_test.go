@@ -17,10 +17,13 @@ func TestBuiltinManifestIsValid(t *testing.T) {
 	if manifest.Version != manifestVersion {
 		t.Fatalf("version = %d", manifest.Version)
 	}
-	if len(manifest.Models) != 2 {
-		t.Fatalf("models = %d, want 2", len(manifest.Models))
+	if len(manifest.Models) != 4 {
+		t.Fatalf("models = %d, want 4", len(manifest.Models))
 	}
 	if manifest.Models[0].ID != "clarvia-tts-tiny" || manifest.Models[1].ID != "tiny-voca" {
+		t.Fatalf("models = %#v", manifest.Models)
+	}
+	if manifest.Models[2].ID != "tiny-voca-es" || manifest.Models[3].ID != "tiny-voca-fr" {
 		t.Fatalf("models = %#v", manifest.Models)
 	}
 }
@@ -29,7 +32,7 @@ func validUserManifest() Manifest {
 	return Manifest{
 		Version: manifestVersion,
 		Models: []Recipe{{
-			ID:         "tiny-voca-es",
+			ID:         "tiny-voca-es-user",
 			Name:       "tiny-voca (Spanish)",
 			Language:   "es",
 			License:    "Apache-2.0",
@@ -74,7 +77,7 @@ func TestParseManifestAcceptsUserModel(t *testing.T) {
 		t.Fatalf("ParseManifest() error = %v", err)
 	}
 	recipe := manifest.Models[0]
-	if recipe.ID != "tiny-voca-es" || !recipe.ThirdParty {
+	if recipe.ID != "tiny-voca-es-user" || !recipe.ThirdParty {
 		t.Fatalf("recipe = %#v", recipe)
 	}
 	if !containsString(recipe.Requires, "espeak-ng") {
@@ -151,14 +154,14 @@ func TestManagerUserManifestRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Catalog() error = %v", err)
 	}
-	if len(recipes) != 3 {
-		t.Fatalf("catalog = %d, want 3", len(recipes))
+	if len(recipes) != 5 {
+		t.Fatalf("catalog = %d, want 5", len(recipes))
 	}
-	recipe, err := manager.ResolveRecipe("tiny-voca-es")
+	recipe, err := manager.ResolveRecipe("tiny-voca-es-user")
 	if err != nil {
 		t.Fatalf("ResolveRecipe() error = %v", err)
 	}
-	if recipe.ID != "tiny-voca-es" {
+	if recipe.ID != "tiny-voca-es-user" {
 		t.Fatalf("recipe = %#v", recipe)
 	}
 	if raw, err := manager.UserManifestJSON(); err != nil || !strings.Contains(raw, "tiny-voca-es") {
@@ -171,8 +174,8 @@ func TestManagerUserManifestRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Catalog() after clear error = %v", err)
 	}
-	if len(recipes) != 2 {
-		t.Fatalf("catalog after clear = %d, want 2", len(recipes))
+	if len(recipes) != 4 {
+		t.Fatalf("catalog after clear = %d, want 4", len(recipes))
 	}
 }
 

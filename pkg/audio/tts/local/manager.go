@@ -69,6 +69,7 @@ type Manager struct {
 	mu         sync.Mutex
 	pythonMu   sync.Mutex
 	depMu      sync.Mutex
+	toolMu     sync.Mutex
 	root       string
 	status     Status
 	installing bool
@@ -103,10 +104,14 @@ func NewManager(root string) *Manager {
 
 // Dependency is the availability of an external tool a recipe needs.
 type Dependency struct {
-	Name      string `json:"name"`
-	Available bool   `json:"available"`
-	Version   string `json:"version,omitempty"`
-	Message   string `json:"message,omitempty"`
+	Name         string `json:"name"`
+	Available    bool   `json:"available"`
+	Managed      bool   `json:"managed,omitempty"`
+	Version      string `json:"version,omitempty"`
+	Message      string `json:"message,omitempty"`
+	CanInstall   bool   `json:"can_install,omitempty"`
+	DownloadSize int64  `json:"download_size,omitempty"`
+	License      string `json:"license,omitempty"`
 }
 
 func (m *Manager) manifestPath() string { return filepath.Join(m.root, "manifest.json") }
@@ -210,7 +215,7 @@ func (m *Manager) Dependencies(names []string) []Dependency {
 	for _, name := range names {
 		cached, ok := m.deps[name]
 		if !ok {
-			cached = detectDependency(name)
+			cached = m.detectDependency(name)
 			m.deps[name] = cached
 		}
 		out = append(out, cached)
@@ -218,40 +223,28 @@ func (m *Manager) Dependencies(names []string) []Dependency {
 	return out
 }
 
-func detectDependency(name string) Dependency {
+func (m *Manager) detectDependency(name string) Dependency {
 	result := Dependency{Name: name}
 	if name != "espeak-ng" {
 		result.Message = "unsupported dependency"
 		return result
 	}
-	path, err := exec.LookPath("espeak-ng")
-	if err != nil {
-		result.Message = "espeak-ng is not installed. Install eSpeak NG 1.52.0 and try again."
+	exe, managed := m.espeakAvailable()
+	if exe == "" {
+		result.CanInstall = isWindows()
+		result.DownloadSize = espeakMSISize
+		result.License = espeakLicense
+		result.Message = "eSpeak NG 1.52.0 is not installed. PicoClaw can download it with your consent."
 		return result
 	}
 	result.Available = true
+	result.Managed = managed
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, path, "--version")
-	hideWindow(cmd)
-	if out, err := cmd.Output(); err == nil {
-		version := strings.TrimSpace(string(out))
-		if line, _, found := strings.Cut(version, "\n"); found {
-			version = line
-		}
+	if version, err := espeakVersion(ctx, exe); err == nil {
 		result.Version = version
 	}
 	return result
-}
-
-func (m *Manager) missingDependencies(names []string) []string {
-	var missing []string
-	for _, dependency := range m.Dependencies(names) {
-		if !dependency.Available {
-			missing = append(missing, dependency.Name)
-		}
-	}
-	return missing
 }
 
 func (m *Manager) venvDir() string    { return filepath.Join(m.root, "venv") }
@@ -381,14 +374,16 @@ func pythonAvailabilityMessage(pip, venv bool) string {
 
 // StartInstall runs the installation in the background and reports progress
 // through Status. licenseAt is recorded for third-party models after the user
-// accepted the license.
+// accepted the license; allowToolInstall permits downloading eSpeak NG after
+// the user accepted its GPL-3.0 license.
 func (m *Manager) StartInstall(
 	ctx context.Context,
 	recipe Recipe,
 	licenseAt time.Time,
+	allowToolInstall bool,
 	onDone func(*Installed, error),
 ) error {
-	if missing := m.missingDependencies(recipe.Requires); len(missing) > 0 {
+	if missing := m.missingDependencyNames(recipe.Requires); len(missing) > 0 && !allowToolInstall {
 		return fmt.Errorf("missing dependency: %s", strings.Join(missing, ", "))
 	}
 	m.mu.Lock()
@@ -403,7 +398,7 @@ func (m *Manager) StartInstall(
 	go func() {
 		installCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Minute)
 		defer cancel()
-		installed, err := m.install(installCtx, recipe, licenseAt)
+		installed, err := m.install(installCtx, recipe, licenseAt, allowToolInstall)
 		if onDone != nil {
 			onDone(installed, err)
 		}
@@ -434,10 +429,16 @@ func (m *Manager) setStatus(phase, message string, progress int) {
 	m.mu.Unlock()
 }
 
-func (m *Manager) install(ctx context.Context, recipe Recipe, licenseAt time.Time) (*Installed, error) {
+func (m *Manager) install(ctx context.Context, recipe Recipe, licenseAt time.Time, allowToolInstall bool) (*Installed, error) {
 	python := m.DetectPython()
 	if !python.Available {
 		return nil, fmt.Errorf("Python 3.10+ with pip and venv is required: %s", python.Message)
+	}
+	if containsString(recipe.Requires, "espeak-ng") {
+		m.setStatus("dependency", "Preparing eSpeak NG", 3)
+		if _, err := m.EnsureEspeak(ctx, allowToolInstall); err != nil {
+			return nil, err
+		}
 	}
 	if err := os.MkdirAll(m.modelDir(recipe.ID), 0o755); err != nil {
 		return nil, err
@@ -797,6 +798,9 @@ func (m *Manager) startLocked(installed *Installed) error {
 		"--token", installed.Token,
 		"--adapter", adapter,
 	)
+	if exe, _ := m.espeakAvailable(); exe != "" {
+		cmd.Args = append(cmd.Args, "--espeak", exe)
+	}
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
 	hideWindow(cmd)

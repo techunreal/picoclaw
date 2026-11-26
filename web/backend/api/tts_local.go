@@ -16,6 +16,7 @@ type localTTSInstallRequest struct {
 	URL           string `json:"url"`
 	Consent       bool   `json:"consent"`
 	AcceptLicense string `json:"accept_license"`
+	AcceptTools   bool   `json:"accept_tools"`
 }
 
 type localTTSCatalogItem struct {
@@ -25,6 +26,7 @@ type localTTSCatalogItem struct {
 	License      string              `json:"license"`
 	LicenseURL   string              `json:"license_url,omitempty"`
 	SourceURL    string              `json:"source_url,omitempty"`
+	HFRepo       string              `json:"hf_repo,omitempty"`
 	ThirdParty   bool                `json:"third_party"`
 	SizeBytes    int64               `json:"size_bytes"`
 	Voices       []local.VoiceOption `json:"voices"`
@@ -79,6 +81,7 @@ func (h *Handler) handleLocalTTSModels(w http.ResponseWriter, r *http.Request) {
 			License:      recipe.License,
 			LicenseURL:   recipe.LicenseURL,
 			SourceURL:    recipe.SourceURL,
+			HFRepo:       recipe.HFRepo,
 			ThirdParty:   recipe.ThirdParty,
 			SizeBytes:    recipe.SizeBytes,
 			Voices:       recipe.Voices,
@@ -139,18 +142,39 @@ func (h *Handler) handleLocalTTSInstall(w http.ResponseWriter, r *http.Request) 
 	}
 	dependencies := manager.Dependencies(recipe.Requires)
 	missing := make([]string, 0)
+	canInstall := true
 	for _, dependency := range dependencies {
-		if !dependency.Available {
-			missing = append(missing, dependency.Name)
+		if dependency.Available {
+			continue
+		}
+		missing = append(missing, dependency.Name)
+		if !dependency.CanInstall {
+			canInstall = false
 		}
 	}
 	if len(missing) > 0 {
-		writeJSON(w, http.StatusBadRequest, map[string]any{
-			"code":         "dependency_missing",
-			"error":        fmt.Sprintf("Install the required tool first: %s", strings.Join(missing, ", ")),
-			"dependencies": dependencies,
-		})
-		return
+		if !req.AcceptTools {
+			code := "dependency_missing"
+			message := fmt.Sprintf("Install the required tool first: %s", strings.Join(missing, ", "))
+			if canInstall {
+				code = "tool_license_required"
+				message = "Download eSpeak NG 1.52.0 (GPL-3.0) before installing this model."
+			}
+			writeJSON(w, http.StatusBadRequest, map[string]any{
+				"code":         code,
+				"error":        message,
+				"dependencies": dependencies,
+			})
+			return
+		}
+		if !canInstall {
+			writeJSON(w, http.StatusBadRequest, map[string]any{
+				"code":         "dependency_missing",
+				"error":        fmt.Sprintf("Install the required tool first: %s", strings.Join(missing, ", ")),
+				"dependencies": dependencies,
+			})
+			return
+		}
 	}
 	env := manager.DetectPython()
 	if !env.Available {
@@ -165,7 +189,7 @@ func (h *Handler) handleLocalTTSInstall(w http.ResponseWriter, r *http.Request) 
 	if recipe.ThirdParty {
 		licenseAt = time.Now().UTC()
 	}
-	if err := manager.StartInstall(r.Context(), *recipe, licenseAt, func(installed *local.Installed, installErr error) {
+	if err := manager.StartInstall(r.Context(), *recipe, licenseAt, req.AcceptTools, func(installed *local.Installed, installErr error) {
 		if installErr != nil || installed == nil {
 			return
 		}

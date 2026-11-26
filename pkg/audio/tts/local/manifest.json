@@ -15,16 +15,46 @@
       "size_bytes": 23068672,
       "sample_rate": 24000,
       "voices": [
-        { "id": "female_1", "label": "Female 1" },
-        { "id": "female_2", "label": "Female 2" },
-        { "id": "female_3", "label": "Female 3" },
-        { "id": "female_4", "label": "Female 4" },
-        { "id": "female_5", "label": "Female 5" },
-        { "id": "male_1", "label": "Male 1" },
-        { "id": "male_2", "label": "Male 2" },
-        { "id": "male_3", "label": "Male 3" },
-        { "id": "male_4", "label": "Male 4" },
-        { "id": "male_5", "label": "Male 5" }
+        {
+          "id": "female_1",
+          "label": "Female 1"
+        },
+        {
+          "id": "female_2",
+          "label": "Female 2"
+        },
+        {
+          "id": "female_3",
+          "label": "Female 3"
+        },
+        {
+          "id": "female_4",
+          "label": "Female 4"
+        },
+        {
+          "id": "female_5",
+          "label": "Female 5"
+        },
+        {
+          "id": "male_1",
+          "label": "Male 1"
+        },
+        {
+          "id": "male_2",
+          "label": "Male 2"
+        },
+        {
+          "id": "male_3",
+          "label": "Male 3"
+        },
+        {
+          "id": "male_4",
+          "label": "Male 4"
+        },
+        {
+          "id": "male_5",
+          "label": "Male 5"
+        }
       ],
       "default_voice": "female_1"
     },
@@ -38,15 +68,466 @@
       "model_file": "onnx/model.onnx",
       "config_file": "config.json",
       "adapter": "tiny-voca",
-      "extra_prefixes": ["phonemizer/"],
+      "extra_prefixes": [
+        "phonemizer/"
+      ],
       "phonemizer_source": "github:n4ze3m/dizione",
       "size_bytes": 29360128,
       "sample_rate": 24000,
       "voices": [
-        { "id": "F2", "label": "F2 (female)" },
-        { "id": "M2", "label": "M2 (male)" }
+        {
+          "id": "F2",
+          "label": "F2 (female)"
+        },
+        {
+          "id": "M2",
+          "label": "M2 (male)"
+        }
       ],
       "default_voice": "F2"
+    },
+    {
+      "id": "tiny-voca-es",
+      "name": "tiny-voca (Spanish, community)",
+      "language": "es",
+      "license": "Apache-2.0",
+      "license_url": "https://huggingface.co/marcosmaceo/tiny-voca-es",
+      "source_url": "https://huggingface.co/marcosmaceo/tiny-voca-es",
+      "hf_repo": "marcosmaceo/tiny-voca-es",
+      "model_file": "tiny-voca-es.onnx",
+      "config_file": "tiny-voca-es.json",
+      "adapter": "espeak",
+      "size_bytes": 21384918,
+      "sample_rate": 24000,
+      "max_tokens": 512,
+      "voices": [
+        {
+          "id": "F2",
+          "label": "F2 (female)"
+        },
+        {
+          "id": "M2",
+          "label": "M2 (male)"
+        }
+      ],
+      "default_voice": "F2",
+      "third_party": true,
+      "requires": [
+        "espeak-ng"
+      ],
+      "checksums": {
+        "tiny-voca-es.onnx": "b4a9ca3becb9c7e6138c96ca8f7dceae760ccccf9305fbea9a6990667ff23a6c",
+        "tiny-voca-es.json": "bec46d85ccf80f746f7052c8532c9e74d04c00763831620c47f5442b52afc05f"
+      },
+      "frontend": {
+        "kind": "espeak",
+        "espeak_voice": "es",
+        "symbols": [
+          "<pad>",
+          "<bos>",
+          "<eos>",
+          "<sp>",
+          "<unk>",
+          ",",
+          ".",
+          "?",
+          "!",
+          ";",
+          ":",
+          "\"",
+          "'",
+          "(",
+          ")",
+          "—",
+          "…",
+          "¿",
+          "¡",
+          "p",
+          "b",
+          "t",
+          "d",
+          "k",
+          "ɡ",
+          "f",
+          "θ",
+          "s",
+          "x",
+          "h",
+          "tʃ",
+          "dʒ",
+          "ts",
+          "m",
+          "n",
+          "ɲ",
+          "ŋ",
+          "l",
+          "ʎ",
+          "ɾ",
+          "r",
+          "j",
+          "w",
+          "ð",
+          "β",
+          "ɣ",
+          "ʝ",
+          "ʃ",
+          "ʒ",
+          "pː",
+          "a",
+          "e",
+          "i",
+          "o",
+          "u",
+          "ɛ",
+          "aɪ",
+          "aʊ",
+          "eɪ",
+          "eʊ",
+          "oɪ"
+        ],
+        "vowels": [
+          "a",
+          "e",
+          "i",
+          "o",
+          "u",
+          "ɛ",
+          "aɪ",
+          "aʊ",
+          "eɪ",
+          "eʊ",
+          "oɪ"
+        ],
+        "punctuation": [
+          ",",
+          ".",
+          "?",
+          "!",
+          ";",
+          ":",
+          "\"",
+          "'",
+          "(",
+          ")",
+          "—",
+          "…",
+          "¿",
+          "¡"
+        ],
+        "fallback": {
+          "c": [
+            "k"
+          ],
+          "ɟ": [
+            "d"
+          ],
+          "ʈ": [
+            "t"
+          ],
+          "ɳ": [
+            "n"
+          ],
+          "ʋ": [
+            "b"
+          ],
+          "ʔ": [
+            "h"
+          ],
+          "ɪ": [
+            "i"
+          ],
+          "ɫ": [
+            "l"
+          ],
+          "ɑː": [
+            "a"
+          ],
+          "ə": [
+            "e"
+          ],
+          "aː": [
+            "a"
+          ],
+          "iː": [
+            "i"
+          ],
+          "uː": [
+            "u"
+          ],
+          "oː": [
+            "o"
+          ],
+          "eː": [
+            "e"
+          ],
+          "bʰ": [
+            "b"
+          ],
+          "ʰχ": [
+            "x"
+          ],
+          "χ": [
+            "x"
+          ],
+          "ɔ": [
+            "o"
+          ],
+          "z": [
+            "s"
+          ],
+          "v": [
+            "b"
+          ],
+          "ɹ": [
+            "r"
+          ],
+          "ɻ": [
+            "r"
+          ],
+          "ʁ": [
+            "r"
+          ],
+          "ɬ": [
+            "l"
+          ],
+          "d̪": [
+            "d"
+          ],
+          "t̪": [
+            "t"
+          ],
+          "s̪": [
+            "s"
+          ],
+          "n̪": [
+            "n"
+          ],
+          "l̪": [
+            "l"
+          ],
+          "β̞": [
+            "β"
+          ],
+          "ð̞": [
+            "ð"
+          ],
+          "ɣ̞": [
+            "ɣ"
+          ],
+          "ʝ̞": [
+            "ʝ"
+          ],
+          "ɟʝ": [
+            "ʝ"
+          ],
+          "ʰ": [],
+          "ʲ": [],
+          "ˠ": [],
+          "ˀ": [],
+          "ː": []
+        },
+        "abbreviations": [
+          "sr",
+          "sra",
+          "srta",
+          "dr",
+          "dra",
+          "prof",
+          "profa",
+          "ud",
+          "uds",
+          "etc",
+          "ej",
+          "pág",
+          "núm",
+          "av",
+          "tel",
+          "dpto",
+          "gral",
+          "cnel",
+          "aprox",
+          "izq",
+          "dcha"
+        ],
+        "not_an_end": [
+          "sr",
+          "sra",
+          "srta",
+          "dr",
+          "dra",
+          "prof",
+          "profa",
+          "ud",
+          "uds",
+          "etc",
+          "ej",
+          "pág",
+          "núm",
+          "av",
+          "tel",
+          "dpto",
+          "gral",
+          "cnel",
+          "aprox"
+        ],
+        "sentence_start": "A-ZÁÉÍÓÚÑÜ0-9¿¡"
+      }
+    },
+    {
+      "id": "tiny-voca-fr",
+      "name": "tiny-voca (French, community, experimental)",
+      "language": "fr",
+      "license": "Apache-2.0",
+      "license_url": "https://huggingface.co/DanielSuncost/tiny-voca-fr",
+      "source_url": "https://huggingface.co/DanielSuncost/tiny-voca-fr",
+      "hf_repo": "DanielSuncost/tiny-voca-fr",
+      "model_file": "onnx/model.onnx",
+      "config_file": "onnx/model.json",
+      "adapter": "espeak",
+      "size_bytes": 21368837,
+      "sample_rate": 24000,
+      "max_tokens": 512,
+      "voices": [
+        {
+          "id": "FR_F1",
+          "label": "FR_F1 (female)"
+        },
+        {
+          "id": "FR_M1",
+          "label": "FR_M1 (male)"
+        }
+      ],
+      "default_voice": "FR_F1",
+      "third_party": true,
+      "requires": [
+        "espeak-ng"
+      ],
+      "checksums": {
+        "onnx/model.onnx": "698249cf63768ecd6011d9ddc4137ed16b4d2856a3bc3ba1ab7e1e4e153fc727",
+        "onnx/model.json": "b36144a5aeefc07a1ed94d40d20f9bf8514d962236ffd3dee39f0be8a6d9c459"
+      },
+      "frontend": {
+        "kind": "espeak",
+        "espeak_voice": "fr",
+        "symbols": [
+          "<pad>",
+          "<bos>",
+          "<eos>",
+          "<sp>",
+          "<unk>",
+          ",",
+          ".",
+          "?",
+          "!",
+          ";",
+          ":",
+          "\"",
+          "'",
+          "(",
+          ")",
+          "—",
+          "…",
+          "p",
+          "b",
+          "t",
+          "d",
+          "k",
+          "ɡ",
+          "f",
+          "v",
+          "s",
+          "z",
+          "ʃ",
+          "ʒ",
+          "m",
+          "n",
+          "ɲ",
+          "ŋ",
+          "l",
+          "ʁ",
+          "j",
+          "w",
+          "i",
+          "e",
+          "ɛ",
+          "a",
+          "ɔ",
+          "o",
+          "u",
+          "y",
+          "ø",
+          "œ",
+          "ə",
+          "ɑ̃",
+          "ɔ̃",
+          "ɛ̃",
+          "œ̃"
+        ],
+        "vowels": [
+          "i",
+          "e",
+          "ɛ",
+          "a",
+          "ɔ",
+          "o",
+          "u",
+          "y",
+          "ø",
+          "œ",
+          "ə",
+          "ɑ̃",
+          "ɔ̃",
+          "ɛ̃",
+          "œ̃"
+        ],
+        "punctuation": [
+          ",",
+          ".",
+          "?",
+          "!",
+          ";",
+          ":",
+          "\"",
+          "'",
+          "(",
+          ")",
+          "—",
+          "…"
+        ],
+        "fallback": {
+          "ɥ": [
+            "y"
+          ],
+          "h": [],
+          "x": [
+            "k"
+          ],
+          "tʃ": [
+            "ʃ"
+          ],
+          "dʒ": [
+            "ʒ"
+          ],
+          "ɾ": [
+            "ʁ"
+          ],
+          "r": [
+            "ʁ"
+          ],
+          "ʀ": [
+            "ʁ"
+          ],
+          "ɫ": [
+            "l"
+          ],
+          "ː": [],
+          "ˑ": [],
+          "ʰ": [],
+          "ʲ": [],
+          "‿": []
+        },
+        "sentence_start": "A-ZÀÂÄÇÉÈÊËÎÏÔÖÙÛÜŸŒÆ0-9"
+      }
     }
   ]
 }
