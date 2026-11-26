@@ -12,6 +12,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/sipeed/picoclaw/pkg/audio/tts"
+	"github.com/sipeed/picoclaw/pkg/audio/tts/local"
 	"github.com/sipeed/picoclaw/pkg/config"
 )
 
@@ -25,17 +26,20 @@ type voiceModelOption struct {
 }
 
 type voiceConfigResponse struct {
-	TTSModelName     string             `json:"tts_model_name"`
-	Resolved         bool               `json:"resolved"`
-	ResolvedName     string             `json:"resolved_name,omitempty"`
-	ResolvedProvider string             `json:"resolved_provider,omitempty"`
-	ResolvedModel    string             `json:"resolved_model,omitempty"`
-	Models           []voiceModelOption `json:"models"`
-	RestartRequired  bool               `json:"restart_required"`
+	TTSModelName     string              `json:"tts_model_name"`
+	TTSVoice         string              `json:"tts_voice,omitempty"`
+	Voices           []local.VoiceOption `json:"voices,omitempty"`
+	Resolved         bool                `json:"resolved"`
+	ResolvedName     string              `json:"resolved_name,omitempty"`
+	ResolvedProvider string              `json:"resolved_provider,omitempty"`
+	ResolvedModel    string              `json:"resolved_model,omitempty"`
+	Models           []voiceModelOption  `json:"models"`
+	RestartRequired  bool                `json:"restart_required"`
 }
 
 type voiceConfigRequest struct {
-	TTSModelName string `json:"tts_model_name"`
+	TTSModelName string  `json:"tts_model_name"`
+	TTSVoice     *string `json:"tts_voice,omitempty"`
 }
 
 type voiceTestRequest struct {
@@ -61,6 +65,7 @@ func (h *Handler) registerVoiceRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("PUT /api/voice/config", h.handleUpdateVoiceConfig)
 	mux.HandleFunc("POST /api/voice/test", h.handleTestVoice)
 	mux.HandleFunc("POST /api/voice/speak", h.handleSpeakVoice)
+	h.registerLocalTTSRoutes(mux)
 }
 
 func (h *Handler) handleGetVoiceConfig(w http.ResponseWriter, r *http.Request) {
@@ -100,6 +105,17 @@ func (h *Handler) handleUpdateVoiceConfig(w http.ResponseWriter, r *http.Request
 	}
 
 	cfg.Voice.TTSModelName = name
+	if name != "" && req.TTSVoice != nil {
+		voice := strings.TrimSpace(*req.TTSVoice)
+		if cfg.Voice.TTSVoices == nil {
+			cfg.Voice.TTSVoices = make(map[string]string)
+		}
+		if voice == "" {
+			delete(cfg.Voice.TTSVoices, name)
+		} else {
+			cfg.Voice.TTSVoices[name] = voice
+		}
+	}
 	if err := config.SaveConfig(h.configPath, cfg); err != nil {
 		writeBrowserSettingsError(w, http.StatusInternalServerError, "save_failed",
 			"Failed to save config: "+err.Error())
@@ -261,6 +277,18 @@ func buildVoiceConfigResponse(cfg *config.Config) voiceConfigResponse {
 		response.ResolvedName = resolvedName
 		response.ResolvedProvider = resolvedProvider
 		response.ResolvedModel = resolvedModel
+		response.TTSVoice = strings.TrimSpace(cfg.Voice.TTSVoices[resolvedName])
+		if mc, err := cfg.GetModelConfig(resolvedName); err == nil {
+			if localID, ok := mc.ExtraBody["picoclaw_local_tts"].(string); ok &&
+				strings.TrimSpace(localID) != "" {
+				if installed, found := local.Default().InstalledByID(localID); found {
+					response.Voices = append([]local.VoiceOption(nil), installed.Voices...)
+					if response.TTSVoice == "" {
+						response.TTSVoice = installed.DefaultVoice
+					}
+				}
+			}
+		}
 	}
 	return response
 }

@@ -4,6 +4,11 @@ import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
 
 import {
+  getLocalTTSModels,
+  installLocalTTS,
+  uninstallLocalTTS,
+} from "@/api/local-tts"
+import {
   getVoiceConfig,
   testVoice,
   updateVoiceConfig,
@@ -46,9 +51,12 @@ export function TTSTab() {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const [draft, setDraft] = useState<string | null>(null)
+  const [voiceDraft, setVoiceDraft] = useState<string | null>(null)
   const [testText, setTestText] = useState("")
   const [audioUrl, setAudioUrl] = useState<string | null>(null)
   const [showAllModels, setShowAllModels] = useState(false)
+  const [localUrl, setLocalUrl] = useState("")
+  const [pendingInstall, setPendingInstall] = useState<string | null>(null)
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([])
   const [voiceURI, setVoiceURI] = useState("")
   const [browserSpeaking, setBrowserSpeaking] = useState(false)
@@ -71,6 +79,24 @@ export function TTSTab() {
 
   const query = useQuery({ queryKey, queryFn: getVoiceConfig })
   const config = query.data
+  const localQuery = useQuery({
+    queryKey: ["tts", "local-models"],
+    queryFn: getLocalTTSModels,
+    refetchInterval: (state) =>
+      state.state.data?.status.installing ? 1500 : false,
+  })
+  const local = localQuery.data
+  const lastInstalledRef = useRef("")
+
+  useEffect(() => {
+    if (!local?.status.done) return
+    const id = local.status.model?.recipe_id ?? ""
+    if (id === "" || lastInstalledRef.current === id) return
+    lastInstalledRef.current = id
+    void queryClient.invalidateQueries({ queryKey })
+    void queryClient.invalidateQueries({ queryKey: ["models"] })
+    void queryClient.invalidateQueries({ queryKey: ["tts", "local-models"] })
+  }, [local?.status.done, local?.status.model, queryClient])
 
   useEffect(() => {
     return () => {
@@ -79,13 +105,21 @@ export function TTSTab() {
   }, [audioUrl])
 
   const current = draft ?? config?.tts_model_name ?? ""
-  const isDirty = config ? current !== config.tts_model_name : false
+  const currentVoice = voiceDraft ?? config?.tts_voice ?? ""
+  const showVoiceSelector =
+    Boolean(config?.voices?.length) && current === config?.tts_model_name
+  const isDirty = config
+    ? current !== config.tts_model_name ||
+      (showVoiceSelector && currentVoice !== (config.tts_voice ?? ""))
+    : false
 
   const saveMutation = useMutation({
-    mutationFn: updateVoiceConfig,
+    mutationFn: (values: { model: string; voice?: string }) =>
+      updateVoiceConfig(values.model, values.voice),
     onSuccess: async (updated: VoiceConfig) => {
       queryClient.setQueryData(queryKey, updated)
       setDraft(null)
+      setVoiceDraft(null)
       const gateway = await refreshGatewayState({ force: true })
       showSaveSuccessOrRestartToast(
         t,
@@ -103,6 +137,51 @@ export function TTSTab() {
         error instanceof Error
           ? error.message
           : t("pages.agent.tools.tts.save_error", "Could not save TTS settings"),
+      ),
+  })
+
+  const installMutation = useMutation({
+    mutationFn: (url: string) => installLocalTTS(url, true),
+    onSuccess: async () => {
+      setPendingInstall(null)
+      toast.success(
+        t(
+          "pages.agent.tools.tts.local_install_started",
+          "Local model installation started",
+        ),
+      )
+      await queryClient.invalidateQueries({
+        queryKey: ["tts", "local-models"],
+      })
+    },
+    onError: (error) =>
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : t(
+              "pages.agent.tools.tts.local_install_error",
+              "Could not start the local model installation",
+            ),
+      ),
+  })
+
+  const uninstallMutation = useMutation({
+    mutationFn: (id: string) => uninstallLocalTTS(id),
+    onSuccess: async () => {
+      toast.success(
+        t("pages.agent.tools.tts.local_uninstalled", "Local model removed"),
+      )
+      await queryClient.invalidateQueries({
+        queryKey: ["tts", "local-models"],
+      })
+      await queryClient.invalidateQueries({ queryKey })
+      await queryClient.invalidateQueries({ queryKey: ["models"] })
+    },
+    onError: (error) =>
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : t("pages.agent.tools.tts.local_uninstall_error", "Could not remove the model"),
       ),
   })
 
@@ -255,7 +334,12 @@ export function TTSTab() {
               <Button
                 type="button"
                 className="h-10 rounded-xl px-6 shadow-sm"
-                onClick={() => saveMutation.mutate(current)}
+                onClick={() =>
+                  saveMutation.mutate({
+                    model: current,
+                    voice: showVoiceSelector ? currentVoice : undefined,
+                  })
+                }
                 disabled={!isDirty || saveMutation.isPending}
               >
                 {t("pages.agent.tools.tts.save", "Save Changes")}
@@ -290,9 +374,10 @@ export function TTSTab() {
               <div className="w-full space-y-2 sm:w-[420px]">
                 <Select
                   value={current === "" ? autoValue : current}
-                  onValueChange={(value) =>
+                  onValueChange={(value) => {
                     setDraft(value === autoValue ? "" : value)
-                  }
+                    setVoiceDraft(null)
+                  }}
                 >
                   <SelectTrigger className="w-full">
                     <SelectValue />
@@ -324,6 +409,28 @@ export function TTSTab() {
                     ))}
                   </SelectContent>
                 </Select>
+                {showVoiceSelector && (
+                  <Select
+                    value={currentVoice || config.voices?.[0]?.id || ""}
+                    onValueChange={setVoiceDraft}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue
+                        placeholder={t(
+                          "pages.agent.tools.tts.voice",
+                          "Voice",
+                        )}
+                      />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {config.voices?.map((voice) => (
+                        <SelectItem key={voice.id} value={voice.id}>
+                          {voice.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
                 <div className="flex items-center justify-between gap-3">
                   <p className="text-muted-foreground text-[11px] leading-snug">
                     {hasCapableModels
@@ -596,6 +703,254 @@ export function TTSTab() {
                 "Telegram receives the audio as a voice message. In the WebUI the reply shows a player inside the chat bubble.",
               )}
             </p>
+          </div>
+
+          <div className="bg-card border-border/40 space-y-4 rounded-2xl border p-5 shadow-sm">
+            <div className="space-y-1">
+              <p className="text-sm font-medium">
+                {t(
+                  "pages.agent.tools.tts.local_models_title",
+                  "Local models (on demand)",
+                )}
+              </p>
+              <p className="text-muted-foreground text-xs">
+                {t(
+                  "pages.agent.tools.tts.local_models_hint",
+                  "Models are downloaded to ~/.picoclaw/tts only when you install them; the ZIP stays small. A small Python sidecar runs them on 127.0.0.1.",
+                )}
+              </p>
+            </div>
+
+            {localQuery.isLoading ? (
+              <p className="text-muted-foreground text-xs">
+                {t("labels.loading", "Loading…")}
+              </p>
+            ) : localQuery.isError ? (
+              <p className="text-destructive text-xs">
+                {t(
+                  "pages.agent.tools.tts.local_load_error",
+                  "Could not load local model information.",
+                )}
+              </p>
+            ) : local ? (
+              <>
+                {!local.environment.available && (
+                  <div className="rounded-lg border border-amber-500/40 bg-amber-500/5 p-3 text-xs">
+                    <p className="font-medium">
+                      {t(
+                        "pages.agent.tools.tts.python_required",
+                        "Python 3.10+ is required",
+                      )}
+                    </p>
+                    <p className="text-muted-foreground mt-1">
+                      {local.environment.message ||
+                        t(
+                          "pages.agent.tools.tts.python_missing",
+                          "Install Python with pip and venv support, then refresh this page.",
+                        )}
+                    </p>
+                    <a
+                      className="text-primary mt-1 inline-block underline"
+                      href="https://www.python.org/downloads/"
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      python.org/downloads
+                    </a>
+                  </div>
+                )}
+
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  <Input
+                    value={localUrl}
+                    onChange={(event) => setLocalUrl(event.target.value)}
+                    placeholder={t(
+                      "pages.agent.tools.tts.local_url_placeholder",
+                      "Hugging Face URL or model id (e.g. wite-tech/clarvia-tts-tiny)",
+                    )}
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="h-10 shrink-0 rounded-xl px-4"
+                    onClick={() => {
+                      const value = localUrl.trim()
+                      if (value === "") return
+                      if (!local.environment.available) {
+                        toast.error(
+                          t(
+                            "pages.agent.tools.tts.python_required",
+                            "Python 3.10+ is required",
+                          ),
+                        )
+                        return
+                      }
+                      setPendingInstall(value)
+                    }}
+                  >
+                    {t("pages.agent.tools.tts.local_review", "Review install")}
+                  </Button>
+                </div>
+
+                {pendingInstall && (
+                  <div className="rounded-lg border border-primary/30 bg-primary/5 p-3 text-xs">
+                    <p className="font-medium">
+                      {t(
+                        "pages.agent.tools.tts.local_confirm_title",
+                        "Install this local model?",
+                      )}
+                    </p>
+                    <p className="text-muted-foreground mt-1">
+                      {t(
+                        "pages.agent.tools.tts.local_confirm_body",
+                        "PicoClaw will create a Python virtual environment under ~/.picoclaw/tts, download the model files and start a local sidecar. This uses disk and network.",
+                      )}
+                    </p>
+                    <p className="text-muted-foreground mt-1">
+                      {t(
+                        "pages.agent.tools.tts.local_python_path",
+                        "Python:",
+                      )}{" "}
+                      {local.environment.executable}{" "}
+                      {local.environment.version
+                        ? `(${local.environment.version})`
+                        : ""}
+                    </p>
+                    <div className="mt-2 flex gap-2">
+                      <Button
+                        type="button"
+                        size="sm"
+                        onClick={() =>
+                          installMutation.mutate(pendingInstall)
+                        }
+                        disabled={installMutation.isPending}
+                      >
+                        {installMutation.isPending
+                          ? t(
+                              "pages.agent.tools.tts.local_installing",
+                              "Starting…",
+                            )
+                          : t(
+                              "pages.agent.tools.tts.local_install",
+                              "Install",
+                            )}
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setPendingInstall(null)}
+                        disabled={installMutation.isPending}
+                      >
+                        {t("pages.agent.tools.tts.local_cancel", "Cancel")}
+                      </Button>
+                    </div>
+                  </div>
+                )}
+
+                {local.status.installing && (
+                  <div className="rounded-lg border p-3 text-xs">
+                    <p className="font-medium">
+                      {local.status.message ||
+                        t(
+                          "pages.agent.tools.tts.local_working",
+                          "Installing local model…",
+                        )}
+                    </p>
+                    <p className="text-muted-foreground mt-1">
+                      {local.status.phase} · {local.status.progress}%
+                    </p>
+                  </div>
+                )}
+
+                {local.status.error && (
+                  <p className="text-destructive text-xs">
+                    {local.status.error}
+                  </p>
+                )}
+
+                <div className="grid gap-2">
+                  {local.catalog.map((item) => (
+                    <div
+                      key={item.id}
+                      className="flex flex-col gap-3 rounded-lg border p-3 sm:flex-row sm:items-center sm:justify-between"
+                    >
+                      <div className="space-y-1">
+                        <p className="text-sm font-medium">{item.name}</p>
+                        <p className="text-muted-foreground text-xs">
+                          {item.language.toUpperCase()} · {item.license} ·{" "}
+                          {Math.round(item.size_bytes / (1024 * 1024))} MB ·{" "}
+                          {item.voices.length}{" "}
+                          {t("pages.agent.tools.tts.local_voices", "voices")}
+                        </p>
+                        {item.installed && (
+                          <p className="text-xs text-emerald-600 dark:text-emerald-400">
+                            {item.running
+                              ? t(
+                                  "pages.agent.tools.tts.local_running",
+                                  "Installed · sidecar running",
+                                )
+                              : t(
+                                  "pages.agent.tools.tts.local_installed",
+                                  "Installed",
+                                )}
+                          </p>
+                        )}
+                      </div>
+                      <div className="flex shrink-0 gap-2">
+                        {item.installed ? (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              if (
+                                window.confirm(
+                                  t(
+                                    "pages.agent.tools.tts.local_uninstall_confirm",
+                                    "Remove this local model and its files?",
+                                  ),
+                                )
+                              ) {
+                                uninstallMutation.mutate(item.id)
+                              }
+                            }}
+                            disabled={uninstallMutation.isPending}
+                          >
+                            {t(
+                              "pages.agent.tools.tts.local_remove",
+                              "Remove",
+                            )}
+                          </Button>
+                        ) : (
+                          <Button
+                            type="button"
+                            size="sm"
+                            onClick={() => {
+                              if (!local.environment.available) {
+                                toast.error(
+                                  t(
+                                    "pages.agent.tools.tts.python_required",
+                                    "Python 3.10+ is required",
+                                  ),
+                                )
+                                return
+                              }
+                              setPendingInstall(item.id)
+                            }}
+                          >
+                            {t(
+                              "pages.agent.tools.tts.local_install",
+                              "Install",
+                            )}
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </>
+            ) : null}
           </div>
         </>
       )}

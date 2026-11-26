@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sipeed/picoclaw/pkg/audio/tts/local"
 	"github.com/sipeed/picoclaw/pkg/config"
 	"github.com/sipeed/picoclaw/pkg/media"
 	"github.com/sipeed/picoclaw/pkg/providers"
@@ -23,7 +24,23 @@ type ttsAudioMetaProvider interface {
 	AudioFileMeta() (fileExt string, contentType string)
 }
 
-func providerFromModelConfig(mc *config.ModelConfig) TTSProvider {
+// localTTSProvider lazily starts the PicoClaw-managed sidecar for an installed
+// local model, then delegates to its OpenAI-compatible provider.
+type localTTSProvider struct {
+	modelID string
+	inner   TTSProvider
+}
+
+func (p *localTTSProvider) Name() string { return p.inner.Name() }
+
+func (p *localTTSProvider) Synthesize(ctx context.Context, text string) (io.ReadCloser, error) {
+	if err := local.Default().EnsureRunning(p.modelID); err != nil {
+		return nil, fmt.Errorf("local TTS model is not running: %w", err)
+	}
+	return p.inner.Synthesize(ctx, text)
+}
+
+func providerFromModelConfig(mc *config.ModelConfig, voice string) TTSProvider {
 	if mc == nil || mc.APIKey() == "" {
 		return nil
 	}
@@ -37,13 +54,22 @@ func providerFromModelConfig(mc *config.ModelConfig) TTSProvider {
 	case "mimo":
 		return NewMimoTTSProvider(mc.APIKey(), providers.ResolveAPIBase(mc), modelID, mc.Proxy)
 	default:
-		return NewOpenAITTSProviderWithOptions(
+		options := openAITTSOptionsFromModelConfig(mc)
+		if strings.TrimSpace(voice) != "" {
+			options.Voice = strings.TrimSpace(voice)
+		}
+		provider := NewOpenAITTSProviderWithOptions(
 			mc.APIKey(),
 			providers.ResolveAPIBase(mc),
 			mc.Proxy,
 			modelID,
-			openAITTSOptionsFromModelConfig(mc),
+			options,
 		)
+		if localID, ok := mc.ExtraBody["picoclaw_local_tts"].(string); ok &&
+			strings.TrimSpace(localID) != "" {
+			return &localTTSProvider{modelID: strings.TrimSpace(localID), inner: provider}
+		}
+		return provider
 	}
 }
 
@@ -69,7 +95,7 @@ func DetectTTS(cfg *config.Config) TTSProvider {
 
 	if modelName := strings.TrimSpace(cfg.Voice.TTSModelName); modelName != "" {
 		if mc, err := cfg.GetModelConfig(modelName); err == nil {
-			if provider := providerFromModelConfig(mc); provider != nil {
+			if provider := providerFromModelConfig(mc, cfg.Voice.TTSVoices[mc.ModelName]); provider != nil {
 				return provider
 			}
 		}
@@ -77,7 +103,7 @@ func DetectTTS(cfg *config.Config) TTSProvider {
 
 	for _, mc := range cfg.ModelList {
 		if strings.Contains(strings.ToLower(mc.Model), "tts") && mc.APIKey() != "" {
-			if provider := providerFromModelConfig(mc); provider != nil {
+			if provider := providerFromModelConfig(mc, cfg.Voice.TTSVoices[mc.ModelName]); provider != nil {
 				return provider
 			}
 		}

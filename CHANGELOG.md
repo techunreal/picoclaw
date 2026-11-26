@@ -6,6 +6,30 @@ All notable changes to this fork of PicoClaw. Versions use the
 Earlier versions up to `0.1.27` are recorded as git tags. This file starts
 with the first batch that was built locally before tagging.
 
+## [0.1.58] - 2026-11-26
+
+### Added
+- **Local TTS model manager.** Tools → Text to Speech can install the
+  `clarvia-tts-tiny` Turkish model from its Hugging Face id/URL on demand. The
+  model, Python venv and sidecar live under `~/.picoclaw/tts`; the release ZIP
+  does not grow.
+- **Python consent.** PicoClaw detects Python 3.10+ with pip/venv and asks
+  before creating an environment or downloading a model. If Python is missing,
+  the UI links to python.org instead of installing silently.
+- **Local sidecar.** A small OpenAI-compatible `/v1/audio/speech` server is
+  started on 127.0.0.1, lazily when the model is first used, with a random
+  port/token, logs, and process-tree cleanup.
+- **Voices.** The 10 Clarvia voices are listed in TTS settings and saved per
+  model (`voice.tts_voices`). The selected voice is used by both read-aloud and
+  `send_tts`.
+- Automatic model entry: installing a local model adds an OpenAI-compatible
+  model entry, selects it when no TTS model is configured, and restarts the
+  gateway.
+
+### Changed
+- Local TTS models are resolved through a curated catalog. Unknown URLs are
+  rejected by default; no arbitrary repository code is executed.
+
 ## [0.1.57] - 2026-11-26
 
 ### Added

@@ -11,6 +11,8 @@ export interface VoiceModelOption {
 
 export interface VoiceConfig {
   tts_model_name: string
+  tts_voice?: string
+  voices?: { id: string; label: string }[]
   resolved: boolean
   resolved_name?: string
   resolved_provider?: string
@@ -43,11 +45,16 @@ export async function getVoiceConfig(): Promise<VoiceConfig> {
 
 export async function updateVoiceConfig(
   ttsModelName: string,
+  ttsVoice?: string,
 ): Promise<VoiceConfig> {
+  const body: Record<string, unknown> = { tts_model_name: ttsModelName }
+  if (ttsVoice !== undefined) {
+    body.tts_voice = ttsVoice
+  }
   const res = await launcherFetch("/api/voice/config", {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ tts_model_name: ttsModelName }),
+    body: JSON.stringify(body),
   })
   if (!res.ok) throw new Error(await readError(res))
   return (await res.json()) as VoiceConfig
