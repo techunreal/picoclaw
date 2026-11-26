@@ -6,6 +6,31 @@ All notable changes to this fork of PicoClaw. Versions use the
 Earlier versions up to `0.1.27` are recorded as git tags. This file starts
 with the first batch that was built locally before tagging.
 
+## [0.1.60] - 2026-11-26
+
+### Added
+- **Third-party local TTS manifest:** a versioned JSON manifest
+  (`~/.picoclaw/tts/manifest.json`) can add models that use a supported front
+  end. The TTS tab can edit, validate and remove it; built-in and user models
+  share one schema.
+- **License consent:** third-party models show source and license in the install
+  dialog. The API requires `accept_license` and the registry records the
+  acceptance time.
+- **eSpeak front end:** the sidecar can synthesize models that declare an
+  `espeak` front end. Phoneme inventory, fallback table and text rules are data
+  from the manifest; model repository code is never executed.
+- **Checksum verification:** third-party manifests must provide SHA-256 digests
+  for the model and config files; downloads are checked before the sidecar
+  starts.
+- **Dependency reporting:** the catalog shows missing external tools (eSpeak NG)
+  and blocks installation with a clear message.
+- Spanish and French example manifests under `temp/0.1.60/` (not installed by
+  default).
+
+### Changed
+- Local TTS recipes moved from Go literals to an embedded `manifest.json`.
+- The sidecar version is now 3; older sidecars restart automatically.
+
 ## [0.1.59.1] - 2026-11-26
 
 ### Fixed

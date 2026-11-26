@@ -1,0 +1,136 @@
+{
+  "frontend": {
+    "kind": "espeak",
+    "espeak_voice": "es",
+    "symbols": [
+      "<pad>", "<bos>", "<eos>", "<sp>", "<unk>",
+      ",", ".", "?", "!", ";", ":", "\"", "'", "(", ")", "—", "…", "¿", "¡",
+      "p", "b", "t", "d", "k", "ɡ", "f", "θ", "s", "x", "h", "tʃ", "dʒ", "ts",
+      "m", "n", "ɲ", "ŋ", "l", "ʎ", "ɾ", "r", "j", "w", "ð", "β", "ɣ", "ʝ", "ʃ", "ʒ", "pː",
+      "a", "e", "i", "o", "u", "ɛ", "aɪ", "aʊ", "eɪ", "eʊ", "oɪ"
+    ],
+    "vowels": ["a", "e", "i", "o", "u", "ɛ", "aɪ", "aʊ", "eɪ", "eʊ", "oɪ"],
+    "punctuation": [",", ".", "?", "!", ";", ":", "\"", "'", "(", ")", "—", "…", "¿", "¡"],
+    "fallback": {
+      "c": ["k"], "ɟ": ["d"], "ʈ": ["t"], "ɳ": ["n"], "ʋ": ["b"], "ʔ": ["h"],
+      "ɪ": ["i"], "ɫ": ["l"], "ɑː": ["a"], "ə": ["e"], "aː": ["a"], "iː": ["i"],
+      "uː": ["u"], "oː": ["o"], "eː": ["e"], "bʰ": ["b"], "ʰχ": ["x"], "χ": ["x"],
+      "ɔ": ["o"], "z": ["s"], "v": ["b"], "ɹ": ["r"], "ɻ": ["r"], "ʁ": ["r"],
+      "ɬ": ["l"], "d̪": ["d"], "t̪": ["t"], "s̪": ["s"], "n̪": ["n"], "l̪": ["l"],
+      "β̞": ["β"], "ð̞": ["ð"], "ɣ̞": ["ɣ"], "ʝ̞": ["ʝ"], "ɟʝ": ["ʝ"],
+      "ʰ": [], "ʲ": [], "ˠ": [], "ˀ": [], "ː": []
+    },
+    "abbreviations": [
+      "sr", "sra", "srta", "dr", "dra", "prof", "profa", "ud", "uds", "etc",
+      "ej", "pág", "núm", "av", "tel", "dpto", "gral", "cnel", "aprox", "izq", "dcha"
+    ],
+    "not_an_end": [
+      "sr", "sra", "srta", "dr", "dra", "prof", "profa", "ud", "uds", "etc", "ej",
+      "pág", "núm", "av", "tel", "dpto", "gral", "cnel", "aprox"
+    ],
+    "sentence_start": "A-ZÁÉÍÓÚÑÜ0-9¿¡"
+  },
+  "cases": [
+    {
+      "name": "normalize",
+      "op": "normalize",
+      "text": "«Hola» —dijo-- ‘adiós’ [aparte]...",
+      "expect": "\"Hola\" —dijo— 'adiós' (aparte)…"
+    },
+    {
+      "name": "chunks",
+      "op": "chunks",
+      "text": "El Sr. García pagó 3,14 euros a las 3:45 por 1.000 días, ¿verdad?",
+      "expect": [
+        [false, "El Sr. García pagó 3,14 euros a las 3:45 por 1.000 días"],
+        [true, ","],
+        [true, "¿"],
+        [false, "verdad"],
+        [true, "?"]
+      ]
+    },
+    {
+      "name": "parse",
+      "op": "parse",
+      "espeak": "k_ˈo_m_o n_ˈi_ɲ_o\np_ˌe_ɾ_ˈo ʝ_a__\n",
+      "expect": [
+        [["k", 0], ["o", 1], ["m", 0], ["o", 0]],
+        [["n", 0], ["i", 1], ["ɲ", 0], ["o", 0]],
+        [["p", 0], ["e", 2], ["ɾ", 0], ["o", 1]],
+        [["ʝ", 0], ["a", 0]]
+      ]
+    },
+    {
+      "name": "canonical-c",
+      "op": "canonical",
+      "phone": "c",
+      "expect": ["k"]
+    },
+    {
+      "name": "canonical-open-o",
+      "op": "canonical",
+      "phone": "ɔ",
+      "expect": ["o"]
+    },
+    {
+      "name": "canonical-long-a",
+      "op": "canonical",
+      "phone": "aː",
+      "expect": ["a"]
+    },
+    {
+      "name": "canonical-modifier",
+      "op": "canonical",
+      "phone": "ʰ",
+      "expect": []
+    },
+    {
+      "name": "canonical-unknown",
+      "op": "canonical",
+      "phone": "ʘ",
+      "expect": null
+    },
+    {
+      "name": "tokenize",
+      "op": "tokenize",
+      "pieces": [
+        [true, "¡"],
+        [false, "k_ˈo_m_o n_ˈi_ɲ_o"],
+        [true, ","],
+        [true, ","],
+        [false, "p_ˌe_ɾ_ˈo ʝ_a__"],
+        [true, "?"]
+      ],
+      "expect_symbols": [
+        "<bos>", "¡", "k", "o", "m", "o", "<sp>", "n", "i", "ɲ", "o", ",",
+        "p", "e", "ɾ", "o", "<sp>", "ʝ", "a", "?", "<eos>"
+      ],
+      "expect_stress": [0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 2, 0, 1, 0, 0, 0, 0, 0],
+      "expect_unknown": []
+    },
+    {
+      "name": "sentences",
+      "op": "sentences",
+      "text": "El niño comió piña y jamón. ¿Vienes, o no?",
+      "expect": ["El niño comió piña y jamón.", "¿Vienes, o no?"]
+    },
+    {
+      "name": "finished-missing",
+      "op": "finished",
+      "text": "Hola",
+      "expect": "Hola."
+    },
+    {
+      "name": "finished-present",
+      "op": "finished",
+      "text": "Hola.",
+      "expect": "Hola."
+    },
+    {
+      "name": "finished-comma",
+      "op": "finished",
+      "text": "Hola,",
+      "expect": "Hola,"
+    }
+  ]
+}

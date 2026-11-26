@@ -1,0 +1,52 @@
+{
+  "version": 1,
+  "models": [
+    {
+      "id": "clarvia-tts-tiny",
+      "name": "Clarvia TTS Tiny (Turkish)",
+      "language": "tr",
+      "license": "Apache-2.0",
+      "source_url": "https://huggingface.co/wite-tech/clarvia-tts-tiny",
+      "hf_repo": "wite-tech/clarvia-tts-tiny",
+      "model_file": "onnx/model.onnx",
+      "config_file": "config.json",
+      "adapter": "clarvia",
+      "phonemizer_source": "hf:wite-tech/clarvia-phonemizer",
+      "size_bytes": 23068672,
+      "sample_rate": 24000,
+      "voices": [
+        { "id": "female_1", "label": "Female 1" },
+        { "id": "female_2", "label": "Female 2" },
+        { "id": "female_3", "label": "Female 3" },
+        { "id": "female_4", "label": "Female 4" },
+        { "id": "female_5", "label": "Female 5" },
+        { "id": "male_1", "label": "Male 1" },
+        { "id": "male_2", "label": "Male 2" },
+        { "id": "male_3", "label": "Male 3" },
+        { "id": "male_4", "label": "Male 4" },
+        { "id": "male_5", "label": "Male 5" }
+      ],
+      "default_voice": "female_1"
+    },
+    {
+      "id": "tiny-voca",
+      "name": "tiny-voca (English)",
+      "language": "en",
+      "license": "Apache-2.0",
+      "source_url": "https://huggingface.co/n4ze3m/tiny-voca",
+      "hf_repo": "n4ze3m/tiny-voca",
+      "model_file": "onnx/model.onnx",
+      "config_file": "config.json",
+      "adapter": "tiny-voca",
+      "extra_prefixes": ["phonemizer/"],
+      "phonemizer_source": "github:n4ze3m/dizione",
+      "size_bytes": 29360128,
+      "sample_rate": 24000,
+      "voices": [
+        { "id": "F2", "label": "F2 (female)" },
+        { "id": "M2", "label": "M2 (male)" }
+      ],
+      "default_voice": "F2"
+    }
+  ]
+}

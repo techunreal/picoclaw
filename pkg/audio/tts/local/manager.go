@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -35,19 +36,21 @@ type PythonInfo struct {
 
 // VoiceOption is re-exported through the catalog for API consumers.
 type Installed struct {
-	RecipeID     string        `json:"recipe_id"`
-	Name         string        `json:"name"`
-	Language     string        `json:"language"`
-	Adapter      string        `json:"adapter,omitempty"`
-	Dir          string        `json:"dir"`
-	Venv         string        `json:"venv,omitempty"`
-	Port         int           `json:"port"`
-	PID          int           `json:"pid,omitempty"`
-	Token        string        `json:"token,omitempty"`
-	Voices       []VoiceOption `json:"voices"`
-	DefaultVoice string        `json:"default_voice"`
-	SampleRate   int           `json:"sample_rate"`
-	InstalledAt  time.Time     `json:"installed_at"`
+	RecipeID          string        `json:"recipe_id"`
+	Name              string        `json:"name"`
+	Language          string        `json:"language"`
+	Adapter           string        `json:"adapter,omitempty"`
+	Dir               string        `json:"dir"`
+	Venv              string        `json:"venv,omitempty"`
+	Port              int           `json:"port"`
+	PID               int           `json:"pid,omitempty"`
+	Token             string        `json:"token,omitempty"`
+	Voices            []VoiceOption `json:"voices"`
+	DefaultVoice      string        `json:"default_voice"`
+	SampleRate        int           `json:"sample_rate"`
+	ThirdParty        bool          `json:"third_party,omitempty"`
+	LicenseAcceptedAt *time.Time    `json:"license_accepted_at,omitempty"`
+	InstalledAt       time.Time     `json:"installed_at"`
 }
 
 // Status is the installation status shown in the UI.
@@ -65,23 +68,29 @@ type Status struct {
 type Manager struct {
 	mu         sync.Mutex
 	pythonMu   sync.Mutex
+	depMu      sync.Mutex
 	root       string
 	status     Status
 	installing bool
 	processes  map[string]*exec.Cmd
 	pythonInfo PythonInfo
 	pythonAt   time.Time
+	deps       map[string]Dependency
+	depsAt     time.Time
 }
 
 var (
-	defaultOnce    sync.Once
+	defaultMu      sync.Mutex
 	defaultManager *Manager
 )
 
 func Default() *Manager {
-	defaultOnce.Do(func() {
-		defaultManager = NewManager(filepath.Join(config.GetHome(), "tts"))
-	})
+	root := filepath.Join(config.GetHome(), "tts")
+	defaultMu.Lock()
+	defer defaultMu.Unlock()
+	if defaultManager == nil || defaultManager.root != root {
+		defaultManager = NewManager(root)
+	}
 	return defaultManager
 }
 
@@ -90,6 +99,159 @@ func NewManager(root string) *Manager {
 		root:      root,
 		processes: make(map[string]*exec.Cmd),
 	}
+}
+
+// Dependency is the availability of an external tool a recipe needs.
+type Dependency struct {
+	Name      string `json:"name"`
+	Available bool   `json:"available"`
+	Version   string `json:"version,omitempty"`
+	Message   string `json:"message,omitempty"`
+}
+
+func (m *Manager) manifestPath() string { return filepath.Join(m.root, "manifest.json") }
+
+// Catalog returns the built-in catalog merged with the user manifest. A broken
+// user manifest is reported without hiding the built-in models.
+func (m *Manager) Catalog() ([]Recipe, error) {
+	builtin, err := BuiltinManifest()
+	if err != nil {
+		return nil, err
+	}
+	recipes := append([]Recipe(nil), builtin.Models...)
+	user, userErr := m.userRecipes()
+	recipes = append(recipes, user...)
+	return recipes, userErr
+}
+
+func (m *Manager) userRecipes() ([]Recipe, error) {
+	data, err := os.ReadFile(m.manifestPath())
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("could not read the user manifest: %w", err)
+	}
+	manifest, err := ParseManifest(data)
+	if err != nil {
+		return nil, fmt.Errorf("user manifest: %w", err)
+	}
+	return manifest.Models, nil
+}
+
+// UserManifestJSON returns the saved user manifest as pretty JSON.
+func (m *Manager) UserManifestJSON() (string, error) {
+	data, err := os.ReadFile(m.manifestPath())
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", nil
+		}
+		return "", err
+	}
+	return string(data), nil
+}
+
+// SaveUserManifest validates and stores a user manifest.
+func (m *Manager) SaveUserManifest(raw []byte) (Manifest, error) {
+	manifest, err := ParseManifest(raw)
+	if err != nil {
+		return Manifest{}, err
+	}
+	data, err := json.MarshalIndent(manifest, "", "  ")
+	if err != nil {
+		return Manifest{}, err
+	}
+	if err := os.MkdirAll(m.root, 0o755); err != nil {
+		return Manifest{}, err
+	}
+	tmp := m.manifestPath() + ".tmp"
+	if err := os.WriteFile(tmp, append(data, '\n'), 0o644); err != nil {
+		return Manifest{}, err
+	}
+	if err := os.Rename(tmp, m.manifestPath()); err != nil {
+		_ = os.Remove(tmp)
+		return Manifest{}, err
+	}
+	return manifest, nil
+}
+
+// ClearUserManifest removes the user manifest.
+func (m *Manager) ClearUserManifest() error {
+	err := os.Remove(m.manifestPath())
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
+}
+
+// ResolveRecipe resolves a model against the built-in and user catalogs.
+func (m *Manager) ResolveRecipe(input string) (*Recipe, error) {
+	recipes, err := m.Catalog()
+	if err != nil && len(recipes) == 0 {
+		return nil, err
+	}
+	return ResolveRecipeIn(recipes, input)
+}
+
+// Dependencies reports whether the external tools required by a recipe exist.
+// The result is cached briefly so opening the TTS tab does not start a process
+// on every query refresh.
+func (m *Manager) Dependencies(names []string) []Dependency {
+	out := make([]Dependency, 0, len(names))
+	if len(names) == 0 {
+		return out
+	}
+	m.depMu.Lock()
+	defer m.depMu.Unlock()
+	if m.deps == nil || time.Since(m.depsAt) > time.Minute {
+		m.deps = make(map[string]Dependency)
+		m.depsAt = time.Now()
+	}
+	for _, name := range names {
+		cached, ok := m.deps[name]
+		if !ok {
+			cached = detectDependency(name)
+			m.deps[name] = cached
+		}
+		out = append(out, cached)
+	}
+	return out
+}
+
+func detectDependency(name string) Dependency {
+	result := Dependency{Name: name}
+	if name != "espeak-ng" {
+		result.Message = "unsupported dependency"
+		return result
+	}
+	path, err := exec.LookPath("espeak-ng")
+	if err != nil {
+		result.Message = "espeak-ng is not installed. Install eSpeak NG 1.52.0 and try again."
+		return result
+	}
+	result.Available = true
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, path, "--version")
+	hideWindow(cmd)
+	if out, err := cmd.Output(); err == nil {
+		version := strings.TrimSpace(string(out))
+		if line, _, found := strings.Cut(version, "\n"); found {
+			version = line
+		}
+		result.Version = version
+	}
+	return result
+}
+
+func (m *Manager) missingDependencies(names []string) []string {
+	var missing []string
+	for _, dependency := range m.Dependencies(names) {
+		if !dependency.Available {
+			missing = append(missing, dependency.Name)
+		}
+	}
+	return missing
 }
 
 func (m *Manager) venvDir() string    { return filepath.Join(m.root, "venv") }
@@ -218,12 +380,17 @@ func pythonAvailabilityMessage(pip, venv bool) string {
 }
 
 // StartInstall runs the installation in the background and reports progress
-// through Status.
+// through Status. licenseAt is recorded for third-party models after the user
+// accepted the license.
 func (m *Manager) StartInstall(
 	ctx context.Context,
 	recipe Recipe,
+	licenseAt time.Time,
 	onDone func(*Installed, error),
 ) error {
+	if missing := m.missingDependencies(recipe.Requires); len(missing) > 0 {
+		return fmt.Errorf("missing dependency: %s", strings.Join(missing, ", "))
+	}
 	m.mu.Lock()
 	if m.installing {
 		m.mu.Unlock()
@@ -236,7 +403,7 @@ func (m *Manager) StartInstall(
 	go func() {
 		installCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Minute)
 		defer cancel()
-		installed, err := m.install(installCtx, recipe)
+		installed, err := m.install(installCtx, recipe, licenseAt)
 		if onDone != nil {
 			onDone(installed, err)
 		}
@@ -267,7 +434,7 @@ func (m *Manager) setStatus(phase, message string, progress int) {
 	m.mu.Unlock()
 }
 
-func (m *Manager) install(ctx context.Context, recipe Recipe) (*Installed, error) {
+func (m *Manager) install(ctx context.Context, recipe Recipe, licenseAt time.Time) (*Installed, error) {
 	python := m.DetectPython()
 	if !python.Available {
 		return nil, fmt.Errorf("Python 3.10+ with pip and venv is required: %s", python.Message)
@@ -282,10 +449,10 @@ func (m *Manager) install(ctx context.Context, recipe Recipe) (*Installed, error
 	modelPath := filepath.Join(m.modelDir(recipe.ID), filepath.FromSlash(recipe.ModelFile))
 	configPath := filepath.Join(m.modelDir(recipe.ID), filepath.FromSlash(recipe.ConfigFile))
 	m.setStatus("download", "Downloading model files", 5)
-	if err := downloadFile(ctx, hfFileURL(recipe.HFRepo, recipe.ModelFile), modelPath); err != nil {
+	if err := downloadFileChecked(ctx, hfFileURL(recipe.HFRepo, recipe.ModelFile), modelPath, recipe.Checksums[recipe.ModelFile]); err != nil {
 		return nil, err
 	}
-	if err := downloadFile(ctx, hfFileURL(recipe.HFRepo, recipe.ConfigFile), configPath); err != nil {
+	if err := downloadFileChecked(ctx, hfFileURL(recipe.HFRepo, recipe.ConfigFile), configPath, recipe.Checksums[recipe.ConfigFile]); err != nil {
 		return nil, err
 	}
 	if err := m.downloadExtras(ctx, recipe); err != nil {
@@ -299,6 +466,11 @@ func (m *Manager) install(ctx context.Context, recipe Recipe) (*Installed, error
 	m.setStatus("server", "Writing local TTS server", 75)
 	if err := writeServerScript(m.serverPath()); err != nil {
 		return nil, err
+	}
+	if recipe.Frontend != nil {
+		if err := writeLocalProfile(m.modelDir(recipe.ID), recipe); err != nil {
+			return nil, err
+		}
 	}
 
 	port, err := freePort()
@@ -321,7 +493,12 @@ func (m *Manager) install(ctx context.Context, recipe Recipe) (*Installed, error
 		Voices:       append([]VoiceOption(nil), recipe.Voices...),
 		DefaultVoice: recipe.DefaultVoice,
 		SampleRate:   recipe.SampleRate,
+		ThirdParty:   recipe.ThirdParty,
 		InstalledAt:  time.Now().UTC(),
+	}
+	if recipe.ThirdParty && !licenseAt.IsZero() {
+		accepted := licenseAt.UTC()
+		installed.LicenseAcceptedAt = &accepted
 	}
 	m.setStatus("start", "Starting local TTS model", 85)
 	if err := m.startLocked(installed); err != nil {
@@ -332,6 +509,47 @@ func (m *Manager) install(ctx context.Context, recipe Recipe) (*Installed, error
 	}
 	m.setStatus("ready", "Model installed", 100)
 	return installed, nil
+}
+
+func writeLocalProfile(dir string, recipe Recipe) error {
+	profile := map[string]any{
+		"recipe_id":     recipe.ID,
+		"adapter":       recipe.Adapter,
+		"model_file":    recipe.ModelFile,
+		"config_file":   recipe.ConfigFile,
+		"sample_rate":   recipe.SampleRate,
+		"max_tokens":    recipe.MaxTokens,
+		"voices":        recipe.Voices,
+		"default_voice": recipe.DefaultVoice,
+		"language":      recipe.Language,
+		"frontend":      recipe.Frontend,
+	}
+	data, err := json.MarshalIndent(profile, "", "  ")
+	if err != nil {
+		return err
+	}
+	path := filepath.Join(dir, "picoclaw.json")
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
+}
+
+type localProfile struct {
+	ModelFile string `json:"model_file"`
+}
+
+func localModelFile(dir string) string {
+	data, err := os.ReadFile(filepath.Join(dir, "picoclaw.json"))
+	if err != nil {
+		return ""
+	}
+	var profile localProfile
+	if err := json.Unmarshal(data, &profile); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(profile.ModelFile)
 }
 
 func (m *Manager) ensurePythonEnv(ctx context.Context, python PythonInfo, recipe Recipe) error {
@@ -356,7 +574,10 @@ func (m *Manager) ensurePythonEnv(ctx context.Context, python PythonInfo, recipe
 	if err := pip("install", "--disable-pip-version-check", "onnxruntime", "numpy"); err != nil {
 		return err
 	}
-	m.setStatus("python", "Installing Turkish phonemizer", 60)
+	if strings.TrimSpace(recipe.PhonemizerSource) == "" {
+		return nil
+	}
+	m.setStatus("python", "Installing phonemizer", 60)
 	phonemizerDir, phonemizerRoot, err := m.downloadPhonemizerPackage(ctx, recipe.PhonemizerSource)
 	if err != nil {
 		return err
@@ -510,7 +731,7 @@ func (m *Manager) venvPython() string {
 	return filepath.Join(m.venvDir(), "bin", "python")
 }
 
-const sidecarVersion = "2"
+const sidecarVersion = "3"
 
 // EnsureRunning starts the sidecar for an installed model when needed.
 func (m *Manager) EnsureRunning(id string) error {
@@ -549,7 +770,11 @@ func (m *Manager) startLocked(installed *Installed) error {
 	if _, err := os.Stat(m.serverPath()); err != nil {
 		return fmt.Errorf("local TTS server script is missing: %w", err)
 	}
-	if _, err := os.Stat(filepath.Join(installed.Dir, "onnx", "model.onnx")); err != nil {
+	modelRel := localModelFile(installed.Dir)
+	if modelRel == "" {
+		modelRel = "onnx/model.onnx"
+	}
+	if _, err := os.Stat(filepath.Join(installed.Dir, filepath.FromSlash(modelRel))); err != nil {
 		return fmt.Errorf("model file is missing: %w", err)
 	}
 	venvPython := m.venvPython()
@@ -697,6 +922,10 @@ func hfFileURL(repo, file string) string {
 }
 
 func downloadFile(ctx context.Context, url, dst string) error {
+	return downloadFileChecked(ctx, url, dst, "")
+}
+
+func downloadFileChecked(ctx context.Context, url, dst, wantSHA256 string) error {
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 		return err
 	}
@@ -719,7 +948,12 @@ func downloadFile(ctx context.Context, url, dst string) error {
 	if err != nil {
 		return err
 	}
-	if _, err := io.Copy(file, resp.Body); err != nil {
+	hasher := sha256.New()
+	writer := io.Writer(file)
+	if strings.TrimSpace(wantSHA256) != "" {
+		writer = io.MultiWriter(file, hasher)
+	}
+	if _, err := io.Copy(writer, resp.Body); err != nil {
 		_ = file.Close()
 		_ = os.Remove(tmp)
 		return fmt.Errorf("download failed: %w", err)
@@ -727,6 +961,13 @@ func downloadFile(ctx context.Context, url, dst string) error {
 	if err := file.Close(); err != nil {
 		_ = os.Remove(tmp)
 		return err
+	}
+	if strings.TrimSpace(wantSHA256) != "" {
+		got := hex.EncodeToString(hasher.Sum(nil))
+		if !strings.EqualFold(got, strings.TrimSpace(wantSHA256)) {
+			_ = os.Remove(tmp)
+			return fmt.Errorf("checksum mismatch for %s: got %s", filepath.Base(dst), got)
+		}
 	}
 	return os.Rename(tmp, dst)
 }
