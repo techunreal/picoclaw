@@ -10,7 +10,10 @@ import {
   setToolEnabled,
   updateWebSearchConfig,
 } from "@/api/tools"
-import { showSaveSuccessOrRestartToast } from "@/lib/restart-required"
+import {
+  showGatewayRestartRequiredToast,
+  showSaveSuccessOrRestartToast,
+} from "@/lib/restart-required"
 import { refreshGatewayState } from "@/store/gateway"
 
 import type { GroupedTools, ToolStatusFilter, ToolsPageTab } from "./types"
@@ -54,7 +57,12 @@ export function useToolsPage() {
   const toggleToolMutation = useMutation({
     mutationFn: async ({ name, enabled }: { name: string; enabled: boolean }) =>
       setToolEnabled(name, enabled),
-    onSuccess: async (_, variables) => {
+    onSuccess: async (result, variables) => {
+      if (result.restart_required) {
+        showGatewayRestartRequiredToast(t, variables.name)
+        void queryClient.invalidateQueries({ queryKey: ["tools"] })
+        return
+      }
       const gateway = await refreshGatewayState({ force: true })
       showSaveSuccessOrRestartToast(
         t,

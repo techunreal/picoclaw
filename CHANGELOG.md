@@ -6,6 +6,15 @@ All notable changes to this fork of PicoClaw. Versions use the
 Earlier versions up to `0.1.27` are recorded as git tags. This file starts
 with the first batch that was built locally before tagging.
 
+## [0.1.62.3] - 2026-11-27
+
+### Added
+- A restart icon in the top bar while the gateway is running. It turns amber
+  when a restart is required and is otherwise always available.
+- Tool state changes return `restart_required` when hot reload is off. The Tools
+  page shows a “Gateway restart required” toast with a **Restart now** action
+  that restarts only the gateway.
+
 ## [0.1.62.2] - 2026-11-27
 
 ### Fixed

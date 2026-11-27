@@ -5,7 +5,7 @@ by Sipeed. Upstream is MIT-licensed; this fork keeps the same license and adds
 desktop usability, security hardening, agent management, and local document
 tools.
 
-- **Version:** `0.1.62.2-fork`
+- **Version:** `0.1.62.3-fork`
 - **Upstream:** https://github.com/sipeed/picoclaw
 - **Fork:** https://github.com/techunreal/picoclaw
 - **License:** MIT (see `LICENSE` and `NOTICE.md`)
@@ -13,7 +13,19 @@ tools.
 > This is not an official Sipeed release. Report fork-specific issues on the
 > fork repository, not upstream.
 
-## What's new in 0.1.62.2-fork
+## What's new in 0.1.62.3-fork
+
+- **Gateway restart in the top bar:** while the gateway is running, a restart
+  icon sits next to the power button. If a restart is required it turns amber;
+  otherwise it is always available.
+- **Tool changes explain the restart:** enabling or disabling a tool now returns
+  `restart_required` when hot reload is off. The Tools page shows “Gateway
+  restart required” with a **Restart now** action that restarts only the
+  gateway.
+- `send_tts` can be enabled from the Tool Library; after the gateway restart the
+  agent receives the tool.
+
+## 0.1.62.2-fork
 
 - **send_tts switch works:** Tools → Tool Library can now enable or disable
   `send_tts`. The state API was missing this tool and returned
@@ -337,7 +349,7 @@ Microsoft Office, Adobe Acrobat, or a system Python install.
 ## Quick start (Windows)
 
 1. Extract the release ZIP (for example
-   `PicoClaw-Windows-x86_64-0.1.62.2-fork.zip`) to a folder such as
+   `PicoClaw-Windows-x86_64-0.1.62.3-fork.zip`) to a folder such as
    `C:\Users\<you>\PicoClaw`.
 2. Run `picoclaw-launcher.exe`.
 3. Open `http://localhost:18800` if the browser does not open automatically.
@@ -386,13 +398,13 @@ go build -tags "goolm,stdjson" -o build/picoclaw-launcher.exe ./web/backend
 Release build with version metadata, Office runtime, ZIP, and SHA256:
 
 ```powershell
-powershell -File scripts/build-release.ps1 -Version 0.1.62.2-fork
+powershell -File scripts/build-release.ps1 -Version 0.1.62.3-fork
 ```
 
 Lean build without the Office runtime:
 
 ```powershell
-powershell -File scripts/build-release.ps1 -Version 0.1.62.2-fork -SkipOfficeRuntime
+powershell -File scripts/build-release.ps1 -Version 0.1.62.3-fork -SkipOfficeRuntime
 ```
 
 ## Tests
@@ -408,7 +420,7 @@ go test -tags "goolm,stdjson" ./... -count=1 -timeout 300s
 - Package E.1: resilience, persistence, model references, deterministic tests,
   curated skills, Office Pack.
 - Package E.2: release, clean install, README, roadmap, fork push.
-- 0.1.4-0.1.62.2: WebUI, agents, models, profile import, TTS/read-aloud, browser
+- 0.1.4-0.1.62.3: WebUI, agents, models, profile import, TTS/read-aloud, browser
   allowlist, launcher/firewall, context safety. See [`CHANGELOG.md`](CHANGELOG.md).
 - Portable/USB mode (E.3): future idea.
 

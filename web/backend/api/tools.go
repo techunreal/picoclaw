@@ -264,8 +264,12 @@ func (h *Handler) handleUpdateToolState(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	restartRequired := !cfg.Gateway.HotReload && h.gatewayAvailableForProxy()
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	json.NewEncoder(w).Encode(map[string]any{
+		"status":           "ok",
+		"restart_required": restartRequired,
+	})
 }
 
 func buildToolSupport(cfg *config.Config) []toolSupportItem {

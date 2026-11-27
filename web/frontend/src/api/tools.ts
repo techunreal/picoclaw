@@ -15,6 +15,7 @@ interface ToolsResponse {
 
 interface ToolActionResponse {
   status: string
+  restart_required?: boolean
 }
 
 export interface WebSearchProviderOption {
@@ -89,10 +90,7 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
         }
         if (Array.isArray(body.errors) && body.errors.length > 0) {
           message = body.errors.join("; ")
-        } else if (
-          typeof body.error === "string" &&
-          body.error.trim() !== ""
-        ) {
+        } else if (typeof body.error === "string" && body.error.trim() !== "") {
           message = body.error
         } else {
           message = trimmed
@@ -102,7 +100,9 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
         message = trimmed
       }
     }
-    throw new Error(message.length > 300 ? `${message.slice(0, 300)}…` : message)
+    throw new Error(
+      message.length > 300 ? `${message.slice(0, 300)}…` : message,
+    )
   }
   return res.json() as Promise<T>
 }

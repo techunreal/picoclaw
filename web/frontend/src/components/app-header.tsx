@@ -88,7 +88,7 @@ export function AppHeader() {
   }
 
   const handleGatewayRestart = () => {
-    if (gwLoading || isRestarting || !restartRequired || !canStart) return
+    if (gwLoading || isRestarting || isStopping || !isRunning) return
     void restart()
   }
 
@@ -162,22 +162,32 @@ export function AppHeader() {
       </AlertDialog>
 
       <div className="text-muted-foreground flex items-center gap-1 text-sm font-medium md:gap-2">
-        {restartRequired && (
+        {isRunning && (
           <Tooltip delayDuration={700}>
             <TooltipTrigger asChild>
               <Button
                 variant="secondary"
                 size="icon-sm"
-                className="bg-amber-500/15 text-amber-700 hover:bg-amber-500/25 hover:text-amber-800 dark:text-amber-300 dark:hover:bg-amber-500/25"
+                className={
+                  restartRequired
+                    ? "bg-amber-500/15 text-amber-700 hover:bg-amber-500/25 hover:text-amber-800 dark:text-amber-300 dark:hover:bg-amber-500/25"
+                    : undefined
+                }
                 onClick={handleGatewayRestart}
-                disabled={gwLoading || isRestarting || isStopping || !canStart}
-                aria-label={t("header.gateway.action.restart")}
+                disabled={gwLoading || isRestarting || isStopping}
+                aria-label={
+                  restartRequired
+                    ? t("header.gateway.restartRequired")
+                    : t("header.gateway.action.restart")
+                }
               >
                 <IconRefresh className="size-4" />
               </Button>
             </TooltipTrigger>
             <TooltipContent>
-              {t("header.gateway.restartRequired")}
+              {restartRequired
+                ? t("header.gateway.restartRequired")
+                : t("header.gateway.action.restart")}
             </TooltipContent>
           </Tooltip>
         )}
