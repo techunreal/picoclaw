@@ -87,7 +87,9 @@ function captureActiveSnapshot() {
   backgroundSnapshots.set(activeSessionIdRef, snapshotActiveSession())
 }
 
-function applyActivePatch(patch: ChatSessionPatch | ((prev: ChatSessionSnapshot) => ChatSessionPatch)) {
+function applyActivePatch(
+  patch: ChatSessionPatch | ((prev: ChatSessionSnapshot) => ChatSessionPatch),
+) {
   updateChatStore((prev) => (typeof patch === "function" ? patch(prev) : patch))
 }
 
@@ -107,9 +109,7 @@ function applySessionPatch(sessionId: string): ApplyChatSessionPatch {
       messages: next.messages ?? prev.messages,
       isTyping: next.isTyping ?? prev.isTyping,
       contextUsage:
-        next.contextUsage !== undefined
-          ? next.contextUsage
-          : prev.contextUsage,
+        next.contextUsage !== undefined ? next.contextUsage : prev.contextUsage,
     })
   }
 }
@@ -176,19 +176,13 @@ function scheduleConnectionReconnect(
 function sessionWebSocketUrl(sessionId: string, agentId: string): string {
   const wsScheme = window.location.protocol === "https:" ? "wss:" : "ws:"
   const incognito = isIncognitoSession(sessionId)
-  const memory =
-    incognito || !isSessionMemoryEnabled(sessionId) ? "off" : "on"
+  const memory = incognito || !isSessionMemoryEnabled(sessionId) ? "off" : "on"
   const incognitoParam = incognito ? "&incognito=1" : ""
-  const agentParam = agentId
-    ? `&agent=${encodeURIComponent(agentId)}`
-    : ""
+  const agentParam = agentId ? `&agent=${encodeURIComponent(agentId)}` : ""
   return `${wsScheme}//${window.location.host}/pico/ws?session_id=${encodeURIComponent(sessionId)}&memory=${memory}${incognitoParam}${agentParam}`
 }
 
-function connectSession(
-  sessionId: string,
-  agentId: string,
-) {
+function connectSession(sessionId: string, agentId: string) {
   if (store.get(gatewayAtom).status !== "running") {
     return
   }
@@ -259,7 +253,10 @@ function connectSession(
     if (sessionId === activeSessionIdRef) {
       updateChatStore({ connectionState: "disconnected" })
     }
-    scheduleConnectionReconnect(connection, connection.sessionId !== activeSessionIdRef)
+    scheduleConnectionReconnect(
+      connection,
+      connection.sessionId !== activeSessionIdRef,
+    )
   }
 
   socket.onerror = () => {
@@ -268,7 +265,10 @@ function connectSession(
     if (sessionId === activeSessionIdRef) {
       updateChatStore({ connectionState: "error" })
     }
-    scheduleConnectionReconnect(connection, connection.sessionId !== activeSessionIdRef)
+    scheduleConnectionReconnect(
+      connection,
+      connection.sessionId !== activeSessionIdRef,
+    )
   }
 }
 
@@ -520,6 +520,81 @@ export function stopActiveTurn() {
   }
 }
 
+/**
+ * Re-runs the last user turn. The gateway truncates everything after that user
+ * message before generating a new answer, so a bad or leaked tool reply does
+ * not stay in context.
+ */
+export function regenerateLastAnswer() {
+  const connection = connections.get(activeSessionIdRef)
+  const socket = connection?.socket
+  if (!socket || socket.readyState !== WebSocket.OPEN) {
+    return false
+  }
+
+  const current = getChatState()
+  let lastUserIndex = -1
+  for (let index = current.messages.length - 1; index >= 0; index -= 1) {
+    if (current.messages[index].role === "user") {
+      lastUserIndex = index
+      break
+    }
+  }
+  if (lastUserIndex < 0) return false
+  const lastUser = current.messages[lastUserIndex]
+  const previousMessages = current.messages
+
+  const imageAttachments = (lastUser.attachments ?? [])
+    .filter((attachment) => attachment.type === "image" && attachment.url)
+    .map((attachment) => attachment.url)
+  const fileAttachments = (lastUser.attachments ?? [])
+    .filter(
+      (attachment) =>
+        attachment.type !== "image" &&
+        Boolean(attachment.text?.trim()) &&
+        Boolean(attachment.filename?.trim()),
+    )
+    .map((attachment) => ({
+      type: "file",
+      filename: attachment.filename,
+      content_type: attachment.contentType,
+      text: attachment.text,
+    }))
+
+  const payload: Record<string, unknown> = {
+    content: lastUser.content.trim() || "(regenerate)",
+    media: imageAttachments,
+    regenerate: true,
+  }
+  if (fileAttachments.length > 0) {
+    payload.attachments = fileAttachments
+  }
+
+  const id = `msg-${++msgIdCounter}-${Date.now()}`
+  updateChatStore((prev) => ({
+    messages: prev.messages.slice(0, lastUserIndex + 1),
+    isTyping: true,
+  }))
+  try {
+    socket.send(
+      JSON.stringify({
+        type: "message.send",
+        id,
+        session_id: activeSessionIdRef,
+        payload,
+      }),
+    )
+    return true
+  } catch (error) {
+    console.error("Failed to regenerate the last answer:", error)
+    updateChatStore(() => ({
+      messages: previousMessages,
+      isTyping: false,
+    }))
+    return false
+  }
+}
+
 export async function switchChatSession(sessionId: string, agentId?: string) {
   if (sessionId === activeSessionIdRef) {
     if (agentId !== undefined && agentId.trim() !== chatAgentIdRef) {
@@ -536,8 +611,7 @@ export async function switchChatSession(sessionId: string, agentId?: string) {
   setActiveSessionId(sessionId)
 
   const cached = backgroundSnapshots.get(sessionId)
-  const live =
-    connections.get(sessionId)?.socket?.readyState === WebSocket.OPEN
+  const live = connections.get(sessionId)?.socket?.readyState === WebSocket.OPEN
   if (cached) {
     backgroundSnapshots.delete(sessionId)
     updateChatStore({

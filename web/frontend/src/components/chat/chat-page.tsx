@@ -1,4 +1,10 @@
-import { IconCheck, IconChevronDown, IconGhost, IconPlus } from "@tabler/icons-react"
+import {
+  IconCheck,
+  IconChevronDown,
+  IconGhost,
+  IconPlus,
+  IconRefresh,
+} from "@tabler/icons-react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useAtom, useAtomValue, useSetAtom } from "jotai"
 import {
@@ -13,6 +19,7 @@ import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
 
 import { agentModelPrimary, getAgents } from "@/api/agents"
+import { getSessions } from "@/api/sessions"
 import { AgentAvatar } from "@/components/agent-avatar"
 import { AssistantMessage } from "@/components/chat/assistant-message"
 import {
@@ -47,7 +54,6 @@ import {
   hasFileTransfer,
 } from "@/features/chat/attachment-input"
 import { isIncognitoSession } from "@/features/chat/state"
-import { getSessions } from "@/api/sessions"
 import { useChatModels } from "@/hooks/use-chat-models"
 import { useGateway } from "@/hooks/use-gateway"
 import { usePicoChat } from "@/hooks/use-pico-chat"
@@ -62,6 +68,12 @@ import {
   shouldShowAssistantMessage,
 } from "@/store/chat"
 import type { GatewayState } from "@/store/gateway"
+
+function stripLeakedToolText(text: string): string {
+  return text
+    .replace(/\[tool_use:[\s\S]*?(?:<\/tool_calls:[^>]+>|$)/g, "")
+    .trim()
+}
 
 function resolveChatInputDisabledReason({
   hasDefaultModel,
@@ -152,8 +164,9 @@ export function ChatPage() {
     (session) => session.id === activeSessionIdForAgent,
   )?.agent_id
   const activeSessionRunning =
-    sessionsQuery.data?.find((session) => session.id === activeSessionIdForAgent)
-      ?.running === true
+    sessionsQuery.data?.find(
+      (session) => session.id === activeSessionIdForAgent,
+    )?.running === true
   const [selectedAgentId, setSelectedAgentId] = useState("main")
   useEffect(() => {
     if (activeSessionAgent) setSelectedAgentId(activeSessionAgent)
@@ -168,11 +181,32 @@ export function ChatPage() {
     contextUsage,
     sendMessage,
     stopActiveTurn,
+    regenerateLast,
     switchSession,
     newChat,
     newIncognitoChat,
   } = usePicoChat(chatAgentId)
   const isIncognito = isIncognitoSession(activeSessionId)
+  let lastUserIndex = -1
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    if (messages[index].role === "user") {
+      lastUserIndex = index
+      break
+    }
+  }
+  const lastAssistantId =
+    lastUserIndex < 0
+      ? ""
+      : ([...messages.slice(lastUserIndex + 1)]
+          .reverse()
+          .find(
+            (message) =>
+              message.role === "assistant" &&
+              shouldShowAssistantMessage(
+                assistantDetailVisibility,
+                message.kind,
+              ),
+          )?.id ?? "")
 
   const queryClient = useQueryClient()
   const agentsQuery = useQuery({
@@ -189,8 +223,7 @@ export function ChatPage() {
     const list = agentsQuery.data?.agents ?? []
     const options = list.map((agent) => ({
       id: agent.id,
-      name:
-        agent.name?.trim() || (agent.id === "main" ? "Pico" : agent.id),
+      name: agent.name?.trim() || (agent.id === "main" ? "Pico" : agent.id),
       avatar: agent.avatar,
     }))
     if (!options.some((agent) => agent.id === "main")) {
@@ -347,7 +380,10 @@ export function ChatPage() {
       return
     }
 
-    const remainingSlots = Math.max(0, MAX_CHAT_ATTACHMENTS - attachments.length)
+    const remainingSlots = Math.max(
+      0,
+      MAX_CHAT_ATTACHMENTS - attachments.length,
+    )
     if (remainingSlots === 0) {
       toast.error(t("chat.attachmentLimit", { count: MAX_CHAT_ATTACHMENTS }))
       return
@@ -657,7 +693,7 @@ export function ChatPage() {
               <div key={msg.id} className="flex w-full">
                 {msg.role === "assistant" ? (
                   <AssistantMessage
-                    content={msg.content}
+                    content={stripLeakedToolText(msg.content)}
                     attachments={msg.attachments}
                     kind={msg.kind}
                     modelName={msg.modelName}
@@ -674,6 +710,21 @@ export function ChatPage() {
               </div>
             )
           })}
+
+          {lastAssistantId !== "" && !isTyping && (
+            <div className="flex justify-center">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="rounded-full"
+                onClick={() => regenerateLast()}
+              >
+                <IconRefresh className="size-4" />
+                {t("chat.regenerate", "Regenerate last answer")}
+              </Button>
+            </div>
+          )}
 
           {isTyping && <TypingIndicator />}
         </div>

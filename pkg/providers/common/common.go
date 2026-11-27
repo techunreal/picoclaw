@@ -315,7 +315,7 @@ func ParseResponse(body io.Reader) (*LLMResponse, error) {
 		toolCalls = append(toolCalls, toolCall)
 	}
 
-	return &LLMResponse{
+	response := &LLMResponse{
 		Content:          choice.Message.Content,
 		ReasoningContent: choice.Message.ReasoningContent,
 		Reasoning:        choice.Message.Reasoning,
@@ -323,7 +323,9 @@ func ParseResponse(body io.Reader) (*LLMResponse, error) {
 		ToolCalls:        toolCalls,
 		FinishReason:     normalizeFinishReason(choice.FinishReason),
 		Usage:            apiResponse.Usage,
-	}, nil
+	}
+	NormalizeTextToolCalls(response)
+	return response, nil
 }
 
 // normalizeFinishReason normalizes finish_reason values across providers.

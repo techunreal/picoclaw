@@ -5,6 +5,7 @@ import { useEffect } from "react"
 import {
   newChatSession,
   newIncognitoChatSession,
+  regenerateLastAnswer,
   sendChatMessage,
   setChatAgent,
   stopActiveTurn,
@@ -74,6 +75,7 @@ export function usePicoChat(agentId?: string) {
     contextUsage,
     sendMessage: sendChatMessage,
     stopActiveTurn,
+    regenerateLast: regenerateLastAnswer,
     switchSession: switchChatSession,
     newChat: newChatSession,
     newIncognitoChat: newIncognitoChatSession,

@@ -20,6 +20,9 @@ func (p *Pipeline) SetupTurn(ctx context.Context, ts *turnState) (*turnExecution
 	var history []providers.Message
 	var summary string
 	if !ts.opts.NoHistory {
+		if regenerateRequested(ts.opts) {
+			ts.prepareRegenerate()
+		}
 		if resp, err := p.ContextManager.Assemble(ctx, &AssembleRequest{
 			SessionKey: ts.sessionKey,
 			Budget:     ts.agent.ContextWindow,
@@ -170,4 +173,47 @@ func (p *Pipeline) SetupTurn(ctx context.Context, ts *turnState) (*turnExecution
 	exec.usedLight = usedLight
 
 	return exec, nil
+}
+
+func regenerateRequested(opts processOptions) bool {
+	if opts.Dispatch.InboundContext == nil {
+		return false
+	}
+	return strings.EqualFold(
+		strings.TrimSpace(opts.Dispatch.InboundContext.Raw["regenerate"]),
+		"true",
+	)
+}
+
+// prepareRegenerate rewinds the session to just before the last user message,
+// then reuses that message as the current turn. Without this, the failed
+// assistant reply (or leaked tool markup) would stay in history.
+func (ts *turnState) prepareRegenerate() bool {
+	if ts.session == nil {
+		return false
+	}
+	history := ts.session.GetHistory(ts.sessionKey)
+	lastUser := -1
+	for index := len(history) - 1; index >= 0; index-- {
+		if history[index].Role == "user" {
+			lastUser = index
+			break
+		}
+	}
+	if lastUser < 0 {
+		return false
+	}
+	message := history[lastUser]
+	prefix := append([]providers.Message(nil), history[:lastUser]...)
+	ts.session.SetHistory(ts.sessionKey, prefix)
+	if err := ts.session.Save(ts.sessionKey); err != nil {
+		logger.WarnCF("agent", "regenerate: could not save truncated history", map[string]any{
+			"session_key": ts.sessionKey,
+			"error":       err.Error(),
+		})
+	}
+	ts.userMessage = message.Content
+	ts.media = append([]string(nil), message.Media...)
+	ts.initialHistoryLength = len(prefix)
+	return true
 }

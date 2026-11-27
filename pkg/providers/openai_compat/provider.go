@@ -759,7 +759,7 @@ func parseStreamResponse(
 		if choice.Delta.Content != "" {
 			textContent.WriteString(choice.Delta.Content)
 			if onChunk != nil {
-				onChunk(StreamChunk{Content: textContent.String()})
+				onChunk(StreamChunk{Content: common.VisibleStreamContent(textContent.String())})
 			}
 		}
 
@@ -865,7 +865,7 @@ func parseStreamResponse(
 		finishReason = "stop"
 	}
 
-	return &LLMResponse{
+	response := &LLMResponse{
 		Content:          textContent.String(),
 		ReasoningContent: reasoningContent.String(),
 		Reasoning:        reasoning.String(),
@@ -873,7 +873,9 @@ func parseStreamResponse(
 		ToolCalls:        toolCalls,
 		FinishReason:     finishReason,
 		Usage:            usage,
-	}, nil
+	}
+	common.NormalizeTextToolCalls(response)
+	return response, nil
 }
 
 func normalizeModel(model, apiBase string) string {

@@ -6,6 +6,18 @@ All notable changes to this fork of PicoClaw. Versions use the
 Earlier versions up to `0.1.27` are recorded as git tags. This file starts
 with the first batch that was built locally before tagging.
 
+## [0.1.62] - 2026-11-27
+
+### Added
+- **Regenerate last answer:** a button below the newest reply discards the failed
+  answer and re-runs the last user message. The gateway rewinds the session to
+  just before that user message before generating.
+- **Textual tool-call parser:** `[tool_use: name<arg_key:ID>…</tool_call:ID>`
+  output from some free models is converted into a real tool call and removed
+  from the visible content.
+- The chat view hides leaked textual tool calls from older sessions, and the
+  live stream no longer displays an in-progress tool block.
+
 ## [0.1.61] - 2026-11-27
 
 ### Added

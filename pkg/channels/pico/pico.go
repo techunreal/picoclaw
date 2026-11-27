@@ -1280,6 +1280,9 @@ func (c *PicoChannel) handleMessageSend(pc *picoConn, msg PicoMessage) {
 	if pc.incognito {
 		metadata["incognito"] = "true"
 	}
+	if regenerate, _ := msg.Payload["regenerate"].(bool); regenerate {
+		metadata["regenerate"] = "true"
+	}
 	if pc.agentID != "" {
 		metadata["agent_id"] = pc.agentID
 	}
