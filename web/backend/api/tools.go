@@ -412,6 +412,8 @@ func applyToolState(cfg *config.Config, toolName string, enabled bool) error {
 		cfg.Tools.Message.Enabled = enabled
 	case "send_file":
 		cfg.Tools.SendFile.Enabled = enabled
+	case "send_tts":
+		cfg.Tools.SendTTS.Enabled = enabled
 	case "find_skills":
 		cfg.Tools.FindSkills.Enabled = enabled
 		if enabled {

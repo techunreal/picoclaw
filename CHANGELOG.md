@@ -6,6 +6,13 @@ All notable changes to this fork of PicoClaw. Versions use the
 Earlier versions up to `0.1.27` are recorded as git tags. This file starts
 with the first batch that was built locally before tagging.
 
+## [0.1.62.2] - 2026-11-27
+
+### Fixed
+- The Tools → Tool Library switch for `send_tts` now saves its state. The tool
+  state API was missing a `send_tts` case and rejected the request with
+  `tool "send_tts" cannot be updated`.
+
 ## [0.1.62.1] - 2026-11-27
 
 ### Changed
