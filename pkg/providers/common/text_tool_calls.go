@@ -18,12 +18,28 @@ const textToolOpen = "[tool_use:"
 
 var textNumberPattern = regexp.MustCompile(`^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$`)
 
+var thinkBlockPattern = regexp.MustCompile(`(?s)<think:[^>]+>.*?</think:[^>]+>`)
+
+// NormalizeThinkTags removes inline thinking blocks. Some models put a draft
+// followed by </think:ID> and then repeat the final answer; only the text after
+// the last closing tag is visible.
+func NormalizeThinkTags(content string) string {
+	content = thinkBlockPattern.ReplaceAllString(content, "")
+	if index := strings.LastIndex(content, "</think:"); index >= 0 {
+		if end := strings.IndexByte(content[index:], '>'); end >= 0 {
+			content = content[index+end+1:]
+		}
+	}
+	return strings.TrimSpace(content)
+}
+
 // NormalizeTextToolCalls strips textual tool calls from Content and turns them
 // into structured ToolCalls when the provider did not send any.
 func NormalizeTextToolCalls(response *LLMResponse) {
 	if response == nil {
 		return
 	}
+	response.Content = NormalizeThinkTags(response.Content)
 	clean, calls := ParseTextToolCalls(response.Content)
 	response.Content = clean
 	if len(calls) == 0 {
@@ -38,13 +54,21 @@ func NormalizeTextToolCalls(response *LLMResponse) {
 	}
 }
 
-// VisibleStreamContent hides an in-progress textual tool call from the live
-// stream while keeping any prose that came before it.
+// VisibleStreamContent hides an in-progress textual tool call or thinking draft
+// from the live stream while keeping visible prose.
 func VisibleStreamContent(accumulated string) string {
-	if index := strings.Index(accumulated, textToolOpen); index >= 0 {
-		return strings.TrimRight(accumulated[:index], " \t\r\n")
+	visible := accumulated
+	if index := strings.LastIndex(visible, "</think:"); index >= 0 {
+		if end := strings.IndexByte(visible[index:], '>'); end >= 0 {
+			visible = visible[index+end+1:]
+		}
+	} else if index := strings.Index(visible, "<think:"); index >= 0 {
+		visible = visible[:index]
 	}
-	return accumulated
+	if index := strings.Index(visible, textToolOpen); index >= 0 {
+		visible = visible[:index]
+	}
+	return strings.TrimRight(visible, " \t\r\n")
 }
 
 // ParseTextToolCalls returns the visible text and the parsed tool calls. A

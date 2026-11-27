@@ -6,6 +6,7 @@ import {
   IconDownload,
   IconFileText,
   IconPlayerStop,
+  IconRefresh,
   IconTool,
   IconVolume,
 } from "@tabler/icons-react"
@@ -40,6 +41,8 @@ interface AssistantMessageProps {
   modelName?: string
   toolCalls?: ChatToolCall[]
   timestamp?: string | number
+  canRegenerate?: boolean
+  onRegenerate?: () => void
 }
 
 export function AssistantMessage({
@@ -49,6 +52,8 @@ export function AssistantMessage({
   modelName,
   toolCalls = [],
   timestamp = "",
+  canRegenerate = false,
+  onRegenerate,
 }: AssistantMessageProps) {
   const { t } = useTranslation()
   const { copy, isCopied } = useCopyToClipboard()
@@ -87,6 +92,7 @@ export function AssistantMessage({
   const copyMessageLabel = isCopied
     ? t("chat.copiedLabel")
     : t("chat.copyMessage")
+  const regenerateLabel = t("chat.regenerate", "Regenerate last answer")
   const speakLabel =
     isSpeaking || isPreparing
       ? speechProgress && speechProgress.total > 1
@@ -117,7 +123,7 @@ export function AssistantMessage({
         </div>
       )}
 
-      {(hasText || isCollapsedBlock || hasToolCalls) && (
+      {(hasText || isCollapsedBlock || hasToolCalls || canRegenerate) && (
         <div
           className={cn(
             "relative overflow-hidden rounded-xl border",
@@ -243,6 +249,7 @@ export function AssistantMessage({
                 isThought
                   ? "prose-p:my-1.5 prose-p:whitespace-pre-wrap px-3 pt-0 pb-3 text-[13px] leading-relaxed opacity-70"
                   : "prose-p:my-2 prose-p:whitespace-pre-wrap p-4 text-[15px] leading-relaxed",
+                !isCollapsedBlock && canRegenerate && "pb-12",
               )}
             >
               <ReactMarkdown
@@ -296,6 +303,19 @@ export function AssistantMessage({
               ) : (
                 <IconCopy className="text-muted-foreground h-4 w-4" />
               )}
+            </Button>
+          )}
+
+          {!isCollapsedBlock && canRegenerate && onRegenerate && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="text-muted-foreground hover:text-foreground absolute bottom-2 left-2 h-7 w-7 opacity-60 transition-opacity hover:opacity-100 focus-visible:opacity-100"
+              onClick={onRegenerate}
+              aria-label={regenerateLabel}
+              title={regenerateLabel}
+            >
+              <IconRefresh className="h-4 w-4" />
             </Button>
           )}
         </div>

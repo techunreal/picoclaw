@@ -73,6 +73,32 @@ func TestNormalizeTextToolCalls(t *testing.T) {
 	}
 }
 
+func TestNormalizeThinkTags(t *testing.T) {
+	if got := NormalizeThinkTags("draft text</think:abc>Final answer."); got != "Final answer." {
+		t.Fatalf("got = %q", got)
+	}
+	if got := NormalizeThinkTags("<think:abc>draft\nlines</think:abc>Final."); got != "Final." {
+		t.Fatalf("got = %q", got)
+	}
+	if got := NormalizeThinkTags("plain answer"); got != "plain answer" {
+		t.Fatalf("got = %q", got)
+	}
+	response := &LLMResponse{Content: "old draft</think:x>Final answer."}
+	NormalizeTextToolCalls(response)
+	if response.Content != "Final answer." {
+		t.Fatalf("content = %q", response.Content)
+	}
+}
+
+func TestVisibleStreamContentHidesThinking(t *testing.T) {
+	if got := VisibleStreamContent("draft</think:x>Final"); got != "Final" {
+		t.Fatalf("visible = %q", got)
+	}
+	if got := VisibleStreamContent("<think:x>draft"); got != "" {
+		t.Fatalf("visible = %q", got)
+	}
+}
+
 func TestVisibleStreamContent(t *testing.T) {
 	if got := VisibleStreamContent("Hello [tool_use: edit_file"); got != "Hello" {
 		t.Fatalf("visible = %q", got)

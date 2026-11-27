@@ -3,7 +3,6 @@ import {
   IconChevronDown,
   IconGhost,
   IconPlus,
-  IconRefresh,
 } from "@tabler/icons-react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useAtom, useAtomValue, useSetAtom } from "jotai"
@@ -70,7 +69,13 @@ import {
 import type { GatewayState } from "@/store/gateway"
 
 function stripLeakedToolText(text: string): string {
-  return text
+  let value = text.replace(/<think:[^>]+>[\s\S]*?<\/think:[^>]+>/g, "")
+  const close = value.lastIndexOf("</think:")
+  if (close >= 0) {
+    const end = value.indexOf(">", close)
+    if (end >= 0) value = value.slice(end + 1)
+  }
+  return value
     .replace(/\[tool_use:[\s\S]*?(?:<\/tool_calls:[^>]+>|$)/g, "")
     .trim()
 }
@@ -699,6 +704,8 @@ export function ChatPage() {
                     modelName={msg.modelName}
                     toolCalls={msg.toolCalls}
                     timestamp={msg.timestamp}
+                    canRegenerate={!isTyping && msg.id === lastAssistantId}
+                    onRegenerate={regenerateLast}
                   />
                 ) : (
                   <UserMessage
@@ -710,21 +717,6 @@ export function ChatPage() {
               </div>
             )
           })}
-
-          {lastAssistantId !== "" && !isTyping && (
-            <div className="flex justify-center">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="rounded-full"
-                onClick={() => regenerateLast()}
-              >
-                <IconRefresh className="size-4" />
-                {t("chat.regenerate", "Regenerate last answer")}
-              </Button>
-            </div>
-          )}
 
           {isTyping && <TypingIndicator />}
         </div>

@@ -6,6 +6,17 @@ All notable changes to this fork of PicoClaw. Versions use the
 Earlier versions up to `0.1.27` are recorded as git tags. This file starts
 with the first batch that was built locally before tagging.
 
+## [0.1.62.1] - 2026-11-27
+
+### Changed
+- The regenerate control is now an icon in the bottom-left corner of the newest
+  reply, with a hover tooltip, instead of a full-width button.
+
+### Fixed
+- Inline `</think:ID>` blocks are removed from assistant content. A draft
+  followed by the closing tag and a repeated final answer now shows only the
+  final text, both live and for existing sessions.
+
 ## [0.1.62] - 2026-11-27
 
 ### Added
